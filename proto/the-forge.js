@@ -2,6 +2,9 @@
 // Plain script; runs from disk as a world of one (the seed ledger plus the offline Combiner) or against the local world service
 // (?world=http://localhost:8765&player=mara, or the bench's Connect button). Everything the rules decide comes from the shared
 // modules: combiner.js (the cases, keys, the Combiner, the validator), naming.js, progress.js, coin.js, crucible.js, discovery.js.
+// Since build 2 (card t65, design pass 7 section 3.9) the smithy has a door down to the Training Cellar (proto/the-battlegrounds.html):
+// the door and "Try it in the cellar" hand the loadout and every owned weapon down as whole records (forge-forever:to-cellar), the
+// loadout comes back (forge-forever:from-cellar, on boot and on pageshow), and the save keeps what the page forged itself.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -22,12 +25,15 @@
   // ------------------------------------------------------------------ the world (things, rows, kinds), what you own, the smith
   const world = new Map(), rows = new Map(), kinds = [], players = [];
   let ledgerAt = window.FORGE_LEDGER;
+  // the keys of the ledger's own rows and kinds: every other row, kind and smith is the page's own, and goes into its save
+  let ledgerRows = new Set(), ledgerKinds = new Set();
   function loadLedger(L) {
     world.clear(); rows.clear(); kinds.length = 0;
     for (const t of window.FORGE_THINGS) world.set(t.id, t);
     for (const r of L.rows) { if (r.thing) world.set(r.thing.id, r.thing); rows.set(rowKey(r), r); }
     for (const k of (L.kinds || [])) kinds.push(k);
     for (const t of world.values()) if (F.isWeapon(t) && !t.base) t.base = F.baseOf(t, world);
+    ledgerRows = new Set(rows.keys()); ledgerKinds = new Set(kinds.map(k => k.key));
   }
   function rowKey(r) { const kase = r.case || (r.thing && r.thing.hybrid ? "fuse" : F.roles(world.get(r.pair[0]) || { id: r.pair[0], kind: "ingredient" }, world.get(r.pair[1]) || { id: r.pair[1], kind: "ingredient" })[0]); return F.keyText(kase, r.pair[0], r.pair[1]); }
   loadLedger(ledgerAt);
@@ -37,7 +43,7 @@
   function gain(id, n) { const o = own.get(id); if (o) { o.n += n || 1; } else own.set(id, { n: n || 1, seq: ++seq }); }
   function have(id) { const o = own.get(id); return o ? o.n : 0; }
   let profile = Progress.newProfile("isaac");
-  const session = { revealed: new Set(), equipped: [], slideToastShown: false, pending: [], lastClaim: null, assistTap: false };
+  const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, pending: [], lastClaim: null, assistTap: false };
   const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
     ledgerOpen: false, page: "ledger", filter: "all", rollWindow: "all", rollCache: null, kindsOpen: new Set(), lastCabKind: null, hold: null };
   const svc = { url: null, player: null, smiths: 0, spare: null };
@@ -48,12 +54,22 @@
   const worldKey = () => svc.url ? "svc:" + svc.url + ":" + svc.player : "local:" + profile.id;
 
   // ------------------------------------------------------------------ persistence (per world; a convenience, the page works without it)
+  // The save keeps what the page forged itself (design pass 7 section 3.9.3): every row that is not the ledger's own (the Combiner's
+  // drafts of a world of one, the page's linked rows, the bench's week of other smiths), the kinds the page founded, and those smiths.
+  // Without them a weapon the page forged was lost on reload, and going down to the cellar and back is a reload.
   function save() {
-    if (svc.url) return;
-    try {
-      const stock = {}; for (const [id, o] of own) stock[id] = o.n;
-      localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify({ profile, stock, equipped: session.equipped, assist: session.assistTap, at: nowIso() }));
-    } catch (e) { /* no storage: the page still works */ }
+    if (svc.url) return false;
+    const stock = {}; for (const [id, o] of own) stock[id] = o.n;
+    const at = nowIso();
+    const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
+    const data = { profile, stock, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players };
+    const put = d => { localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify(d)); session.savedAt = at; return true; };
+    try { return put(data); }
+    catch (e) {
+      // over the quota: only the rows of owned Things are kept
+      try { return put(Object.assign({}, data, { rows: mine.filter(({ r }) => own.has(r.thing ? r.thing.id : r.linked_to)), players: [], trimmed: true })); }
+      catch (e2) { return false; /* no storage: the page still works */ }
+    }
   }
   function load() {
     try {
@@ -62,13 +78,76 @@
       const d = JSON.parse(raw);
       if (!d || !d.profile) return false;
       profile = Object.assign(Progress.newProfile(d.profile.id), d.profile);
+      // the page's own rows go back into the world before the stock, so what it forged is known again
+      for (const e of (d.rows || [])) { const r = e && e.r; if (!r || !e.k || rows.has(e.k)) continue; if (r.thing && r.thing.id) { if (!world.has(r.thing.id)) world.set(r.thing.id, r.thing); else r.thing = world.get(r.thing.id); } rows.set(e.k, r); }
+      for (const k of (d.kinds || [])) if (k && k.key && !kinds.some(x => x.key === k.key)) kinds.push(k);
+      for (const p of (d.players || [])) if (p && p.id && !players.some(x => x.id === p.id)) players.push(p);
+      for (const t of world.values()) if (F.isWeapon(t) && !t.base) t.base = F.baseOf(t, world);
       own.clear(); seq = 0;
       for (const [id, n] of Object.entries(d.stock || {})) if (world.has(id)) gain(id, n);
       session.equipped = (d.equipped || []).filter(id => world.has(id));
+      session.active = d.active | 0;
       session.assistTap = !!d.assist;
+      session.savedAt = d.at || null;
       return true;
     } catch (e) { return false; }
   }
+
+  // ------------------------------------------------------------------ the seam with the Battlegrounds (design pass 7 section 3.9)
+  const KEY_TO = "forge-forever:to-cellar", KEY_FROM = "forge-forever:from-cellar", MAX_DOWN = 400;
+  const canWield = t => !!t && F.isWeapon(t) && Progress.canEquip(t, profile, G);
+  const cellarUrl = () => (document.body.getAttribute("data-battlegrounds") || "the-battlegrounds.html") + (params.get("harness") === "1" ? "?harness=1&seen=1" : "");
+  // out goes the loadout and every weapon the smith owns, as whole records: the loadout first, then newest first, at most 400; a
+  // weapon the smith can't wield yet (a chained class, a legend below level 25) goes down as practice only
+  function writeHandoff(tryId) {
+    const loadout = session.equipped.filter(id => own.has(id) && canWield(world.get(id))).slice(0, 2);
+    const ids = loadout.slice();
+    if (tryId && world.has(tryId) && !ids.includes(tryId)) ids.push(tryId);
+    for (const t of owned(t => F.isWeapon(t)).sort((a, b) => own.get(b.id).seq - own.get(a.id).seq)) { if (ids.length >= MAX_DOWN) break; if (!ids.includes(t.id)) ids.push(t.id); }
+    const pack = list => { const out = {}; for (const id of list) { const t = clone(world.get(id)); if (!canWield(t)) t.practice = true; out[id] = t; } return out; };
+    const head = { v: 1, at: nowIso(), world: worldKey(), smith: { id: profile.id, name: profile.name || profile.id, level: profile.level, classes: profile.classes.slice() },
+      loadout, active: Math.max(0, Math.min(loadout.length - 1, session.active | 0)) };
+    if (tryId && !loadout.includes(tryId) && world.has(tryId)) head.try = tryId;
+    try { localStorage.setItem(KEY_TO, JSON.stringify(Object.assign({}, head, { weapons: pack(ids), order: ids }))); return ids.length; }
+    catch (e) {
+      // over the quota: the loadout's records only; the rack then holds the loadout and the class weapons
+      const few = loadout.concat(head.try ? [head.try] : []);
+      try { localStorage.setItem(KEY_TO, JSON.stringify(Object.assign({}, head, { weapons: pack(few), order: few, trimmed: true }))); return few.length; }
+      catch (e2) { return 0; }   // no storage: the cellar arrives visiting
+    }
+  }
+  // the door, or Try it in the cellar on a weapon's plaque: the weapon becomes the active hand (equipped, first in first out as always,
+  // when it can be wielded; practice only when it can't), and the smith goes down
+  function goDown(id) {
+    let tryId = null;
+    const t = id ? world.get(id) : null;
+    if (t && F.isWeapon(t) && own.has(id)) {
+      if (canWield(t)) { if (!session.equipped.includes(id)) { session.equipped.push(id); if (session.equipped.length > 2) session.equipped.shift(); } session.active = session.equipped.indexOf(id); }
+      else tryId = id;
+    }
+    session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
+    save();
+    const sent = writeHandoff(tryId);
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
+    window.TheForge.wentDown = { url: cellarUrl(), sent, try: tryId };
+    if (params.get("stay") !== "1") window.location.href = cellarUrl();
+    return sent;
+  }
+  // in comes the loadout, and nothing else: taken when it is for this world and newer than the Forge's own save
+  function takeLoadoutBack() {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(KEY_FROM)); } catch (e) { d = null; }
+    if (!d || d.v !== 1 || !Array.isArray(d.loadout) || d.world !== worldKey()) return false;
+    if (session.savedAt && d.at && Date.parse(d.at) < Date.parse(session.savedAt)) return false;   // two tabs: the Forge's own save is newer
+    session.equipped = d.loadout.filter(id => world.has(id) && own.has(id) && canWield(world.get(id))).slice(0, 2);
+    session.active = Math.max(0, Math.min(session.equipped.length - 1, d.active | 0));
+    try { localStorage.removeItem(KEY_FROM); } catch (e) { /* no storage */ }
+    save();
+    if (session.equipped.length) toast("Up from the cellar with " + session.equipped.map(id => world.get(id).name).join(" and "));
+    return true;
+  }
+  // the Forge stays upright: it asks for a portrait lock where the browser has one
+  function lockPortrait() { try { const o = screen.orientation; if (o && o.lock) { const p = o.lock("portrait"); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* this browser doesn't lock */ } }
 
   // ------------------------------------------------------------------ sprites and their four-frame particles
   const live = new Set();
@@ -376,6 +455,7 @@
   $("stAnvil").addEventListener("click", () => setStation("anvil"));
   $("stCruc").addEventListener("click", () => setStation("crucible"));
   $("crucPlate").addEventListener("click", () => toast("The Crucible wakes at level 25. It melts two rare weapons into a legend."));
+  $("cellarDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; goDown(null); });
 
   function forecast() {
     const st = $("state");
@@ -656,6 +736,7 @@
       ${isIng ? `<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div><div class="line">Gives: ${esc(hintText(t))}</div>` : bars(t)}
       <div class="line">${discLine(claim, t)}</div>
       <div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button><button class="f-iron" id="hang">Store it</button>' : `<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button>`}<button class="f-iron" id="share">Share</button></div>
+      ${isIng ? "" : tryRow(t)}
       ${t.why || claim.provisional ? `<div class="why">${claim.provisional ? "The Combiner's draft. The Oracle would name it." : "Why the Oracle chose this: " + esc(t.why)}</div>` : ""}`;
     p.querySelector(".art").appendChild(sprite(t, 6));
     p.querySelector("h2").textContent = t.name;
@@ -667,7 +748,9 @@
     const eq = $("equipBtn"); if (eq) eq.addEventListener("click", () => equip(t, eq));
     const ap = $("applyBtn"); if (ap) ap.addEventListener("click", () => { closePlaque(); state.a = null; state.b = t.id; renderSlots(); setTab("weapons"); toast("Pick a weapon for the base"); });
     $("share").addEventListener("click", () => share(t));
+    const tr = $("tryBtn"); if (tr) tr.addEventListener("click", () => goDown(t.id));
   }
+  function tryRow(t) { return `<button class="f-iron tryit" id="tryBtn">↓ Try it in the cellar${Progress.canEquip(t, profile, G) ? "" : "<small>practice only</small>"}</button>`; }
   function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.forms || []), ...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
   function hangIt(t) {
     const cls = classOf(t);
@@ -708,7 +791,8 @@
       <div class="meta"><span><b>${TIER[t.tier]}</b></span><span>${esc(sentence(t))}</span></div>
       ${bars(t)}
       <div class="line">${discLine(claim, t)}</div>
-      <div class="pbtns">${(canName || canNameLocal) ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button><button class="f-iron" id="share">Share</button></div>`;
+      <div class="pbtns">${(canName || canNameLocal) ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button><button class="f-iron" id="share">Share</button></div>
+      ${tryRow(t)}`;
     p.querySelector(".art").appendChild(sprite(t, 6));
     $("legendName").textContent = t.name;
     renderNamedBy(t);
@@ -718,6 +802,7 @@
     $("equipBtn").addEventListener("click", () => equip(t, $("equipBtn")));
     $("share").addEventListener("click", () => share(t));
     const nb = $("nameBtn"); if (nb) nb.addEventListener("click", () => openNaming(t));
+    $("tryBtn").addEventListener("click", () => goDown(t.id));
   }
   function renderNamedBy(t) {
     const el = $("namedBy"); if (!el) return;
@@ -1267,6 +1352,7 @@
       state.a = null; state.b = null; state.ma = null; state.mb = null;
       closePlaque(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); renderLedger();
       if (!profile.classes.length) openFirstWeapon();
+      takeLoadoutBack();
       toast(`Connected: ${svc.smiths} smith${svc.smiths === 1 ? "" : "s"} in the world · you are ${player}`);
       if (session.pending.length) { try { await api("POST", "/forge/settle", { player, forges: session.pending }); session.pending = []; toast("The forge has spoken on your pending forges"); } catch (e) { /* later */ } }
       return true;
@@ -1294,13 +1380,18 @@
     profile.found = Array.from(own.keys());
     profile.picks = Progress.picksLeft(profile);
   }
-  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openLedger, closeLedger, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World };
+  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openLedger, closeLedger, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
+    save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderLedger(); renderInfo(); }
   (async function boot() {
     const w = params.get("world"), p = params.get("player");
     if (w) { $("worldUrl").value = w; $("smithName").value = p || "isaac"; if (await connect(w, p || "isaac")) return; }
     if (!load()) { returningSmith(); state.a = "sword"; state.b = "fire"; }
+    takeLoadoutBack();
     renderAll();
     if (!profile.classes.length) openFirstWeapon();
-  })();
+  })().then(() => { document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
+  lockPortrait();
+  // the back gesture restores the page without booting it: the loadout is taken then too
+  window.addEventListener("pageshow", e => { lockPortrait(); if (e.persisted && takeLoadoutBack()) renderAll(); });
 })();

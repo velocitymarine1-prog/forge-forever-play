@@ -5,6 +5,11 @@
 // gave on 27 September 2026: diagonal blades, a 1 px dark outline, four-tone ramps lit from the top left,
 // element-infused edges (spine keeps the metal, the edge takes the element), a soft drop shadow.
 // Palette: ENDESGA 32 (Lospec) plus a few stone and leather tones. Plain script, defines window.PixelForge.
+// Since build 2 (card t65, design pass 7 as revised by card t64) it also draws a weapon in the hand: four poses, one per facing
+// (right, left, away, toward), made only from the weapon's held drawing and that drawing's mirror, so nothing is turned, resampled
+// or upside down. The held drawing is the icon, except that the axe's bit leads and the spellbook is 70 % of its shelf size. The bow
+// keeps an upright drawing (the flat frame) turned by quarter turns. Every pose names a grip (the pixel that sits on the hand) and
+// a tip (where a shot, a shell or a stream leaves). spriteFor and the shelf icons are unchanged.
 (function (root) {
   "use strict";
   const N = 32, OUT = "#181425", SHADOW = "rgba(10,6,18,0.5)";
@@ -114,7 +119,9 @@
   }
 
   // ------------------------------------------------------------------ the diagonal frame: a = along the weapon, b = across
-  function frameFor(L) {
+  function frameFor(L, flat) {
+    if (flat) { const u = 1.25, ox = Math.floor((N - L * u) / 2), cy = 15.5;
+      return { L, ox, oy: cy, flat: true, ab: (x, y) => [(x - ox) / u, (y - cy) / u], xy: (a, b) => [ox + a * u, cy + b * u] }; }
     const ox = Math.floor((N - L) / 2), oy = ox + L;
     return { L, ox, oy, ab: (x, y) => [((x - ox) - (y - oy)) / 2, ((x - ox) + (y - oy)) / 2],
       xy: (a, b) => [ox + a + b, oy - a + b] };
@@ -171,12 +178,12 @@
       c.anchors = { pommel: [0.4, 0], guard: [5.4, 0], mid: [(6.2 + L) / 2, 0], head: [L * 0.8, 0] }; },
     dagger(c) { const L = c.L; pommel(c, 0.4, 1.2); haft(c, 1, 3.8, c.grip, { wrap: 1 }); guard(c, 4.3, 3.2); blade(c, 5, L, Object.assign({}, BLADES[c.style.blade], { taper: 2.5 }));
       c.anchors = { pommel: [0.4, 0], guard: [4.3, 0], mid: [(5 + L) / 2, 0], head: [L * 0.8, 0] }; },
-    axe(c) { const L = c.L, ac = L - 3.2, R = 6.4, dbl = c.style.double;
+    axe(c) { const L = c.L, ac = L - 3.2, R = 6.4, dbl = c.style.double, bit = c.held ? 1 : -1;   // in the hand the bit leads (+b)
       haft(c, 0, L - 0.5, RAMP.wood, { h: 0.6, bands: [2.2], bandRamp: c.grip });
       const inHead = (a, b, side) => { const d = side * b; if (d < -0.6 || d > R) return false; const half = 1.3 + d * 0.42, edge = R - 0.12 * (a - ac) * (a - ac); return Math.abs(a - ac) <= half && d <= edge; };
-      region(c, (a, b) => inHead(a, b, -1) || (dbl ? inHead(a, b, 1) : (b >= 0 && b <= 1.8 && Math.abs(a - ac) <= 1.2)), c.mat,
-        { spec: (a, b) => { const d = Math.abs(b), edge = R - 0.12 * (a - ac) * (a - ac); return d >= edge - 1 && (b < 0 || dbl); }, glow: c.el });
-      c.anchors = { pommel: [0.5, 0], guard: [ac - 3.5, 0], mid: [L * 0.5, 0], head: [ac, -2.5] }; },
+      region(c, (a, b) => inHead(a, b, bit) || (dbl ? inHead(a, b, -bit) : (bit * b <= 0 && bit * b >= -1.8 && Math.abs(a - ac) <= 1.2)), c.mat,
+        { spec: (a, b) => { const d = Math.abs(b), edge = R - 0.12 * (a - ac) * (a - ac); return d >= edge - 1 && (bit * b > 0 || dbl); }, glow: c.el });
+      c.anchors = { pommel: [0.5, 0], guard: [ac - 3.5, 0], mid: [L * 0.5, 0], head: [ac, 2.5 * bit] }; },
     hammer(c) { const L = c.L, h0 = L - 8, h1 = L - 0.8;
       haft(c, 0, h0, RAMP.wood, { h: 0.6, bands: [1.5, 3], bandRamp: c.grip });
       region(c, (a, b) => a >= h0 && a <= h1 && Math.abs(b) <= 5, c.mat, { glow: c.el });
@@ -243,7 +250,15 @@
         const ul = !m(x - 1, y) || !m(x, y - 1), dr = !m(x + 1, y) || !m(x, y + 1); return dr ? r[0] : ul ? r[2] : r[1]; });
       paint(c.sp, maskSet(disc(15.5, 14.5, 2.4)), auto(c.trim, (x, y) => x === 14 && y === 13));
       c.upright = { pommel: [15.5, 26], guard: [15.5, 14.5], mid: [15.5, 20], head: [15.5, 8] }; },
-    book(c) { paint(c.sp, maskSet(rect(8, 5, 24, 27)), (x, y) => x >= 23 ? (y % 2 ? "#ead4aa" : "#e4a672") : null);
+    book(c) {
+      if (c.held) {   // the book in the hand, 70 % of the shelf book (an 11 x 17 cover, a 2 px spine, the page edge, the caps, the medallion)
+        paint(c.sp, maskSet(rect(11, 8, 22, 23)), (x, y) => x >= 21 ? (y % 2 ? "#ead4aa" : "#e4a672") : null);
+        paint(c.sp, maskSet(rect(10, 7, 20, 23)), auto(c.mat === RAMP.steel ? RAMP.leather : c.mat));
+        paint(c.sp, maskSet(rect(10, 7, 11, 23)), auto(RAMP.leather));
+        for (const [x, y] of [[18, 8], [19, 8], [19, 9], [18, 22], [19, 22], [19, 21]]) c.sp.set(x, y, c.trim[2]);
+        paint(c.sp, maskSet(disc(15.5, 15.5, 1.9)), auto(c.el || c.trim, (x, y) => x === 15 && y === 14));
+        c.upright = { pommel: [15, 22], guard: [10, 15], mid: [15.5, 15.5], head: [15.5, 11] }; return; }
+      paint(c.sp, maskSet(rect(8, 5, 24, 27)), (x, y) => x >= 23 ? (y % 2 ? "#ead4aa" : "#e4a672") : null);
       paint(c.sp, maskSet(rect(7, 4, 22, 27)), auto(c.mat === RAMP.steel ? RAMP.leather : c.mat));
       paint(c.sp, maskSet(rect(7, 4, 9, 27)), auto(RAMP.leather));
       for (const [x, y] of [[20, 5], [21, 5], [21, 6], [20, 26], [21, 26], [21, 25]]) c.sp.set(x, y, c.trim[2]);
@@ -311,9 +326,9 @@
   }
 
   // ------------------------------------------------------------------ element effects (after the outline, only on empty pixels; four frames)
-  function fx(sp, name, ramp, seed, f, upright, skip) {
+  function fx(sp, name, ramp, seed, f, upright, skip, flat) {
     const pts = [];
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const p = sp.get(x, y); if (p && p !== OUT && (upright ? y < 18 : x - y > 2)) pts.push([x, y]); }
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const p = sp.get(x, y); if (p && p !== OUT && (upright ? y < 18 : flat ? x > 13 : x - y > 2)) pts.push([x, y]); }
     if (!pts.length) return;
     const P = i => pts[(i * 97 + seed) % pts.length];
     const kind = FXKIND[name] || "twinkle";
@@ -329,9 +344,9 @@
   }
 
   // ------------------------------------------------------------------ weapons
-  function drawWeapon(w, id, frameNo, isBase) {
+  function drawWeapon(w, id, frameNo, isBase, flat, held) {
     const v = w.visual || {}, base = BASES[v.base] ? v.base : "sword";
-    if (v.fuse && BASES[v.fuse] && v.fuse !== base) return drawFused(w, id, frameNo);   // pixel rule 10: a legend is fused and gilded
+    if (v.fuse && BASES[v.fuse] && v.fuse !== base && !flat) return drawFused(w, id, frameNo, held);   // pixel rule 10: a legend is fused and gilded
     const L = Math.round((LENGTH[v.size] || LENGTH.M) * (LEN_SCALE[base] || 1));
     const style = styleFor(base, w, id || base, isBase);
     if (v.shape && BLADES[v.shape]) style.blade = v.shape;  // grammar 1.2 (proposed): the Oracle may name the shape and the trim
@@ -342,15 +357,17 @@
     // draw, and if anything but ink reaches the edge of the grid, shorten the weapon a pixel and draw again
     let c;
     for (let len = L; len >= L - 8; len--) {
-      c = { sp: new Sprite(), F: frameFor(len), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null,
+      c = { sp: new Sprite(), F: frameFor(len, flat && !UPRIGHT[base]), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null, held: !!held,
         guardRamp: (v.attachments || []).includes("flame-guard") ? ELEM.fire : trim };
       BASES[base](c);
       for (const a of v.attachments || []) attach(c, a);
       if (!touchesEdge(c.sp)) break;
     }
     outline(c.sp);
-    const sealed = v.graft ? hallmark(c.sp, v.graft) : false;   // pixel rule 9: a gift is stamped with the giver's mark
-    if (el) fx(c.sp, w.element, el, fnv(id || base) % 997, frameNo || 0, !!c.upright, sealed ? IN_SEAL : null);
+    const sealed = v.graft && !flat ? hallmark(c.sp, v.graft) : false;   // pixel rule 9: a gift is stamped with the giver's mark
+    if (el) fx(c.sp, w.element, el, fnv(id || base) % 997, frameNo || 0, !!c.upright, sealed ? IN_SEAL : null, flat && !c.upright);
+    c.sp.grip = gripPoint(c, base);
+    c.sp.tip = nearestPainted(c.sp, tipPoint(c, base));
     return c.sp;
   }
 
@@ -416,8 +433,8 @@
       region(c, (a, b) => a >= a0 + 2.6 && a <= L - 1.8 && Math.abs(b) <= 1.5, g, { spec: (a, b) => b < -0.5 && a < a0 + 4.5 });
       region(c, (a, b) => a >= L - 1 && a <= L - 0.2 && Math.abs(b) <= 1.6, c.trim); }
   };
-  function context(len, mat, el, trim, style, guardRamp, clip) {
-    return { sp: clip ? new ClipSprite(clip) : new Sprite(), F: frameFor(len), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null, guardRamp };
+  function context(len, mat, el, trim, style, guardRamp, clip, held) {
+    return { sp: clip ? new ClipSprite(clip) : new Sprite(), F: frameFor(len), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null, guardRamp, held: !!held };
   }
   // the gold collar: a band two pixels deep across the join, one pixel wider than the weapon on each side, lit on the upper-left side
   function collar(sp, F, cut, uprightBody, headSp) {
@@ -445,7 +462,7 @@
     const [x, y] = edge[Math.min(edge.length - 1, Math.floor(edge.length * (((frameNo || 0) % 4) + 0.5) / 4))];
     sp.set(x, y, sp.get(x, y) === RAMP.gold[3] ? "#ffffff" : RAMP.gold[3]);
   }
-  function drawFused(w, id, frameNo) {
+  function drawFused(w, id, frameNo, held) {
     const v = w.visual || {}, body = BASES[v.base] ? v.base : "sword", head = BASES[v.fuse] ? v.fuse : "hammer";
     const L0 = Math.round((LENGTH[v.size] || LENGTH.M) * (LEN_SCALE[body] || 1));
     const style = styleFor(body, w, id || body + "*" + head, false); style.trim = "gold";
@@ -457,9 +474,9 @@
     let out;
     for (let len = L0; len >= L0 - 8; len--) {
       const F = frameFor(len), cut = cutFor(head, len);
-      const cb = context(len, mat, el, trim, style, guardRamp, bodyUp ? null : (x, y) => F.ab(x, y)[0] <= cut + 0.01);
+      const cb = context(len, mat, el, trim, style, guardRamp, bodyUp ? null : (x, y) => F.ab(x, y)[0] <= cut + 0.01, held && !bodyUp);
       BASES[body](cb);
-      const ch = context(len, mat, el, trim, style, guardRamp, headUp ? null : bodyUp ? (x, y) => x - y >= 4 : (x, y) => F.ab(x, y)[0] >= cut - 0.01);
+      const ch = context(len, mat, el, trim, style, guardRamp, headUp ? null : bodyUp ? (x, y) => x - y >= 4 : (x, y) => F.ab(x, y)[0] >= cut - 0.01, held);
       if (headUp) CHARMS[head](ch, cut); else BASES[head](ch);
       const sp = new Sprite();
       for (let i = 0; i < N * N; i++) sp.px[i] = ch.sp.px[i] || cb.sp.px[i];
@@ -467,13 +484,15 @@
       for (const a of v.attachments || []) attach(ca, a);
       for (let i = 0; i < N * N; i++) if (ca.sp.px[i]) sp.px[i] = ca.sp.px[i];
       collar(sp, F, cut, bodyUp, ch.sp);
-      out = { sp, F, upright: cb.upright };
+      out = { sp, F, upright: cb.upright, L: len };
       if (!touchesEdge(sp)) break;
     }
     outline(out.sp);
     glint(out.sp, out.F, frameNo || 0, bodyUp);
     const sealed = v.graft ? hallmark(out.sp, v.graft) : false;
     if (el) fx(out.sp, w.element, el, fnv(id || body + "*" + head) % 997, frameNo || 0, bodyUp, sealed ? IN_SEAL : null);
+    out.sp.grip = gripPoint({ upright: out.upright, L: out.L, F: out.F }, body);
+    out.sp.tip = nearestPainted(out.sp, headUp ? (([x, y]) => [Math.round(x), Math.round(y)])(out.F.xy(out.L - 2.5, 0)) : tipPoint({ upright: null, L: out.L, F: out.F }, head));
     return out.sp;
   }
 
@@ -583,6 +602,62 @@
     return sp;
   }
 
+  // ------------------------------------------------------------------ the weapon in the hand: grips, tips and four poses (pass 7 section 3.6)
+  // the grip along the weapon (a) and across it (b), per base; upright bases give a pixel
+  const GRIP = { sword: L => [2.9, 0], dagger: L => [2.4, 0], axe: L => [2.4, 0], hammer: L => [2.3, 0], spear: L => [L * 0.32, 0], staff: L => [L * 0.34, 0],
+    wand: L => [1.6, 0], whip: L => [3.4, 0], flail: L => [4.2, 0], scythe: L => [3.4, 0], lance: L => [2.6, 0], claw: L => [5, 0], bow: L => [L / 2, -5.4],
+    crossbow: L => [4, 1.8], cannon: L => [4.6, 1.6], horn: L => [2.2, 0] };
+  const UPRIGHT_GRIP = { orb: [15, 28], shield: [12, 17], book: [9, 18], lantern: [15, 4] };
+  const HELD_GRIP = { book: [10, 16] };   // the small book in the hand is held by its spine
+  function gripPoint(c, base) { if (c.upright) return ((c.held && HELD_GRIP[base]) || UPRIGHT_GRIP[base] || [15, 24]).slice(); const [a, b] = (GRIP[base] || GRIP.sword)(c.L); const [x, y] = c.F.xy(a, b); return [Math.round(x), Math.round(y)]; }
+  // the tip: where a shot, a shell, a stream or a spell leaves the weapon (the head's end, a gem, a muzzle, a bell; the bow: in front of its riser)
+  const TIP = { staff: L => [L - 2.6, 0], wand: L => [L - 1.6, 0], bow: L => [L / 2, -6.4], horn: L => [L - 1.5, -1.1], cannon: L => [L - 0.8, 0], crossbow: L => [L - 1, 0] };
+  const UPRIGHT_TIP = { orb: [15, 13], shield: [15, 12], book: [15, 15], lantern: [15, 16] };
+  function tipPoint(c, base) { if (c.upright) return (UPRIGHT_TIP[base] || [15, 12]).slice(); const [a, b] = (TIP[base] || (L => [L - 0.8, 0]))(c.L); const [x, y] = c.F.xy(a, b); return [Math.round(x), Math.round(y)]; }
+  // the painted pixel nearest a point (so a tip always sits on the weapon)
+  function nearestPainted(sp, p) { let best = null, bd = Infinity; for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = sp.get(x, y); if (!c || c === OUT) continue; const d = (x - p[0]) ** 2 + (y - p[1]) ** 2; if (d < bd) { bd = d; best = [x, y]; } } return best || p.slice(); }
+  // the four facings: right and toward hold the held drawing, left and away its mirror; nothing points down
+  const FACINGS = ["right", "left", "away", "toward"];
+  const MIRRORED = { left: true, away: true };
+  // lossless transforms of a 32 x 32 sprite: each maps (x, y) to a new pixel
+  const XF = { id: (x, y) => [x, y], mx: (x, y) => [N - 1 - x, y], my: (x, y) => [x, N - 1 - y], r180: (x, y) => [N - 1 - x, N - 1 - y],
+    cw: (x, y) => [N - 1 - y, x], ccw: (x, y) => [y, N - 1 - x] };
+  function transform(sp, name) {
+    if (name === "id") return sp;
+    const out = new Sprite(), f = XF[name];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const c = sp.get(x, y); if (!c) continue; const [nx, ny] = f(x, y); out.set(nx, ny, c); }
+    if (sp.grip) out.grip = f(sp.grip[0], sp.grip[1]);
+    if (sp.tip) out.tip = f(sp.tip[0], sp.tip[1]);
+    return out;
+  }
+  const poseCache = new Map();
+  // the weapon in the hand for a facing, made only from its held drawing and that drawing's mirror (the bow: its upright drawing's
+  // quarter turns), so every pixel is the renderer's (pixel rule 1) and no pose has its head below its grip
+  function poseFor(t, facing, frameNo) {
+    if (FACINGS.indexOf(facing) < 0) facing = "right";
+    const key = (t.id || "") + "|" + facing + "|" + (frameNo || 0) + "|" + (t.weapon ? JSON.stringify(t.weapon.visual) + t.weapon.element : "");
+    if (poseCache.has(key)) return poseCache.get(key);
+    let sp;
+    const w = t.weapon;
+    if (!w) sp = spriteFor(t, frameNo);
+    else {
+      const v = w.visual || {}, base = BASES[v.base] ? v.base : "sword", isBase = !(t.parents && t.parents.length);
+      const fused = v.fuse && BASES[v.fuse] && v.fuse !== base;
+      if (base === "bow" && !fused) {
+        const up = drawWeapon(w, t.id, frameNo, isBase, true, true);   // the upright drawing shoots away (across its limbs, -b)
+        const right = transform(up, "cw");
+        sp = facing === "right" ? right : facing === "left" ? transform(right, "mx") : facing === "away" ? up : transform(up, "my");
+      } else {
+        const held = drawWeapon(w, t.id, frameNo, isBase, false, true);
+        sp = MIRRORED[facing] ? transform(held, "mx") : held;
+      }
+    }
+    poseCache.set(key, sp);
+    return sp;
+  }
+  function gripOf(t, facing) { return (poseFor(t, facing, 0).grip || [6, 25]).slice(); }
+  function tipOf(t, facing) { const sp = poseFor(t, facing, 0); return (sp.tip || sp.grip || [16, 8]).slice(); }
+
   // ------------------------------------------------------------------ public api
   const cache = new Map();
   function spriteFor(t, frameNo) {
@@ -606,5 +681,6 @@
   function dataURL(t, o) { return canvasFor(t, o).toDataURL("image/png"); }
 
   root.PixelForge = { N, OUT, RAMP, ELEM, BASES: Object.keys(BASES), BLADES: Object.keys(BLADES), MARKS: Object.keys(MARKS), CHARMS: Object.keys(CHARMS),
-    NECK, UPRIGHT, cutFor, hallmark, drawFused, spriteFor, draw, canvasFor, dataURL, styleFor, fnv, rng };
+    NECK, UPRIGHT, cutFor, hallmark, drawFused, spriteFor, draw, canvasFor, dataURL, styleFor, fnv, rng, poseFor, gripOf, tipOf, FACINGS };
 })(typeof window !== "undefined" ? window : globalThis);
+

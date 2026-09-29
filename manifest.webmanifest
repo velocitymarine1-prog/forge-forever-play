@@ -1,7 +1,7 @@
 {
   "name": "Forge Forever",
   "short_name": "Forge",
-  "description": "The Forge: put any two things on the anvil and see what they make. From level 25, melt two rare weapons into a legend.",
+  "description": "Put any two things on the anvil and see what they make, then try it on the dummies in the Training Cellar. From level 25, melt two rare weapons into a legend.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
