@@ -130,6 +130,8 @@
     for (const n of h.u.notes.concat(h.u2 ? h.u2.notes : [])) logOnce(fight, n);
     return true;
   }
+  // take a weapon in the free hand (a knight that carries one weapon); returns the hand's index, or -1 when both hands are full
+  function addHand(fight, t) { if (!t || !t.weapon || fight.hands.length >= 2) return -1; const h = newHand(t); fight.hands.push(h); for (const n of h.u.notes.concat(h.u2 ? h.u2.notes : [])) logOnce(fight, n); return fight.hands.length - 1; }
   function emit(fight, e) { e.t = Math.round(fight.t * 1e6) / 1e6; fight.events.push(e); return e; }
   function logOnce(fight, what) { if (fight.logged[what]) return; fight.logged[what] = true; emit(fight, { type: "log", text: "unknown " + what }); }
 
@@ -876,6 +878,6 @@
     return fight;
   }
 
-  root.Combat = { units, unitsFor, newFight, step, hold, tip, aim, animOf, weaponPose, facingOf, hitPoint, reachOf, setHand, reset, affinity, railAhead, use, rng, FACINGS, NUMBERS };
+  root.Combat = { units, unitsFor, newFight, step, hold, tip, aim, animOf, weaponPose, facingOf, hitPoint, reachOf, setHand, addHand, reset, affinity, railAhead, use, rng, FACINGS, NUMBERS };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Combat;
 })(typeof window !== "undefined" ? window : globalThis);

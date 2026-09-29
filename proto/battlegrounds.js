@@ -51,6 +51,10 @@
   if (handoff) {
     const order = Array.isArray(handoff.order) ? handoff.order : Object.keys(handoff.weapons);
     for (const id of order) { const t = handoff.weapons[id]; if (isWeapon(t) && !world.has(id)) { t.id = t.id || id; world.set(id, t); rack.push(id); } }
+    // a handoff over the storage quota carries the loadout's records only: the rack then holds the loadout and the class weapons
+    // (those of a class the smith hasn't opened as practice only)
+    if (handoff.trimmed && rack.length) { const open = (handoff.smith && handoff.smith.classes) || [];
+      for (const t of window.FORGE_THINGS) if (isWeapon(t) && !world.has(t.id)) { const c = Object.assign({}, t); if (!open.includes(t.weapon.visual.base)) c.practice = true; world.set(c.id, c); rack.push(c.id); } }
   }
   const visiting = !handoff || !rack.length;
   if (visiting) {
@@ -74,17 +78,19 @@
     if (asked.length) ids = asked.slice(0, 2);
     else if (visiting) ids = AREA.visiting.loadout.filter(id => world.has(id));
     else { ids = handoff.loadout.filter(id => world.has(id) && !practice(world.get(id))).slice(0, 2); active = clamp(handoff.active | 0, 0, Math.max(0, ids.length - 1)); }
-    state.loadout = ids.filter(id => !practice(world.get(id)));
     const hands = ids.map(id => world.get(id));
+    // what each hand gives back to the loadout: the weapon it came down with, unless that is practice only
+    const slots = ids.map(id => practice(world.get(id)) ? null : id);
     // Try it in the cellar on a chained weapon: it is held on arrival and never joins the loadout
     const tried = !asked.length && handoff && handoff.try && world.has(handoff.try) ? world.get(handoff.try) : null;
-    if (tried && !ids.includes(tried.id)) { if (hands.length < 2) { hands.push(tried); active = hands.length - 1; } else hands[active] = tried; }
+    if (tried && !ids.includes(tried.id)) { if (hands.length < 2) { hands.push(tried); slots.push(null); active = hands.length - 1; } else hands[active] = tried; }
     if (!hands.length) {   // an empty loadout: the knight holds the class Sword
       const sword = world.get(AREA.empty) || window.FORGE_THINGS.find(t => t.id === AREA.empty);
-      hands.push(sword); state.empty = true;
+      hands.push(sword); slots.push(null); state.empty = true;
       if (!world.has(sword.id)) { world.set(sword.id, sword); rack.unshift(sword.id); }
     }
-    return { hands, active };
+    state.loadout = slots.filter(Boolean);
+    return { hands, active, slots };
   }
   const first = firstHands();
   const seed = params.get("seed") ? (parseInt(params.get("seed"), 10) >>> 0) : ((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0);
@@ -689,15 +695,20 @@
     }
     if (!shown.length) list.insertAdjacentHTML("beforeend", '<div class="empty">Nothing on the rack.</div>');
   }
-  // put a weapon of the rack in the active hand; a chained one is practice only and never becomes the loadout
+  // put a weapon of the rack in the active hand; a chained one is practice only and never becomes the loadout. A knight that carries
+  // one weapon takes it in the free hand instead (the stand-in Sword of an empty loadout is not a weapon carried: it is replaced)
+  const slots = first.slots;   // what each hand gives back to the loadout: the last weapon in it that was not practice only
   function pick(id) {
     const t = world.get(id);
     if (!t) return false;
-    const k = fight.k, i = k.active, other = fight.hands.length > 1 ? 1 - i : -1;
-    if (fight.hands[i].thing.id === id) return true;
+    const k = fight.k, other = fight.hands.length > 1 ? 1 - k.active : -1;
+    if (fight.hands[k.active].thing.id === id) return true;
     if (other >= 0 && fight.hands[other].thing.id === id) { k.active = other; k.swapT = SPEC.knight.swap; k.strike = null; syncHud(); writeBack(); return true; }   // it is in the other hand: the hands swap
-    Combat.setHand(fight, i, t);
-    if (!practice(t)) { state.loadout[Math.min(i, state.loadout.length)] = id; state.empty = false; }
+    let i = k.active;
+    if (fight.hands.length === 1 && !state.empty) { i = Combat.addHand(fight, t); k.active = i; k.swapT = SPEC.knight.swap; k.strike = null; slots[i] = null; }
+    else Combat.setHand(fight, i, t);
+    if (!practice(t)) { slots[i] = id; state.empty = false; }
+    state.loadout = slots.filter(Boolean);
     syncHud(); writeBack();
     toast(practice(t) ? (t.name || id) + ": practice only, it stays in the cellar" : (t.name || id) + " in hand");
     return true;
