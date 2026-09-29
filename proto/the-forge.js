@@ -1392,6 +1392,13 @@
     if (!profile.classes.length) openFirstWeapon();
   })().then(() => { document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
   lockPortrait();
-  // the back gesture restores the page without booting it: the loadout is taken then too
-  window.addEventListener("pageshow", e => { lockPortrait(); if (e.persisted && takeLoadoutBack()) renderAll(); });
+  // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
+  // open says what is equipped now
+  window.addEventListener("pageshow", e => {
+    lockPortrait();
+    if (!e.persisted || !takeLoadoutBack()) return;
+    renderAll();
+    const eq = $("equipBtn"), t = session.lastClaim && session.lastClaim.thing;
+    if (eq && t && (!$("plaque").hidden || !$("legendPlaque").hidden)) eq.textContent = session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained";
+  });
 })();
