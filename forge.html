@@ -152,9 +152,18 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .pbtns button:disabled{border-image-source:var(--frame-stone);color:var(--dim);cursor:not-allowed}
 .tryit{display:block;width:100%;min-height:42px;margin-top:6px;padding:2px 6px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05;color:var(--parch)}
 .tryit small{font-family:var(--data);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);margin-left:6px}
-/* the plaque's foot (Hang it, Equip, Share; Try it in the cellar) stays under the thumb while the plaque scrolls */
+/* the plaque's foot (the discovery line; Hang it, Equip, Share; Try it in the cellar) stays under the thumb while the plaque scrolls */
 .plaque .foot{position:sticky;bottom:0;background:var(--parch);padding-bottom:1px;margin-top:2px}
 .plaque.gold .foot{background:#ead4aa}
+/* sideways (amendment 8): the rarity band under the icon (design pass 10 section 3.3.2's colours), the one-sentence discovery line and
+   TAP ANYWHERE TO CONTINUE; upright shows none of them */
+.rarity{display:none;align-items:center;justify-content:center;min-width:112px;padding:3px 10px;border:2px solid var(--soot);box-shadow:inset 0 2px 0 var(--rl),inset 0 -2px 0 var(--rd);font-family:var(--data);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#fff;text-shadow:1px 1px 0 var(--rd)}
+.r1{background:#5a6988;--rl:#8b9bb4;--rd:#3a4466}.r2{background:#3e8948;--rl:#63c74d;--rd:#265c42}.r3{background:#124e89;--rl:#0099db;--rd:#262b44}
+.r4{background:#68386c;--rl:#b55088;--rd:#3e2731}.r5{background:#f77622;--rl:#feae34;--rd:#be4a2f;color:var(--soot);text-shadow:none}.r6{background:#a22633;--rl:#e43b44;--rd:#3e2731;color:#fee761}
+.plaque .disc.land,.tapon{display:none}
+.tapon{width:100%;margin:4px 0 0;padding:4px 0 2px;background:none;border:0;cursor:pointer;font-family:var(--data);font-weight:600;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);animation:tapblink 1.6s steps(4) infinite}
+@keyframes tapblink{50%{opacity:.4}}
+#wallsClose{display:none;flex:0 0 42px;width:42px;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:16px;color:var(--parch)}
 .why{font-size:12.5px;color:#733e39;margin-top:6px;border-top:2px dotted #c28569;padding-top:4px}
 /* the naming and terms planks */
 .plank-over h3{margin:0 0 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:25px;line-height:1;color:var(--ink)}
@@ -320,13 +329,40 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 /* sideways (the primary layout): the sign in one row across the top, the room on the left, the walls on the right; the plaques and
    planks hang over the walls pane, beside the anvil; Settings takes both panes */
 @media (orientation:landscape) and (min-width:560px){
-  .app{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
+  /* the anvil is the whole screen; .open (a slot tapped, the Ledger) puts the walls pane beside it (amendment 8) */
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign" "room"}
+  .app:not(.open) .wallspane{display:none}
+  .app.open{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
   .sign{grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips ledger cog";row-gap:0}
   .sign .chips{flex-wrap:nowrap;justify-content:flex-end}
   .room{max-width:none}
-  .plaque,.plank-over,.overlay{left:calc(50% + 6px);right:8px;top:52px;bottom:8px;max-height:none}
-  .plank-over{top:60px}
+  #wallsClose{display:flex;align-items:center;justify-content:center}
+  /* the forging fills the screen: the flash covers the viewport */
+  .room .flash{position:fixed;inset:0;z-index:4}
+  /* overlays: a wide card over the room while the walls are closed; over the walls pane while they are open */
+  .plaque,.plank-over,.overlay{left:8%;right:8%;top:52px;bottom:8px;max-height:none}
+  .plank-over{top:60px;left:22%;right:22%}
+  .app.open .plaque,.app.open .plank-over,.app.open .overlay{left:calc(50% + 6px);right:8px}
+  /* the plaque in three parts: the icon and the rarity left, the stats right, the date and TAP ANYWHERE at the bottom */
+  .plaque{display:grid;grid-template-columns:minmax(150px,34%) minmax(0,1fr);column-gap:14px;align-content:start}
+  .plaque .banner,.plaque .foot,.plaque .why{grid-column:1/-1}
+  .plaque .side{grid-column:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;align-self:stretch}
+  .plaque .main{grid-column:2;min-width:0;align-self:center}
   .plaque .art canvas{width:132px;height:132px}
+  .plaque .rarity{display:inline-flex}
+  .plaque h2,.plaque .kindline,.plaque .flavor,.plaque .line,.plaque .named{text-align:left}
+  .plaque .flavor{margin-left:0;margin-right:0}
+  .plaque .meta{justify-content:flex-start}
+  .plaque .main .bars{margin-left:0;margin-right:0}
+  .plaque .foot{text-align:center;display:flex;flex-direction:column;gap:2px}
+  .plaque .foot .btnrow{order:1;display:flex;gap:6px;align-items:stretch}
+  .plaque .foot .btnrow .pbtns{flex:1;margin-top:6px}
+  .plaque .foot .btnrow .tryit{flex:1;width:auto;margin-top:6px;min-height:40px}
+  .plaque .foot .pbtns button{min-height:40px}
+  .plaque .foot .disc.up{display:none}
+  .plaque .foot .disc.land{display:block;order:2;margin-top:4px;text-align:center}
+  .plaque .foot .tapon{display:block;order:3}
+  .plaque #hang{display:none}
   .setplank{left:8px;right:8px;top:52px}
   .set-rows{grid-template-columns:repeat(2,minmax(0,1fr))}
   .bench{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -337,7 +373,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 </head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="66bf41e" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="4c2dd08" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -381,6 +417,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
         <div class="tabs" role="tablist">
           <button role="tab" class="f-iron" id="tabWeapons" aria-selected="true">Weapons<span class="badge" id="pickBadge" hidden></span></button>
           <button role="tab" class="f-iron" id="tabMaterials" aria-selected="false">Materials</button>
+          <button class="f-iron" id="wallsClose" aria-label="Back to the anvil" title="Back to the anvil">✕</button>
         </div>
         <div class="wallhead" id="wallHead"></div>
         <div class="wall" id="wall"></div>
