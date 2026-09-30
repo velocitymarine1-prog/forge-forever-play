@@ -17,7 +17,8 @@
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   const media = q => !!(window.matchMedia && window.matchMedia(q).matches);
-  const reduce = params.get("motion") ? params.get("motion") === "reduce" : media("(prefers-reduced-motion: reduce)");
+  // less motion: the phone's setting, the game's own switch (forge-forever:less-motion, design pass 9) or ?motion=reduce
+  const reduce = window.Settings ? Settings.reduce() : (params.get("motion") ? params.get("motion") === "reduce" : media("(prefers-reduced-motion: reduce)"));
   const harness = params.get("harness") === "1", stay = params.get("stay") === "1";
   const coarse = params.get("pointer") ? params.get("pointer") === "coarse" : media("(pointer: coarse)");
   const STEP = SPEC.step, W = AREA.w, H = AREA.h, OUT = C.OUT, TAU = Math.PI * 2, FEEL = SPEC.feel, CHEST = SPEC.knight.chest;
@@ -32,6 +33,8 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
   Smithy.installFrames();
+  try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
+  if (window.Nav) Nav.arrive("cellar");
   if (harness || reduce) document.documentElement.classList.add("still");
 
   // ------------------------------------------------------------------ the weapons: what came down from the Forge, or a visit
@@ -65,19 +68,31 @@
     for (const r of rows) if (!world.has(r.thing.id)) { world.set(r.thing.id, r.thing); rack.push(r.thing.id); }
   }
   const practice = t => !!(t && t.practice);
+  function readBack() {
+    const raw = store.get(KEYS.from); if (!raw) return null;
+    let d = null; try { d = JSON.parse(raw); } catch (e) { return null; }
+    return d && d.v === 1 && Array.isArray(d.loadout) ? d : null;
+  }
   const classOf = t => { const v = (t.weapon || {}).visual || {}; return v.fuse && v.fuse !== v.base ? "legendary" : (v.base || "sword"); };
   function sentence(t) { const w = t.weapon; return [w.form + (w.form2 ? " / " + w.form2 : ""), w.element !== "physical" ? w.element : null].concat(w.status || [], w.modifiers || []).filter(Boolean).join(" · ").replace(/_/g, " ").toUpperCase(); }
 
   // the hands (what the knight holds now, practice weapons included) and the loadout (what goes back up)
   const state = { visiting, handoff: visiting ? null : handoff, loadout: [], empty: false, slow: false, reach: false, lefty: store.get(KEYS.lefty) === "1", forced: store.get(KEYS.forced) === "1",
     t: 0, arrive: reduce ? 0 : AREA.knight.arrive, lit: reduce ? 3 : 0, hold: 0, shake: { t: 0, amp: 0 }, fx: [], nums: [], parts: [], rings: [], sums: {}, heal: { n: 0, at: 0 }, trail: [],
-    plank: null, turned: false, left: false, leftTo: null, stairs: 0, zone: null, booted: false, layout: { x: 0, y: 0, s: 1, k: 1, w: W, h: H, pl: 0, pt: 0 }, frames: 0, log: [] };
+    plank: null, turned: false, left: false, leftTo: null, went: null, tookBack: false, stairs: 0, zone: null, booted: false, layout: { x: 0, y: 0, s: 1, k: 1, w: W, h: H, pl: 0, pt: 0 }, frames: 0, log: [] };
   function firstHands() {
     let ids = [], active = 0;
     const asked = (params.get("weapons") || "").split(",").map(s => s.trim()).filter(id => world.has(id));
     if (asked.length) ids = asked.slice(0, 2);
     else if (visiting) ids = AREA.visiting.loadout.filter(id => world.has(id));
-    else { ids = handoff.loadout.filter(id => world.has(id) && !practice(world.get(id))).slice(0, 2); active = clamp(handoff.active | 0, 0, Math.max(0, ids.length - 1)); }
+    else {
+      // the smith may have picked weapons at the rack, gone to the menu and come back down before the Forge took them: a from-cellar
+      // for this world that is newer than the handoff is the loadout (design pass 9 section 3.5)
+      let lo = handoff.loadout, act = handoff.active | 0;
+      const back = readBack();
+      if (back && back.world === handoff.world && Date.parse(back.at || 0) > Date.parse(handoff.at || 0)) { lo = back.loadout; act = back.active | 0; state.tookBack = true; }
+      ids = lo.filter(id => world.has(id) && !practice(world.get(id))).slice(0, 2); active = clamp(act, 0, Math.max(0, ids.length - 1));
+    }
     const hands = ids.map(id => world.get(id));
     // what each hand gives back to the loadout: the weapon it came down with, unless that is practice only
     const slots = ids.map(id => practice(world.get(id)) ? null : id);
@@ -111,20 +126,23 @@
     return store.set(KEYS.from, JSON.stringify({ v: 1, at: nowIso(), world: state.handoff.world, loadout, active }));
   }
   const forgeUrl = () => document.body.getAttribute("data-forge") || "the-forge.html";
-  const fresh = !!state.handoff && Date.now() - Date.parse(state.handoff.at || 0) < 10000;   // the Forge is the page before
-  function leave() {
+  const menuUrl = () => document.body.getAttribute("data-menu") || "main-menu.html";
+  // leave(to): up to the Forge (the stairs, ↑ Forge, Back to the Forge) or to the main menu (the house, Main menu). nav.js goes back
+  // in history when that page is right behind, and forward otherwise (design pass 9 section 3.6)
+  function leave(to) {
     if (state.left) return;
+    to = to === "menu" ? "menu" : "forge";
     state.left = true;
     writeBack();
     try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
     try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {}); } catch (e) { /* not full screen */ }
     $("fade").classList.add("on");
     const go = () => {
-      const url = forgeUrl();
+      const url = to === "menu" ? menuUrl() : forgeUrl();
       state.leftTo = url;
-      if (stay) return;
-      if (fresh && window.history.length > 1) { window.history.back(); setTimeout(() => { if (state.left) window.location.href = url; }, 600); }
-      else window.location.href = url;
+      state.went = window.Nav ? Nav.go(to, url, { stay }) : { to, url, how: "push" };
+      if (stay || window.Nav) return;
+      window.location.href = url;
     };
     if (reduce || harness) go(); else setTimeout(go, 260);
   }
@@ -732,15 +750,18 @@
   $("mLefty").addEventListener("click", () => { state.lefty = !state.lefty; store.set(KEYS.lefty, state.lefty ? "1" : "0"); fit(); renderMenu(); });
   $("mReset").addEventListener("click", () => { reset(); closePlank(); toast("The dummies stand as they were"); });
   $("mForced").addEventListener("click", () => { setForced(false); closePlank(); });
-  $("mForge").addEventListener("click", leave);
+  $("mForge").addEventListener("click", () => leave("forge"));
+  $("mHome").addEventListener("click", () => leave("menu"));
   $("mClose").addEventListener("click", closePlank);
-  $("upBtn").addEventListener("click", leave);
+  $("upBtn").addEventListener("click", () => leave("forge"));
+  $("homeBtn").addEventListener("click", () => leave("menu"));
   function reset() { Combat.reset(fight); state.fx = []; state.nums = []; state.parts = []; state.rings = []; state.sums = {}; state.heal = { n: 0, at: state.t }; state.hold = 0; state.shake = { t: 0, amp: 0 }; }
 
   // ------------------------------------------------------------------ the turn plate
   function setForced(on) { state.forced = !!on; if (on) store.set(KEYS.forced, "1"); else store.del(KEYS.forced); fit(); last = window.performance.now(); acc = 0; }
   $("tForce").addEventListener("click", () => setForced(true));
-  $("tForge").addEventListener("click", leave);
+  $("tForge").addEventListener("click", () => leave("forge"));
+  $("tHome").addEventListener("click", () => leave("menu"));
   $("tFull").addEventListener("click", () => {
     try { const p = document.documentElement.requestFullscreen(); if (p && p.then) p.then(lockLandscape).catch(() => {}); } catch (e) { /* this browser doesn't go full screen */ }
   });
@@ -781,7 +802,7 @@
   fit();
   syncHud(); syncPrompt();
   if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = "You came without weapons from the Forge, so the rack holds the twenty class weapons and the ledger's forged ones."; }
-  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = "E uses the rack on the wall and the stairs back up. Esc opens the menu."; }
+  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = "E uses the rack on the wall and the stairs back up. Esc opens the cellar's menu."; }
   if (params.get("seen") !== "1" && (store.get(KEYS.seen) !== "1" || params.get("fresh") === "1")) openPlank("first");
   draw();
   state.booted = true;

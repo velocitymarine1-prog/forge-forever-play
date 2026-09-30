@@ -1,11 +1,11 @@
 {
   "name": "Forge Forever",
   "short_name": "Forge",
-  "description": "Put any two things on the anvil and see what they make, then try it on the dummies in the Training Cellar. From level 25, melt two rare weapons into a legend.",
+  "description": "Opens on the main menu. Put any two things on the anvil in the Forge and see what they make, then try it on the dummies in the Training Cellar. From level 25, melt two rare weapons into a legend.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#181425",
   "theme_color": "#181425",
   "icons": [

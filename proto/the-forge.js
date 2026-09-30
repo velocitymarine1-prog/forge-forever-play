@@ -5,12 +5,17 @@
 // Since build 2 (card t65, design pass 7 section 3.9) the smithy has a door down to the Training Cellar (proto/the-battlegrounds.html):
 // the door and "Try it in the cellar" hand the loadout and every owned weapon down as whole records (forge-forever:to-cellar), the
 // loadout comes back (forge-forever:from-cellar, on boot and on pageshow), and the save keeps what the page forged itself.
+// Since build 3 (card t69, design pass 11 with pass 9's menu) the page is an app frame that fills the screen, sideways first (two
+// panes) and upright (one column); the house on the sign goes to the main menu through nav.js; the bench lives in Settings
+// (settings.js) under Developer; the handoff is written whenever the page is left.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
   const $ = id => document.getElementById(id);
-  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let reduce = window.Settings ? Settings.reduce() : !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const params = new URLSearchParams(location.search);
+  // under the harness the page's own motion is off (as in the cellar), so a check or a picture never catches a plaque half risen
+  document.documentElement.classList.toggle("still", reduce || params.get("harness") === "1");
   const CLASS_COUNT = G.visual.bases.length;
   const TIER = G.tiers;
   const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
@@ -43,7 +48,7 @@
   function gain(id, n) { const o = own.get(id); if (o) { o.n += n || 1; } else own.set(id, { n: n || 1, seq: ++seq }); }
   function have(id) { const o = own.get(id); return o ? o.n : 0; }
   let profile = Progress.newProfile("isaac");
-  const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, pending: [], lastClaim: null, assistTap: false };
+  const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false };
   const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
     ledgerOpen: false, page: "ledger", filter: "all", rollWindow: "all", rollCache: null, kindsOpen: new Set(), lastCabKind: null, hold: null };
   const svc = { url: null, player: null, smiths: 0, spare: null };
@@ -58,7 +63,7 @@
   // drafts of a world of one, the page's linked rows, the bench's week of other smiths), the kinds the page founded, and those smiths.
   // Without them a weapon the page forged was lost on reload, and going down to the cellar and back is a reload.
   function save() {
-    if (svc.url) return false;
+    if (svc.url || session.erased) return false;
     const stock = {}; for (const [id, o] of own) stock[id] = o.n;
     const at = nowIso();
     const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
@@ -100,6 +105,7 @@
   // out goes the loadout and every weapon the smith owns, as whole records: the loadout first, then newest first, at most 400; a
   // weapon the smith can't wield yet (a chained class, a legend below level 25) goes down as practice only
   function writeHandoff(tryId) {
+    if (session.erased) return 0;
     const loadout = session.equipped.filter(id => own.has(id) && canWield(world.get(id))).slice(0, 2);
     const ids = loadout.slice();
     if (tryId && world.has(tryId) && !ids.includes(tryId)) ids.push(tryId);
@@ -129,10 +135,33 @@
     save();
     const sent = writeHandoff(tryId);
     try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
-    window.TheForge.wentDown = { url: cellarUrl(), sent, try: tryId };
-    if (params.get("stay") !== "1") window.location.href = cellarUrl();
+    const url = cellarUrl(), stay = params.get("stay") === "1";
+    const went = window.Nav ? Nav.go("cellar", url, { stay }) : { to: "cellar", url, how: "push" };
+    window.TheForge.wentDown = { url, sent, try: tryId, how: went.how };
+    if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
     return sent;
   }
+  // the house on the sign: back to the main menu (design pass 9 section 3.4), the handoff written so Battlegrounds from the menu
+  // carries the smith's weapons; nothing while forging or pouring, like the door
+  const menuUrl = () => document.body.getAttribute("data-menu") || "main-menu.html";
+  function goHome() {
+    if (state.forging || state.pouring || session.leaving) return null;
+    session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
+    save();
+    writeHandoff(null);
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
+    const url = menuUrl(), stay = params.get("stay") === "1";
+    const went = window.Nav ? Nav.go("menu", url, { stay }) : { to: "menu", url, how: "push" };
+    window.TheForge.wentTo = went;
+    if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
+    return went;
+  }
+  // the handoff whenever the page is left or hidden (the app switched away or closed), except right after going down, so a door
+  // handoff with `try` is never overwritten
+  // (the handoff only: the save is already current after every action, and a save here would write an erased smithy back)
+  function handoffOnLeave() { if (!session.booted || session.erased || window.TheForge.wentDown) return; writeHandoff(null); }
+  window.addEventListener("pagehide", handoffOnLeave);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") handoffOnLeave(); });
   // in comes the loadout, and nothing else: taken when it is for this world and newer than the Forge's own save
   function takeLoadoutBack() {
     let d = null;
@@ -146,14 +175,12 @@
     if (session.equipped.length) toast("Up from the cellar with " + session.equipped.map(id => world.get(id).name).join(" and "));
     return true;
   }
-  // the Forge stays upright: it asks for a portrait lock where the browser has one
-  function lockPortrait() { try { const o = screen.orientation; if (o && o.lock) { const p = o.lock("portrait"); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* this browser doesn't lock */ } }
 
   // ------------------------------------------------------------------ sprites and their four-frame particles
   const live = new Set();
   function animated(t) { return (t.weapon && (t.weapon.element !== "physical" || t.hybrid)) || (t.hints && t.hints.element && t.kind !== "weapon"); }
   function sprite(t, scale) { const cv = PF.canvasFor(t, { scale }); if (animated(t)) live.add([cv, t, scale]); return cv; }
-  if (!reduce) { let fr = 0; setInterval(() => { fr = (fr + 1) % 4; for (const e of live) { if (!e[0].isConnected) { live.delete(e); continue; } PF.draw(e[0], e[1], { scale: e[2], frame: fr }); } }, 130); }
+  { let fr = 0; setInterval(() => { if (reduce) return; fr = (fr + 1) % 4; for (const e of live) { if (!e[0].isConnected) { live.delete(e); continue; } PF.draw(e[0], e[1], { scale: e[2], frame: fr }); } }, 130); }
   function silhouette(body, head) {
     const rec = { id: "sil-" + body + "-" + head, kind: "weapon", parents: ["a", "b"], weapon: { form: "slash", element: "physical", status: [], modifiers: [], numbers: {}, visual: { base: body, fuse: head, material: "steel", attachments: [], size: "M" } } };
     const sp = PF.spriteFor(rec, 0), N = PF.N, scale = 2, cv = document.createElement("canvas");
@@ -436,7 +463,29 @@
   }
 
   // ------------------------------------------------------------------ the stations
-  const room = Smithy.mount($("scene"), { w: 200, h: 112, crucible: "cold" });
+  let room = Smithy.mount($("scene"), { w: 200, h: 112, crucible: "cold", still: reduce });
+  function setMotion(still) {
+    reduce = !!still;
+    document.documentElement.classList.toggle("still", reduce || params.get("harness") === "1");
+    const mode = room.crucible; room.stop = true;
+    room = Smithy.mount($("scene"), { w: 200, h: 112, crucible: mode, still: reduce });
+  }
+  try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
+  // sideways, the room is as wide as its pane and no taller than the pane leaves after the state and price lines (design pass 11
+  // section 3.3); upright it is as wide as the column
+  const LAND = "(orientation: landscape) and (min-width: 560px)";
+  function fitRoom() {
+    const pane = $("roompane"), el = $("room");
+    const land = !!(window.matchMedia && window.matchMedia(LAND).matches);
+    let w = null;
+    if (land && pane.clientWidth && pane.clientHeight) {
+      const rest = $("state").offsetHeight + ($("price").hidden ? 0 : $("price").offsetHeight);
+      w = Math.max(200, Math.min(pane.clientWidth, Math.floor((pane.clientHeight - rest) * 200 / 112)));
+    }
+    el.style.width = w === null ? "" : w + "px";
+    window.TheForge.layout = { land, paneW: pane.clientWidth, paneH: pane.clientHeight, roomW: el.clientWidth, roomH: el.clientHeight };
+    return window.TheForge.layout;
+  }
   function setStation(s) {
     if (s === "crucible" && !Progress.crucibleAwake(profile, G)) { toast("The Crucible wakes at level 25. It melts two rare weapons into a legend."); return; }
     if (state.forging || state.pouring) return;
@@ -451,6 +500,7 @@
     closePlaque();
     renderSign(); renderSlots();
     if (state.view === "wall") renderWall(); else renderCabinet();
+    fitRoom();
   }
   $("stAnvil").addEventListener("click", () => setStation("anvil"));
   $("stCruc").addEventListener("click", () => setStation("crucible"));
@@ -735,8 +785,8 @@
       ${baseLineText(t) ? `<div class="line">${esc(baseLineText(t))}</div>` : ""}
       ${isIng ? `<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div><div class="line">Gives: ${esc(hintText(t))}</div>` : bars(t)}
       <div class="line">${discLine(claim, t)}</div>
-      <div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button><button class="f-iron" id="hang">Store it</button>' : `<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button>`}<button class="f-iron" id="share">Share</button></div>
-      ${isIng ? "" : tryRow(t)}
+      <div class="foot"><div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button><button class="f-iron" id="hang">Store it</button>' : `<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button>`}<button class="f-iron" id="share">Share</button></div>
+      ${isIng ? "" : tryRow(t)}</div>
       ${t.why || claim.provisional ? `<div class="why">${claim.provisional ? "The Combiner's draft. The Oracle would name it." : "Why the Oracle chose this: " + esc(t.why)}</div>` : ""}`;
     p.querySelector(".art").appendChild(sprite(t, 6));
     p.querySelector("h2").textContent = t.name;
@@ -791,8 +841,8 @@
       <div class="meta"><span><b>${TIER[t.tier]}</b></span><span>${esc(sentence(t))}</span></div>
       ${bars(t)}
       <div class="line">${discLine(claim, t)}</div>
-      <div class="pbtns">${(canName || canNameLocal) ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button><button class="f-iron" id="share">Share</button></div>
-      ${tryRow(t)}`;
+      <div class="foot"><div class="pbtns">${(canName || canNameLocal) ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button><button class="f-iron" id="share">Share</button></div>
+      ${tryRow(t)}</div>`;
     p.querySelector(".art").appendChild(sprite(t, 6));
     $("legendName").textContent = t.name;
     renderNamedBy(t);
@@ -1237,7 +1287,6 @@
     const oracleRows = Array.from(rows.values()).filter(r => r.thing && r.thing.oracle && !r.thing.oracle.provisional).length;
     $("info").textContent = `Armory: ${ws.length} kinds of weapon on ${racks().length} racks, ${total} things in all. Ledger: ${rows.size} rows, ${oracleRows} from the Forge Oracle, ${kinds.length} kinds. Grammar ${G.version}, forge rules ${G.forge_rules.version}.`;
     $("worldLine").textContent = svc.url ? `World: local service at ${svc.url.replace(/^https?:\/\//, "")} · ${svc.smiths} smith${svc.smiths === 1 ? "" : "s"} · you are ${svc.player}` : `World: this page only (a world of one: firsts are first in this page's world, naming is checked by the rules only)`;
-    $("assist").checked = session.assistTap;
   }
   function fresh() {
     own.clear(); seq = 0; session.revealed.clear(); session.equipped = []; session.pending = [];
@@ -1331,7 +1380,6 @@
     openLedger("roll");
     toast(`A week passes: six smiths made ${firsts} firsts and ${legends} legends. The Roll and the Book of Kinds have rows.`);
   });
-  $("assist").addEventListener("change", e => { session.assistTap = e.target.checked; save(); });
   async function connect(url, player) {
     url = (url || $("worldUrl").value).trim().replace(/\/$/, "");
     player = (player || $("smithName").value).trim() || "isaac";
@@ -1363,6 +1411,33 @@
   }
   $("connect").addEventListener("click", () => connect());
 
+  // ------------------------------------------------------------------ Settings: the shared switches, Erase, and the bench under Developer
+  let settings = null;
+  function openSettings(atBench) {
+    if (state.forging || state.pouring) return false;
+    if (!settings) { toast("Settings didn't load"); return false; }
+    closePlaque();
+    settings.closeErase(); settings.render();
+    $("setPlank").hidden = false; $("setBtn").setAttribute("aria-pressed", "true");
+    if (atBench) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
+    return true;
+  }
+  function closeSettings() { $("setPlank").hidden = true; $("setBtn").setAttribute("aria-pressed", "false"); if (settings) settings.closeErase(); }
+  if (window.Settings) {
+    $("bench").hidden = false;
+    settings = Settings.mount($("setBody"), {
+      build: document.body.getAttribute("data-build") || "dev", section: $("bench"), toast,
+      onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); },
+      onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
+      onClose: closeSettings
+    });
+  }
+  $("setBtn").addEventListener("click", () => { if ($("setPlank").hidden) openSettings(false); else closeSettings(); });
+  $("homeBtn").addEventListener("click", () => goHome());
+  window.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setPlank").hidden) { e.preventDefault(); if (settings && settings.asking) settings.closeErase(); else closeSettings(); } });
+  const bootAt = Date.now();
+  const erasedSinceBoot = () => { if (!window.Settings) return false; const t = Date.parse(Settings.store.get(Settings.KEYS.erased) || ""); return !isNaN(t) && t >= bootAt - 1000; };
+
   let toastTimer;
   function toast(m) { const el = $("toast"); el.textContent = m; el.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 3200); window.TheForge && window.TheForge.toasts.push(m); }
 
@@ -1381,22 +1456,35 @@
     profile.picks = Progress.picksLeft(profile);
   }
   window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openLedger, closeLedger, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
-    save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null };
+    save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; } };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderLedger(); renderInfo(); }
+  if (window.Nav) Nav.arrive("forge");
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
+  // the pour assist follows the shared Tap to pour switch; a save from before it (assist: true) sets the switch once
+  function takeAssist() { if (!window.Settings) return; if (Settings.isOn("pour")) session.assistTap = true; else if (session.assistTap) { if (!Settings.setOn("pour", true)) session.assistTap = true; } }
+  fitRoom();
+  window.addEventListener("resize", fitRoom);
+  window.addEventListener("orientationchange", fitRoom);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", fitRoom);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitRoom);
   (async function boot() {
     const w = params.get("world"), p = params.get("player");
-    if (w) { $("worldUrl").value = w; $("smithName").value = p || "isaac"; if (await connect(w, p || "isaac")) return; }
+    if (w) { $("worldUrl").value = w; $("smithName").value = p || "isaac"; if (await connect(w, p || "isaac")) { takeAssist(); return; } }
     if (!load()) { returningSmith(); state.a = "sword"; state.b = "fire"; }
+    takeAssist();
     takeLoadoutBack();
     renderAll();
     if (!profile.classes.length) openFirstWeapon();
-  })().then(() => { document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
-  lockPortrait();
+  })().then(() => { session.booted = true; fitRoom(); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
   // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
-  // open says what is equipped now
+  // open says what is equipped now. After an erase, or a change of less motion, elsewhere, the page boots again instead
   window.addEventListener("pageshow", e => {
-    lockPortrait();
-    if (!e.persisted || !takeLoadoutBack()) return;
+    if (!e.persisted) return;
+    session.leaving = false; window.TheForge.wentTo = null; window.TheForge.wentDown = null;
+    if (window.Settings && (erasedSinceBoot() || Settings.reduce() !== reduce)) { window.location.reload(); return; }
+    if (window.Settings) session.assistTap = Settings.isOn("pour");
+    fitRoom();
+    if (!takeLoadoutBack()) return;
     renderAll();
     const eq = $("equipBtn"), t = session.lastClaim && session.lastClaim.thing;
     if (eq && t && (!$("plaque").hidden || !$("legendPlaque").hidden)) eq.textContent = session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained";

@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Forge · Forge Forever</title>
+<meta name="theme-color" content="#181425">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Forge">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;700;800&family=Alegreya:ital,wght@0,400;0,700;1,400&family=Pixelify+Sans:wght@400;600&display=swap">
+<style>
+/* Forge Forever: The Forge (design pass 2's smithy, pass 5's final layout, pass 6's named legends; sideways first since design pass 11,
+   card t69). One dark look on purpose. The page is an app frame that fills the screen: sideways, the sign across the top with the room
+   on the left and the walls on the right; upright, one column. The same DOM both ways. */
+:root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;--shelf:#241a2a;
+  --parch:#ead4aa;--parch-2:#e4a672;--mute:#b3a48c;--dim:#8a7d6e;--ember:#f77622;--brass:#feae34;--hot:#fee761;--blood:#e43b44;--ice:#2ce8f5;--gold:#feae34;--gold-d:#be4a2f;
+  --ink:#3e2731;--ink2:#733e39;--ink3:#a22633;--clay:#b86f50;
+  --display:"Grenze Gotisch",Georgia,serif;--text:Alegreya,Georgia,serif;--data:"Pixelify Sans","Courier New",monospace;
+  --st:env(safe-area-inset-top,0px);--sr:env(safe-area-inset-right,0px);--sb:env(safe-area-inset-bottom,0px);--sl:env(safe-area-inset-left,0px)}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--soot);color:var(--parch);overscroll-behavior:none}
+body{font-family:var(--text);font-size:16px;line-height:1.45;background-image:var(--bricks);background-size:56px 28px}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+button{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
+/* pixel frames */
+.f-plank{border:12px solid transparent;border-image:var(--frame-plank) 4 fill round;image-rendering:pixelated}
+.f-iron{border:9px solid transparent;border-image:var(--frame-iron) 4 fill round;image-rendering:pixelated}
+.f-ember{border:9px solid transparent;border-image:var(--frame-ember) 4 fill round;image-rendering:pixelated}
+.f-parch{border:12px solid transparent;border-image:var(--frame-parchment) 4 fill round;image-rendering:pixelated}
+.f-gold{border:12px solid transparent;border-image:var(--frame-gold) 4 fill round;image-rendering:pixelated}
+.f-slot{border:9px solid transparent;border-image:var(--frame-slot) 4 fill round;image-rendering:pixelated}
+.f-clay{border:9px solid transparent;border-image:var(--frame-clay) 4 fill round;image-rendering:pixelated}
+.f-stone{border:9px solid transparent;border-image:var(--frame-stone) 4 fill round;image-rendering:pixelated}
+.f-plank>*,.f-parch>*,.f-gold>*,.f-iron>*,.f-slot>*,.f-clay>*,.f-stone>*,.f-ember>*{image-rendering:auto}
+.f-plank canvas,.f-slot canvas,.f-clay canvas,.f-parch canvas,.f-gold canvas,.f-iron canvas{image-rendering:pixelated}
+/* the frame: the whole screen on a phone (padded by the safe areas), at most 1180 x 820 on a desktop, centred on the brick */
+.phone{position:fixed;inset:0;margin:auto;width:100%;height:100%;max-width:1180px;max-height:820px;padding:var(--st) var(--sr) var(--sb) var(--sl);background:var(--soot);overflow:hidden}
+@media (min-width:1200px) and (min-height:840px){.phone{border:3px solid #0d0a14;box-shadow:0 0 0 3px var(--oak-d),0 16px 0 -4px #0d0a14}}
+/* the app inside it: one column upright, two panes sideways; every overlay is placed against this box */
+.app{position:relative;width:100%;height:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);grid-template-areas:"sign" "room" "walls"}
+/* the sign: two rows upright (the way home, the name and the Ledger, then the chips in one line, design pass 9), one row sideways */
+.sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;grid-template-areas:"home name title ledger cog" "chips chips chips chips chips";align-items:center;column-gap:8px;row-gap:4px;padding:6px 8px;background:var(--oak-d);border-bottom:3px solid var(--soot)}
+.sign .home{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:none;cursor:pointer}
+.sign .home canvas{width:16px;height:16px}
+.sign #homeBtn{grid-area:home}
+.sign #setBtn{grid-area:cog}
+.sign #setBtn[aria-pressed="true"]{border-image-source:var(--frame-plank)}
+.sign h1{grid-area:name;margin:0;font-family:var(--display);font-weight:800;font-size:26px;line-height:1;color:var(--parch);white-space:nowrap}
+.sign .title{grid-area:title;justify-self:start;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--data);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--brass)}
+.sign #ledgerBtn{grid-area:ledger}
+.sign .chips{grid-area:chips;display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;min-width:0}
+.chip{height:30px;padding:0 6px;background:var(--stone);border:2px solid var(--stone-2);color:var(--parch);font-family:var(--data);font-size:12px;letter-spacing:.03em;display:flex;align-items:center;gap:4px;cursor:pointer}
+.chip b{font-weight:600}
+.chip .xp{display:block;width:34px;height:4px;background:var(--stone-2);position:relative}
+.chip .xp i{position:absolute;left:0;top:0;bottom:0;background:var(--brass)}
+.chip.coin i.c{width:9px;height:9px;border-radius:50%;background:var(--brass);box-shadow:inset -2px -2px 0 var(--gold-d)}
+.chip.first i.s{color:var(--hot)}
+.chip.ember i.e{color:var(--ember)}
+.chip.shake{animation:shake .4s steps(4) 1}
+@keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+.sign button.f-iron{height:34px;padding:0 6px;background:none;cursor:pointer;font-family:var(--data);font-size:12px;letter-spacing:.04em;color:var(--parch)}
+/* the room pane: the smithy, then the state and price lines */
+.roompane{grid-area:room;display:flex;flex-direction:column;align-items:center;min-height:0;min-width:0;overflow:hidden}
+.room{position:relative;width:100%;max-width:640px}
+.room>canvas{display:block;width:100%;height:auto;aspect-ratio:200/112}
+.stationbar{position:absolute;right:6px;top:6px;display:flex;gap:0}
+.stationbar button{height:30px;padding:0 8px;background:var(--stone);border:2px solid var(--stone-2);font-family:var(--display);font-weight:700;font-size:15px;color:var(--mute);cursor:pointer}
+.stationbar button[aria-pressed="true"]{background:var(--oak);color:var(--hot);border-color:var(--oak-l)}
+.stationbar button.dim{color:var(--dim)}
+.stationbar button.dim small{font-family:var(--data);font-size:9px;margin-left:3px}
+.crucplate{position:absolute;left:50%;top:36%;transform:translateX(-50%);font-family:var(--data);font-size:9px;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;background:var(--stone);border:2px solid var(--stone-2);color:var(--mute);cursor:pointer}
+/* the way down to the Training Cellar: the smithy's low door at the left of its floor, under a plate styled like the Crucible's */
+.cellardoor{position:absolute;left:1.5%;top:44%;width:14%;height:39%;padding:0;border:0;background:none;cursor:pointer;display:flex;align-items:flex-start;justify-content:center;z-index:1}
+.cellarplate{font-family:var(--data);font-size:9px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;padding:2px 6px;background:var(--oak);border:2px solid var(--oak-l);color:var(--hot);animation:pulse 1.4s steps(3) infinite}
+.slots{position:absolute;left:0;right:0;bottom:4%;display:flex;justify-content:center;align-items:flex-end;gap:6px;pointer-events:none}
+.slots>*{pointer-events:auto}
+.slotwrap{display:flex;flex-direction:column;align-items:center;gap:2px}
+.plate{font-family:var(--data);font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:1px 6px;background:var(--stone-2);border:2px solid var(--stone-2);color:var(--dim);line-height:1.2}
+.plate.lit{background:var(--oak);color:var(--hot);border-color:var(--oak-l)}
+.slot{width:74px;height:84px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:none;padding:0;cursor:pointer}
+.slot canvas{width:50px;height:50px}
+.slot .l{font-family:var(--data);font-size:9px;line-height:1.1;max-width:62px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--parch)}
+.slot .e{font-family:var(--data);font-size:9px;color:var(--dim)}
+.slot.pulse{animation:pulse .6s steps(3) 1}
+.slot.slide{animation:slide .45s steps(3) 1}
+@keyframes pulse{50%{filter:brightness(1.6)}}
+@keyframes slide{0%{transform:translateX(80px)}100%{transform:none}}
+.mid{display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:10px}
+.strike{height:46px;min-width:88px;padding:0 6px;background:none;font-family:var(--display);font-weight:800;font-size:21px;color:var(--soot);cursor:pointer}
+.strike:disabled,.pour:disabled{border-image-source:var(--frame-stone);color:var(--dim);cursor:not-allowed}
+.swap{height:26px;padding:0 6px;background:none;cursor:pointer;font-family:var(--data);font-size:12px;color:var(--parch)}
+.socket{height:26px;padding:0 6px;background:none;font-family:var(--data);font-size:10px;letter-spacing:.03em;color:var(--parch);cursor:pointer}
+.socket.glow{color:var(--hot);animation:pulse 1.2s steps(3) infinite}
+.pour{position:relative;height:46px;min-width:88px;padding:0 6px;background:none;font-family:var(--display);font-weight:800;font-size:21px;color:var(--soot);cursor:pointer;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.pour .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,246,200,.55);pointer-events:none;transition:none}
+.pour.holding .fill{width:100%;transition:width 1s linear}
+.pour>span:last-child{position:relative}
+.mold.melt canvas{animation:melt 2s steps(6) 1 forwards}
+@keyframes melt{to{transform:translateY(18px) scaleY(.2);filter:brightness(2) saturate(2)}}
+.flash{position:absolute;inset:0;background:#fff6c8;opacity:0;pointer-events:none}
+.forging .flash{animation:flash .5s steps(2,end) 3}
+.quench .flash{animation:steam 1s steps(3,end) 1;background:#d8f4ff}
+@keyframes flash{0%{opacity:0}40%{opacity:.35}60%{opacity:0}}
+@keyframes steam{0%{opacity:.5}100%{opacity:0}}
+.sparks{position:absolute;left:50%;top:70%;width:0;height:0;pointer-events:none}
+.sparks i{position:absolute;width:4px;height:4px;opacity:0}
+.forging .sparks i,.burst .sparks i,.pouring .sparks i{animation:fly .7s steps(5,end) forwards}
+@keyframes fly{0%{opacity:1;transform:translate(0,0)}100%{opacity:0;transform:translate(var(--dx),var(--dy))}}
+.state{width:100%;font-family:var(--data);font-size:12px;letter-spacing:.04em;color:var(--mute);text-align:center;padding:6px 10px 0;min-height:24px}
+.state.warn{color:var(--parch-2)}
+.price{width:100%;font-family:var(--data);font-size:11px;letter-spacing:.03em;color:var(--dim);text-align:center;padding:0 10px 2px}
+/* plaques and planks (overlays inside the app): upright over the room from 52 px down; sideways over the walls pane */
+.plaque,.plank-over,.overlay{position:absolute;left:8px;right:8px;top:52px;z-index:5;color:var(--soot);animation:rise .35s steps(4,end);max-height:calc(100% - 60px);overflow:auto}
+.plank-over{z-index:7;top:60px;max-height:calc(100% - 68px)}
+.overlay{z-index:6;top:52px;bottom:8px;max-height:none;overflow:auto}
+@keyframes rise{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+.plaque .banner{margin:-4px -4px 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:22px;color:var(--soot);padding:0 4px;height:40px;line-height:22px}
+.plaque .banner.gold{color:var(--ink);background:none;border-image-source:var(--frame-gold);height:34px;line-height:16px;font-size:19px}
+.plaque .banner.kind{font-size:17px;height:30px;line-height:12px;margin-top:2px}
+.plaque .stamp{position:absolute;right:6px;top:4px;transform:rotate(7deg);font-family:var(--data);font-weight:600;font-size:13px;letter-spacing:.08em;color:#a22633;border:2px solid #a22633;padding:0 5px;background:#ead4aa}
+.plaque .ribbon{position:absolute;right:6px;top:44px;transform:rotate(7deg);font-family:var(--data);font-weight:600;font-size:12px;letter-spacing:.08em;color:var(--ink3);border:2px solid var(--ink3);padding:0 5px;background:var(--parch);z-index:1}
+.plaque .art{display:flex;justify-content:center}
+.plaque .art canvas{width:198px;height:198px}
+.plaque.gold .art canvas{filter:drop-shadow(0 0 4px var(--hot))}
+.plaque h2{margin:0;text-align:center;font-family:var(--display);font-weight:800;font-size:31px;line-height:1;color:var(--ink);text-wrap:balance}
+.plaque h2.relit{animation:relit .9s steps(4) 1}
+@keyframes relit{50%{color:var(--gold-d);text-shadow:0 0 6px var(--hot)}}
+.plaque .kindline{text-align:center;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:3px}
+.plaque .flavor{text-align:center;font-style:italic;font-size:15px;color:var(--ink);margin:4px 6px}
+.plaque .meta{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2)}
+.plaque .meta b{color:var(--ink3);font-weight:600}
+.plaque .line{text-align:center;font-size:13.5px;color:var(--ink);margin:3px 0}
+.plaque .line b{font-family:var(--display);font-weight:700;font-size:16px}
+.plaque .named{text-align:center;font-family:var(--data);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 14px;margin:8px 4px 4px}
+.bar{display:grid;grid-template-columns:62px minmax(0,1fr) 16px;gap:4px;align-items:center;font-family:var(--data);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink)}
+.bar .pips{display:grid;grid-template-columns:repeat(10,1fr);gap:1px}
+.bar .pips i{height:6px;background:#c28569}
+.bar .pips i.on{background:#a22633}
+.bar.off{opacity:.4}
+.pbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.pbtns button{flex:1;min-width:84px;min-height:44px;height:auto;line-height:1.05;padding:4px 2px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--parch)}
+.pbtns button.primary{color:var(--soot)}
+.pbtns button.goldbtn{border-image-source:var(--frame-gold);color:var(--ink)}
+.pbtns button:disabled{border-image-source:var(--frame-stone);color:var(--dim);cursor:not-allowed}
+.tryit{display:block;width:100%;min-height:42px;margin-top:6px;padding:2px 6px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05;color:var(--parch)}
+.tryit small{font-family:var(--data);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);margin-left:6px}
+/* the plaque's foot (Hang it, Equip, Share; Try it in the cellar) stays under the thumb while the plaque scrolls */
+.plaque .foot{position:sticky;bottom:0;background:var(--parch);padding-bottom:1px;margin-top:2px}
+.plaque.gold .foot{background:#ead4aa}
+.why{font-size:12.5px;color:#733e39;margin-top:6px;border-top:2px dotted #c28569;padding-top:4px}
+/* the naming and terms planks */
+.plank-over h3{margin:0 0 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:25px;line-height:1;color:var(--ink)}
+.plank-over .row{display:flex;gap:8px;align-items:center}
+.plank-over .row canvas{width:66px;height:66px;flex:none}
+.field{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:40px;padding:0 4px;color:var(--parch)}
+.field input{flex:1;min-width:0;height:28px;background:none;border:0;color:var(--parch);font-family:var(--data);font-size:15px;padding:0 2px}
+.field input::selection{background:var(--ice);color:var(--soot)}
+.field .count{font-family:var(--data);font-size:11px;color:var(--mute);flex:none}
+.nline{font-family:var(--data);font-size:12px;letter-spacing:.03em;color:var(--ink2);margin:8px 2px 0;min-height:18px}
+.nline.bad{color:var(--ink3)}
+.nline .dot{display:inline-block;width:8px;height:8px;background:var(--ember);margin-right:6px;vertical-align:0;animation:pulse .8s steps(2) infinite}
+.terms{font-size:13px;line-height:1.4;color:var(--ink);max-height:190px;overflow:auto;padding:6px 8px;background:rgba(255,250,240,.55);border:2px solid var(--parch-2);margin:6px 0}
+.terms ol{padding-left:18px;margin:0}
+.terms li{margin:3px 0}
+.terms p{margin:0 0 4px;font-style:italic}
+.tick{display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--ink);margin:6px 2px;cursor:pointer}
+.tick input{width:18px;height:18px;margin:0;accent-color:var(--ink)}
+.plank-over .body{font-size:14.5px;color:var(--ink);text-align:center;margin:4px 0 6px}
+/* the first-weapon screen and the unlock plaque */
+.overlay .head{font-family:var(--display);font-weight:800;font-size:24px;line-height:1.05;color:var(--ink);text-align:center;margin:0 0 4px}
+.overlay .sub{text-align:center;font-size:14px;color:var(--ink);margin:0 0 8px}
+.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.choice{display:flex;flex-direction:column;align-items:center;background:none;cursor:pointer;padding:4px 0 6px;color:var(--parch);position:relative}
+.choice canvas{width:66px;height:66px}
+.choice b{font-family:var(--display);font-weight:700;font-size:19px;line-height:1}
+.choice span{font-family:var(--data);font-size:10px;color:var(--brass);text-align:center;line-height:1.2;padding:0 4px}
+.choice.chained canvas{filter:grayscale(1) brightness(.6)}
+.choice.chained::after{content:"";position:absolute;left:8px;right:8px;top:36%;height:5px;background:repeating-linear-gradient(90deg,#8b9bb4 0 4px,#262b44 4px 8px);transform:rotate(-12deg)}
+.choice[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
+/* the walls pane: tabs, the wall or the cabinet, or the Ledger; the scrolling part takes what the pane leaves */
+.wallspane{grid-area:walls;display:flex;flex-direction:column;min-height:0;min-width:0}
+#walls{display:flex;flex-direction:column;min-height:0;flex:1}
+.tabs{display:flex;gap:6px;padding:8px 10px 0}
+.tabs button{flex:1;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:19px;color:var(--parch);position:relative}
+.tabs button[aria-selected="true"]{border-image-source:var(--frame-plank);color:var(--hot)}
+.tabs .badge{position:absolute;right:2px;top:-6px;font-family:var(--data);font-size:9px;letter-spacing:.03em;text-transform:uppercase;background:var(--ember);color:var(--soot);padding:1px 5px}
+.wallhead{font-family:var(--data);font-size:10.5px;letter-spacing:.04em;color:var(--mute);padding:6px 12px 0;text-align:center}
+.wall{padding:8px 10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;flex:1;min-height:0;overflow:auto;align-content:start}
+.rack{display:flex;flex-direction:column;align-items:center;background:none;cursor:pointer;padding:0 0 2px;min-width:0;color:var(--parch);position:relative}
+.rack canvas{width:66px;height:66px}
+.rack b{font-family:var(--display);font-weight:700;font-size:17px;line-height:1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rack span{font-family:var(--data);font-size:10.5px;color:var(--brass)}
+.rack.q{opacity:.5;cursor:default}
+.rack.q b{font-size:40px;line-height:66px}
+.rack.gold{border-image-source:var(--frame-gold);color:var(--ink)}
+.rack.gold span{color:var(--gold-d)}
+.rack.chained canvas{filter:grayscale(1) brightness(.6)}
+.rack.chained::after{content:"";position:absolute;left:6px;right:6px;top:34%;height:5px;background:repeating-linear-gradient(90deg,#8b9bb4 0 4px,#262b44 4px 8px);transform:rotate(-12deg);pointer-events:none}
+.rack.chained span{color:var(--dim)}
+.rack.new{animation:newrack 1.2s steps(6) 2}
+@keyframes newrack{50%{filter:brightness(1.8) drop-shadow(0 0 6px var(--hot))}}
+.cabinet{padding:8px 10px 10px;display:flex;flex-direction:column;min-height:0;flex:1}
+.cabhead{display:flex;align-items:center;gap:6px}
+.cabhead b{flex:1;font-family:var(--display);font-weight:800;font-size:24px;line-height:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cabhead .n{font-family:var(--data);font-size:12px;color:var(--brass)}
+.cabhead button,.tools button{height:34px;background:none;cursor:pointer;font-family:var(--data);font-size:12px;letter-spacing:.03em;color:var(--parch);padding:0 4px}
+.giftline{font-family:var(--data);font-size:10.5px;letter-spacing:.03em;color:var(--mute);margin:4px 0 2px}
+.tools{display:flex;gap:6px;align-items:center;margin:6px 0}
+.tools input{flex:1;min-width:0;height:34px;font-family:var(--data);font-size:12px;color:var(--parch);background:none;padding:0 4px}
+.tools input::placeholder{color:var(--dim)}
+.chips2{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.chips2 button{font-family:var(--data);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;border:2px solid var(--stone-2);background:var(--stone);color:var(--mute);padding:2px 6px;cursor:pointer}
+.chips2 button[aria-pressed="true"]{background:var(--oak);color:var(--hot);border-color:var(--oak-l)}
+.chips2 i{display:inline-block;width:8px;height:8px;margin-right:4px;vertical-align:0}
+.shelves{flex:1;min-height:120px;overflow:auto;background:var(--shelf);position:relative;border:3px solid var(--soot)}
+.shelves .spacer{position:relative}
+.shelf{position:absolute;left:0;right:0;height:96px;display:grid;align-items:end;padding:0 4px 12px;background:var(--board) bottom/32px 16px repeat-x;image-rendering:pixelated}
+.shelfitem{position:relative;display:flex;flex-direction:column;align-items:center;background:none;border:0;cursor:pointer;padding:0;min-width:0;color:var(--parch)}
+.shelfitem canvas{width:66px;height:66px}
+.shelfitem span{font-family:var(--data);font-size:9.5px;line-height:1.05;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;image-rendering:auto}
+.shelfitem .x{position:absolute;right:2px;top:0;font-family:var(--data);font-size:10px;color:var(--soot);background:var(--brass);padding:0 3px}
+.shelfitem .buy{position:absolute;left:2px;top:0;font-family:var(--data);font-size:9px;color:var(--soot);background:var(--parch-2);padding:0 3px}
+.shelfitem.out canvas{filter:grayscale(1) brightness(.55)}
+.shelfitem.dim canvas{filter:grayscale(.8) brightness(.45)}
+.shelfitem.dim span{color:var(--dim)}
+.shelfitem.picked canvas{filter:drop-shadow(0 0 3px var(--hot))}
+.shelfitem.glow{animation:newrack 1s steps(5) 3}
+.empty{font-family:var(--data);font-size:12px;color:var(--dim);text-align:center;padding:40px 10px}
+/* the cart */
+.cart{flex:1;min-height:120px;overflow:auto;background:var(--shelf);border:3px solid var(--soot);padding:6px}
+.cartrow{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;padding:4px 2px;border-bottom:2px solid var(--stone-2);background:none;border-left:0;border-right:0;border-top:0;width:100%;text-align:left;color:var(--parch);cursor:pointer}
+.cartrow canvas{width:44px;height:44px}
+.cartrow .n{font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05}
+.cartrow .s{font-family:var(--data);font-size:10px;color:var(--mute)}
+.cartrow .tag{font-family:var(--data);font-size:12px;color:var(--soot);background:var(--brass);padding:2px 6px;border:2px solid var(--gold-d);white-space:nowrap}
+.cartrow .tag.red{background:var(--blood);border-color:#a22633;color:#fff}
+.cartrow .tag.off{background:var(--stone-2);border-color:var(--stone);color:var(--dim)}
+.cartrow.sold .tag{background:var(--stone-2);border-color:var(--stone);color:var(--dim)}
+.carthead{display:flex;gap:6px;align-items:center;margin:6px 0;font-family:var(--data);font-size:11px;color:var(--mute)}
+.carthead .bulk{margin-left:auto;height:28px;padding:0 6px;background:none;cursor:pointer;font-family:var(--data);font-size:11px;color:var(--parch)}
+.carthead .bulk[aria-pressed="true"]{color:var(--hot)}
+/* the ledger book */
+.ledger{padding:8px 10px 10px;display:flex;flex-direction:column;min-height:0;flex:1}
+#ledgerBody{flex:1;min-height:0;overflow:auto}
+.pages{display:flex;gap:6px;margin-bottom:6px}
+.pages button{flex:1;height:36px;padding:0 4px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:16px;color:var(--parch)}
+.pages button[aria-selected="true"]{border-image-source:var(--frame-plank);color:var(--hot)}
+.lhead{font-family:var(--data);font-size:10.5px;letter-spacing:.03em;color:var(--mute);margin:4px 0 6px;text-align:center}
+.lrow{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;padding:4px 0;border-bottom:2px solid var(--stone-2);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;width:100%;text-align:left;color:var(--parch)}
+.lrow canvas{width:44px;height:44px}
+.lrow .n{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.05}
+.lrow .s{font-family:var(--data);font-size:10.5px;color:var(--mute);letter-spacing:.03em}
+.lrow.gold .n{color:var(--hot)}
+.lrow .nametag{font-family:var(--data);font-size:9px;letter-spacing:.06em;text-transform:uppercase;background:var(--gold);color:var(--soot);padding:2px 5px;border:2px solid var(--gold-d)}
+.tree{margin:6px 0 10px;padding:6px 8px;font-size:14px;color:var(--soot)}
+.tree ul{list-style:none;margin:2px 0 2px 12px;padding:0 0 0 8px;border-left:2px solid var(--oak)}
+.tree b{font-family:var(--display);font-weight:700;font-size:16px}
+.tree .role{font-family:var(--data);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-left:4px}
+.tree .baseline{font-family:var(--data);font-size:11px;color:var(--ink2);margin-top:4px}
+.roll{width:100%;border-collapse:collapse;font-size:13px}
+.roll th{font-family:var(--data);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--brass);text-align:left;padding:2px 3px;font-weight:600}
+.roll td{padding:3px 3px;border-bottom:2px solid var(--stone-2);vertical-align:middle}
+.roll .rk{font-family:var(--data);font-size:13px;width:34px;text-align:center;color:var(--parch)}
+.roll .rk.one{background:var(--ember);color:var(--soot)}
+.roll .rk.two,.roll .rk.three{background:var(--oak-l);color:var(--soot)}
+.roll .sm{font-family:var(--display);font-weight:700;font-size:16px;line-height:1;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.roll .num{font-family:var(--data);text-align:right}
+.roll .lg{color:var(--gold)}
+.roll .lt{display:flex;align-items:center;gap:4px;font-family:var(--data);font-size:10px;color:var(--mute);max-width:100px;overflow:hidden}
+.roll .lt canvas{width:33px;height:33px;flex:none}
+.roll tr.you td{background:rgba(247,118,34,.12)}
+.kgroup{margin:6px 0}
+.kgroup>button{width:100%;height:36px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:16px;color:var(--parch);text-align:left;padding:0 6px;display:flex;justify-content:space-between;align-items:center}
+.kgroup>button span{font-family:var(--data);font-size:10.5px;color:var(--brass)}
+.kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:6px 0}
+.kind{display:flex;flex-direction:column;align-items:center;padding:4px 0;color:var(--parch);min-width:0}
+.kind canvas{width:66px;height:66px}
+.kind b{font-family:var(--display);font-weight:700;font-size:15px;line-height:1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kind span{font-family:var(--data);font-size:9.5px;color:var(--mute);text-align:center;line-height:1.15;padding:0 3px}
+.kind.unnamed{opacity:.6}
+.kind.unnamed b{color:var(--dim)}
+/* Settings: the four switches (settings.js), Erase, and under Developer the bench that used to sit beside the phone */
+.setplank{left:8px;right:8px;top:52px;bottom:8px;max-height:none;overflow:auto;color:var(--parch)}
+.setplank h3{color:var(--parch)}
+.set-rows{display:grid;gap:6px}
+.set-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;align-items:center;width:100%;min-height:52px;padding:3px 8px;background:none;cursor:pointer;text-align:left}
+.set-row b{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.05;color:var(--parch)}
+.set-row i{grid-column:1;font-style:normal;font-family:var(--data);font-size:10.5px;letter-spacing:.03em;line-height:1.25;color:#c0cbdc}
+.set-row span{grid-column:2;grid-row:1/span 2;font-family:var(--data);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);white-space:nowrap}
+.set-row[aria-pressed="true"] span,.set-row.set-phone span{color:var(--hot)}
+.set-row.set-danger b{color:#f6757a}
+.set-btns{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.set-btns button{flex:1;min-width:120px;min-height:46px;padding:4px 6px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:19px;line-height:1.05;color:var(--parch)}
+.set-btns button.f-ember{color:var(--soot)}
+.set-btns .set-erase{color:#f6757a}
+.set-foot{margin:8px 0 0;text-align:center;font-family:var(--data);font-size:10px;letter-spacing:.04em;color:var(--dim)}
+.set-ask{color:var(--ink);margin-top:2px}
+.set-ask h3{margin:0 0 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:26px;line-height:1;color:var(--ink)}
+.set-ask p{margin:4px 0 8px;font-size:15px;color:var(--ink);text-align:center}
+.bench{display:grid;gap:6px;margin-top:14px;padding-top:10px;border-top:2px dotted var(--stone-2)}
+.bench .k{grid-column:1/-1;font-family:var(--data);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--brass)}
+.bench button{min-height:44px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:18px;line-height:1.05;color:var(--parch);padding:2px 6px}
+.bench .row{display:flex;gap:6px;align-items:center;min-width:0}
+.bench .row button{flex:1;min-width:0}
+.bench input[type=text],.bench input[type=number]{height:40px;min-width:0;font-family:var(--data);font-size:12px;color:var(--parch);background:none;padding:0 6px}
+.bench input[type=number]{width:70px;flex:none}
+.bench input[type=text]{flex:1}
+.bench label{font-family:var(--data);font-size:11px;color:var(--mute);display:flex;gap:4px;align-items:center;flex:none}
+.bench .info{grid-column:1/-1;font-family:var(--data);font-size:11.5px;color:var(--mute);letter-spacing:.03em;margin:0}
+.toast{position:fixed;left:50%;bottom:calc(24px + var(--sb));transform:translateX(-50%);z-index:20;font-family:var(--data);font-size:13px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);padding:6px 12px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90vw}
+.toast.show{opacity:1}
+/* sideways (the primary layout): the sign in one row across the top, the room on the left, the walls on the right; the plaques and
+   planks hang over the walls pane, beside the anvil; Settings takes both panes */
+@media (orientation:landscape) and (min-width:560px){
+  .app{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
+  .sign{grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips ledger cog";row-gap:0}
+  .sign .chips{flex-wrap:nowrap;justify-content:flex-end}
+  .room{max-width:none}
+  .plaque,.plank-over,.overlay{left:calc(50% + 6px);right:8px;top:52px;bottom:8px;max-height:none}
+  .plank-over{top:60px}
+  .plaque .art canvas{width:132px;height:132px}
+  .setplank{left:8px;right:8px;top:52px}
+  .set-rows{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .bench{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:440px){.sign{padding:6px 6px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.pour.holding .fill{width:100%}}
+.still *{animation:none!important;transition:none!important}
+.still .pour.holding .fill{width:100%}
+</style>
+</head>
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="66bf41e" data-booted="0" data-errors="0">
+<div class="phone" id="phone"><div class="app" id="app">
+    <div class="sign">
+      <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
+      <h1>The Forge</h1><span class="title" id="title"></span>
+      <div class="chips">
+        <button class="chip" id="chipLevel" title="Your level and XP"><b id="lvl">Lv 1</b><span class="xp"><i id="xpbar" style="width:0"></i></span></button>
+        <button class="chip coin" id="chipCoins" title="Coins"><i class="c"></i><span id="coins">0</span></button>
+        <button class="chip first" id="chipFirsts" aria-label="0 weapons you forged first in the world"><i class="s">★</i><span id="firsts">0</span></button>
+        <button class="chip ember" id="chipEmbers" hidden title="Legend Embers"><i class="e">✦</i><span id="embers">0</span></button>
+      </div>
+      <button class="f-iron" id="ledgerBtn" aria-pressed="false">LEDGER</button>
+      <button class="f-iron home" id="setBtn" aria-label="Settings" title="Settings" aria-pressed="false"><canvas data-glyph="cog" aria-hidden="true"></canvas></button>
+    </div>
+    <div class="roompane" id="roompane">
+      <div class="room" id="room">
+        <canvas id="scene" aria-label="The smithy: a hearth with a live fire, the anvil in front of it and the crucible over the flames"></canvas>
+        <div class="flash"></div>
+        <div class="sparks" id="sparks" aria-hidden="true"></div>
+        <button class="crucplate" id="crucPlate">Wakes at level 25</button>
+        <button class="cellardoor" id="cellarDoor" aria-label="Go down to the Training Cellar with your weapons"><span class="cellarplate">↓ Cellar</span></button>
+        <div class="stationbar" role="group" aria-label="Station">
+          <button id="stAnvil" aria-pressed="true">Anvil</button>
+          <button id="stCruc" aria-pressed="false" class="dim">Crucible<small id="stCrucLv">Lv 25</small></button>
+        </div>
+        <div class="slots" id="anvilSlots">
+          <div class="slotwrap"><span class="plate" id="plateA">Base</span><button class="slot f-slot" id="slotA" aria-label="Base slot"></button></div>
+          <div class="mid"><button class="swap f-iron" id="swap" hidden aria-label="Swap the two weapons">⇄</button><button class="strike f-ember" id="strike" disabled>Strike</button></div>
+          <div class="slotwrap"><span class="plate" id="plateB">Add</span><button class="slot f-slot" id="slotB" aria-label="Second slot"></button></div>
+        </div>
+        <div class="slots" id="crucSlots" hidden>
+          <div class="slotwrap"><span class="plate" id="plateMA">Base</span><button class="slot mold f-clay" id="moldA" aria-label="Base mold"></button></div>
+          <div class="mid"><button class="socket f-iron" id="socket">Legend Ember ×0</button><button class="swap f-iron" id="swapM" hidden aria-label="Swap the two weapons">⇄</button><button class="pour f-ember" id="pour" disabled aria-label="Pour: press and hold for one second"><span class="fill"></span><span>Pour</span></button></div>
+          <div class="slotwrap"><span class="plate" id="plateMB">Fuse</span><button class="slot mold f-clay" id="moldB" aria-label="Fuse mold"></button></div>
+        </div>
+      </div>
+      <div class="state" id="state" role="status">Put two things on the anvil</div>
+      <div class="price" id="price" hidden></div>
+    </div>
+    <div class="wallspane" id="wallspane">
+      <div id="walls">
+        <div class="tabs" role="tablist">
+          <button role="tab" class="f-iron" id="tabWeapons" aria-selected="true">Weapons<span class="badge" id="pickBadge" hidden></span></button>
+          <button role="tab" class="f-iron" id="tabMaterials" aria-selected="false">Materials</button>
+        </div>
+        <div class="wallhead" id="wallHead"></div>
+        <div class="wall" id="wall"></div>
+        <div class="cabinet" id="cabinet" hidden>
+          <div class="cabhead"><button class="f-iron" id="back">← Wall</button><b id="cabTitle"></b><span class="n" id="cabCount"></span></div>
+          <div class="giftline" id="giftLine" hidden></div>
+          <div class="tools" id="shelfTools"><input class="f-stone" id="search" type="search" placeholder="Search by name" aria-label="Search this shelf"><button class="f-iron" id="sort">NEWEST</button></div>
+          <div class="chips2" id="chips"></div>
+          <div class="shelves" id="shelves"><div class="spacer" id="spacer"></div></div>
+          <div class="carthead" id="cartHead" hidden><span id="cartLine"></span><button class="bulk f-iron" id="bulk" aria-pressed="false">×5</button></div>
+          <div class="cart" id="cart" hidden></div>
+        </div>
+      </div>
+      <div class="ledger" id="ledger" hidden>
+        <div class="pages" role="tablist">
+          <button role="tab" class="f-iron" id="pgLedger" aria-selected="true">Ledger</button>
+          <button role="tab" class="f-iron" id="pgRoll" aria-selected="false">The Roll</button>
+          <button role="tab" class="f-iron" id="pgKinds" aria-selected="false">Kinds</button>
+        </div>
+        <div id="ledgerBody"></div>
+      </div>
+    </div>
+    <div class="plaque f-parch" id="plaque" hidden></div>
+    <div class="plaque gold f-gold" id="legendPlaque" hidden></div>
+    <div class="plank-over f-parch" id="termsPlank" hidden role="dialog" aria-label="The Smith's Naming Terms"></div>
+    <div class="plank-over f-parch" id="namePlank" hidden role="dialog" aria-label="Name your legend"></div>
+    <div class="plank-over f-parch" id="confirmPlank" hidden role="dialog"></div>
+    <div class="overlay f-parch" id="firstWeapon" hidden role="dialog" aria-label="Choose your first weapon"></div>
+    <div class="overlay f-parch" id="unlockPlaque" hidden role="dialog" aria-label="Open new racks"></div>
+    <div class="plank-over f-plank setplank" id="setPlank" hidden role="dialog" aria-label="Settings">
+      <h3>Settings</h3>
+      <div id="setBody"></div>
+    </div>
+</div></div>
+<!-- the developer's bench (design passes 2 to 6), moved into Settings under Developer by design pass 11; settings.js places it -->
+<div class="bench" id="bench" hidden>
+  <div class="k">Developer · the bench</div>
+  <button class="f-iron" id="fresh">Start fresh: choose a first weapon</button>
+  <div class="row"><button class="f-iron" id="run">Come back from a run</button><input class="f-stone" id="runLevel" type="number" min="1" max="60" value="3" aria-label="Level of the run"><label><input type="checkbox" id="runBoss"> boss</label></div>
+  <div class="row"><button class="f-iron" id="grant">Grant a level</button><button class="f-iron" id="grantEmber">Grant an Ember</button></div>
+  <button class="f-iron" id="fill">Fill the armory: forge 1,000</button>
+  <button class="f-iron" id="week">A week of other smiths</button>
+  <div class="row"><input class="f-stone" id="worldUrl" type="text" value="http://localhost:8765" aria-label="World service URL"><input class="f-stone" id="smithName" type="text" value="isaac" aria-label="Smith name" style="width:90px;flex:none"></div>
+  <button class="f-iron" id="connect">Connect to the local world</button>
+  <p class="info" id="worldLine">World: this page only</p>
+  <p class="info" id="info"></p>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>window.__errors = []; (function () { var note = function (m) { window.__errors.push(m); if (document.body) document.body.setAttribute("data-errors", String(window.__errors.length)); };
+  window.addEventListener("error", function (e) { note(String(e.message) + (e.error && e.error.stack ? " @ " + String(e.error.stack).split("\n").slice(1, 3).join(" ") : " @ " + e.filename + ":" + e.lineno)); });
+  window.addEventListener("unhandledrejection", function (e) { note("unhandled: " + String(e.reason)); });
+  var p = new URLSearchParams(location.search).get("pointer"); if (p === "coarse" || p === "fine") document.documentElement.classList.add(p); })();</script>
+<script src="spec/grammar.js"></script>
+<script src="spec/things.js"></script>
+<script src="spec/shop.js"></script>
+<script src="spec/naming-terms.js"></script>
+<script src="spec/name-filter.js"></script>
+<script src="ledger/ledger.js"></script>
+<script src="proto/combiner.js"></script>
+<script src="proto/naming.js"></script>
+<script src="proto/progress.js"></script>
+<script src="proto/coin.js"></script>
+<script src="proto/crucible.js"></script>
+<script src="proto/discovery.js"></script>
+<script src="proto/pixel-forge.js"></script>
+<script src="proto/smithy.js"></script>
+<script src="proto/settings.js"></script>
+<script src="proto/nav.js"></script>
+<script src="proto/the-forge.js"></script>
+</body>
+</html>

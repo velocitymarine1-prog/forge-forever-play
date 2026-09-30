@@ -269,5 +269,94 @@
     el.style.setProperty("--bricks", `url(${brickURL()})`);
   }
 
-  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, TONES, GLOW, BAYER, OUT, hex, rng };
+  // ------------------------------------------------------------------ the UI glyphs (design pass 9, built by card t69): four 16 x 16
+  // drawings as rows of palette letters, by the pixel rules (a soot outline, ramps lit from the top left, one highlight): the house
+  // (the main menu), the anvil (the Forge), the sword (the Battlegrounds) and the cog (settings)
+  const GPAL = { o: "#181425", 1: "#262b44", 2: "#3a4466", 3: "#5a6988", 4: "#8b9bb4", 5: "#c0cbdc", a: "#3e2731", b: "#733e39", c: "#b86f50", d: "#e4a672",
+    p: "#ead4aa", q: "#fffaf0", P: "#c28569", r: "#a22633", e: "#e43b44", f: "#f77622", y: "#feae34", h: "#fee761" };
+  const GLYPHS = {
+    house: [
+      "................",
+      ".......oo.......",
+      "......odbo......",
+      ".....odcbbo.....",
+      "....odccbbbo....",
+      "...odcccbbbbo...",
+      "..odccccbbbbbo..",
+      ".odcccccbbbbbbo.",
+      "oaaaaaaaaaaaaaao",
+      ".oPPPPPPPPPPPPo.",
+      ".oqoooopoooopPo.",
+      ".oqohyopobaopPo.",
+      ".oqoyfopobaopPo.",
+      ".oqoooopobyopPo.",
+      ".oqpppppobaopPo.",
+      ".oooooooooooooo.",
+    ],
+    anvil: [
+      "................",
+      "................",
+      "................",
+      ".oooooooooooooo.",
+      "o55555555555555o",
+      ".oo312222222221o",
+      "...oo322222221o.",
+      ".....o3222221o..",
+      "......o32221o...",
+      "......o32221o...",
+      "....oo5222225o..",
+      "...o5521111225o.",
+      "...o311oooo311o.",
+      "....ooo....ooo..",
+      "................",
+      "................",
+    ],
+    cog: [
+      ".......oo.......",
+      "...oo.o55o.oo...",
+      "..o55oo55oo44o..",
+      ".o544554454433o.",
+      ".o544444444333o.",
+      "..o5442223333o..",
+      ".oo542oooo333oo.",
+      "o55442o..o53322o",
+      "o55442o..o53322o",
+      ".oo543oooo532oo.",
+      "..o4433555332o..",
+      ".o443333333332o.",
+      ".o433333322332o.",
+      "..o33oo22oo22o..",
+      "...oo.o22o.oo...",
+      ".......oo.......",
+    ],
+    sword: [
+      "................",
+      "...........ooo..",
+      "..........o554o.",
+      ".........o5542o.",
+      "........o55422o.",
+      ".......o55422o..",
+      "...oo.o55422o...",
+      "..oyyo55422o....",
+      "...oyy5422o.....",
+      "....oyy22o......",
+      "...oabyfo.......",
+      "..oabaoffo......",
+      ".oybao.ofo......",
+      ".offo...o.......",
+      "..oo............",
+      "................",
+    ],
+  };
+  // glyph(canvas, name, scale): draws the glyph into the canvas at a whole scale (the canvas is sized 16 x scale); CSS shows it at 16 x scale px
+  function glyph(cv, name, scale) {
+    const rows = GLYPHS[name]; if (!rows) return cv;
+    scale = Math.max(1, scale | 0 || 1);
+    cv.width = 16 * scale; cv.height = 16 * scale;
+    const g = cv.getContext("2d"); g.clearRect(0, 0, cv.width, cv.height);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const k = rows[y][x]; if (k === ".") continue; g.fillStyle = GPAL[k]; g.fillRect(x * scale, y * scale, scale, scale); }
+    return cv;
+  }
+
+  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, TONES, GLOW, BAYER, OUT, hex, rng, GLYPHS, GPAL, glyph };
 })(typeof window !== "undefined" ? window : globalThis);
