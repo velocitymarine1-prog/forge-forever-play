@@ -5,9 +5,10 @@
 // Since build 2 (card t65, design pass 7 section 3.9) the smithy has a door down to the Training Cellar (proto/the-battlegrounds.html):
 // the door and "Try it in the cellar" hand the loadout and every owned weapon down as whole records (forge-forever:to-cellar), the
 // loadout comes back (forge-forever:from-cellar, on boot and on pageshow), and the save keeps what the page forged itself.
-// Since build 3 (card t69, design pass 11 with pass 9's menu) the page is an app frame that fills the screen, sideways first (two
-// panes) and upright (one column); the house on the sign goes to the main menu through nav.js; the bench lives in Settings
-// (settings.js) under Developer; the handoff is written whenever the page is left.
+// Since build 3 (card t69, design pass 11 with pass 9's menu) the page is an app frame that fills the screen, landscape only: the
+// anvil the whole screen until a slot asks for the walls; a phone held upright sees the turn plate or, with My screen won't turn, the
+// frame turned a quarter; the house on the sign goes to the main menu through nav.js; the bench lives in Settings (settings.js)
+// under Developer; the handoff is written whenever the page is left.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -52,6 +53,7 @@
   const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
     ledgerOpen: false, page: "ledger", filter: "all", rollWindow: "all", rollCache: null, kindsOpen: new Set(), lastCabKind: null, hold: null, wallsOpen: false, picking: false };
   const svc = { url: null, player: null, smiths: 0, spare: null };
+  const turn = { forced: window.Settings ? Settings.isOn("forced") : false, turned: false, plate: false };   // landscape only (amendment 9)
   const isForged = t => !!(t.parents && t.parents.length);
   const classOf = t => F.classOf(t);
   const classOpen = c => c === "legendary" ? Progress.crucibleAwake(profile, G) : profile.classes.includes(c);
@@ -134,7 +136,6 @@
     session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
     save();
     const sent = writeHandoff(tryId);
-    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
     const url = cellarUrl(), stay = params.get("stay") === "1";
     const went = window.Nav ? Nav.go("cellar", url, { stay }) : { to: "cellar", url, how: "push" };
     window.TheForge.wentDown = { url, sent, try: tryId, how: went.how };
@@ -149,7 +150,6 @@
     session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
     save();
     writeHandoff(null);
-    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
     const url = menuUrl(), stay = params.get("stay") === "1";
     const went = window.Nav ? Nav.go("menu", url, { stay }) : { to: "menu", url, how: "push" };
     window.TheForge.wentTo = went;
@@ -471,25 +471,41 @@
     room = Smithy.mount($("scene"), { w: 200, h: 112, crucible: mode, still: reduce });
   }
   try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
-  // sideways, the room is as wide as its pane and no taller than the pane leaves after the state and price lines (design pass 11
-  // section 3.3); upright it is as wide as the column
-  const LAND = "(orientation: landscape) and (min-width: 560px)";
+  // the room is as wide as its pane and no taller than the pane leaves after the state and price lines (design pass 11 section 3.3)
   function fitRoom() {
     const pane = $("roompane"), el = $("room");
-    const land = !!(window.matchMedia && window.matchMedia(LAND).matches);
     let w = null;
-    if (land && pane.clientWidth && pane.clientHeight) {
+    if (pane.clientWidth && pane.clientHeight) {
       const rest = $("state").offsetHeight + ($("price").hidden ? 0 : $("price").offsetHeight);
       w = Math.max(200, Math.min(pane.clientWidth, Math.floor((pane.clientHeight - rest) * 200 / 112)));
     }
     el.style.width = w === null ? "" : w + "px";
-    if (land && state.ledgerOpen && !state.wallsOpen) { state.wallsOpen = true; $("app").classList.add("open"); }
-    window.TheForge.layout = { land, paneW: pane.clientWidth, paneH: pane.clientHeight, roomW: el.clientWidth, roomH: el.clientHeight };
+    window.TheForge.layout = { paneW: pane.clientWidth, paneH: pane.clientHeight, roomW: el.clientWidth, roomH: el.clientHeight, turned: turn.turned, plate: turn.plate };
     return window.TheForge.layout;
   }
+  // landscape only (design pass 11 amendment 9): the cellar's rules. A phone held upright sees the turn plate; My screen won't turn
+  // (the shared switch) lays the frame out at height x width and turns it a quarter; a fine pointer never sees the plate
+  const coarse = params.get("pointer") ? params.get("pointer") === "coarse" : !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+  const viewport = () => { const vv = window.visualViewport; return { w: Math.max(1, Math.round(vv ? vv.width : window.innerWidth)), h: Math.max(1, Math.round(vv ? vv.height : window.innerHeight)) }; };
+  function fitTurn() {
+    const v = viewport(), portrait = v.h > v.w, el = $("phone");
+    turn.turned = turn.forced && portrait;   // forced landscape only turns a viewport that is upright
+    if (turn.turned) { el.style.width = v.h + "px"; el.style.height = v.w + "px"; el.style.transform = "translateX(" + v.w + "px) rotate(90deg)"; }
+    else { el.style.width = ""; el.style.height = ""; el.style.transform = ""; }
+    el.classList.toggle("forced", turn.turned);
+    turn.plate = portrait && coarse && !turn.forced;
+    $("turnPlate").hidden = !turn.plate;
+    $("tFull").hidden = !(document.documentElement.requestFullscreen && screen.orientation && screen.orientation.lock);
+    return fitRoom();
+  }
+  function lockLandscape() { try { const o = screen.orientation; if (o && o.lock) { const p = o.lock("landscape"); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* this browser doesn't lock */ } }
+  function setForced(on) { turn.forced = !!on; if (window.Settings && Settings.isOn("forced") !== turn.forced) Settings.setOn("forced", turn.forced); fitTurn(); if (settings) settings.render(); }
+  $("tForce").addEventListener("click", () => setForced(true));
+  $("tFull").addEventListener("click", () => { try { const p = document.documentElement.requestFullscreen(); if (p && p.then) p.then(lockLandscape).catch(() => {}); } catch (e) { /* this browser doesn't go full screen */ } });
+  $("tHome").addEventListener("click", () => goHome());
+  (function () { const cv = $("turnPhone"); try { Smithy.drawTurnPhone(cv, false); } catch (e) { return; } let sw = false; setInterval(() => { if ($("turnPlate").hidden || reduce) return; sw = !sw; Smithy.drawTurnPhone(cv, sw); }, 1000); })();
   // sideways, the anvil is the whole screen: the walls pane opens on the right when a slot asks to be filled, or for the Ledger, and
   // closes when the second slot is filled, when Strike or Pour falls, or by its ✕ (design pass 11, amendment 8)
-  const isLand = () => !!(window.matchMedia && window.matchMedia(LAND).matches);
   function openWalls(why) {
     if (why === "pick") state.picking = true;
     if (state.wallsOpen) return;
@@ -612,7 +628,7 @@
       const which = state.mb === id ? $("moldB") : $("moldA"); which.classList.remove("pulse"); void which.offsetWidth; which.classList.add("pulse");
       closePlaque(); renderSlots();
       if (state.ma && state.mb && state.view === "cabinet") closeCabinet(); else if (state.view === "cabinet") drawShelves(true);
-      if (state.ma && state.mb && isLand()) closeWalls();
+      if (state.ma && state.mb) closeWalls();
       return;
     }
     if (!state.a) state.a = id; else if (!state.b) state.b = id; else { state.a = id; state.b = null; }
@@ -627,7 +643,7 @@
     if (slid && !session.slideToastShown) { session.slideToastShown = true; toast("The weapon is the base: it goes on the left"); }
     closePlaque(); renderSlots();
     if (state.a && state.b && state.view === "cabinet") closeCabinet(); else if (state.view === "cabinet") drawShelves(true);
-    if (state.a && state.b && isLand()) closeWalls();
+    if (state.a && state.b) closeWalls();
   }
   function fuseWhy(t) {
     // why a weapon is dim on the Crucible's wall: gates 3, 4, 6 and, with a mold filled, 5
@@ -644,10 +660,10 @@
     else { const t = state.ma; state.ma = state.mb; state.mb = t; }
     renderSlots();
   }
-  $("slotA").addEventListener("click", () => { if (state.forging) return; state.a = state.b; state.b = null; renderSlots(); if (isLand()) openWalls("pick"); });
-  $("slotB").addEventListener("click", () => { if (state.forging) return; state.b = null; renderSlots(); if (isLand()) openWalls("pick"); });
-  $("moldA").addEventListener("click", () => { if (state.pouring) return; state.ma = state.mb; state.mb = null; renderSlots(); if (isLand()) openWalls("pick"); });
-  $("moldB").addEventListener("click", () => { if (state.pouring) return; state.mb = null; renderSlots(); if (isLand()) openWalls("pick"); });
+  $("slotA").addEventListener("click", () => { if (state.forging) return; state.a = state.b; state.b = null; renderSlots(); openWalls("pick"); });
+  $("slotB").addEventListener("click", () => { if (state.forging) return; state.b = null; renderSlots(); openWalls("pick"); });
+  $("moldA").addEventListener("click", () => { if (state.pouring) return; state.ma = state.mb; state.mb = null; renderSlots(); openWalls("pick"); });
+  $("moldB").addEventListener("click", () => { if (state.pouring) return; state.mb = null; renderSlots(); openWalls("pick"); });
   $("swap").addEventListener("click", swap);
   $("swapM").addEventListener("click", swap);
   $("socket").addEventListener("click", () => { if (profile.embers === 0) { setStation("anvil"); setTab("materials"); openCabinet({ kind: "cart", key: "The Trader's Cart" }); toast(Progress.crucibleAwake(profile, G) ? "The Trader sells Legend Embers for 500 coins" : "Legend Embers are sold from level 25"); } });
@@ -664,7 +680,7 @@
     if (!state.a || !state.b || state.forging || state.station !== "anvil") return;
     const A = world.get(state.a), B = world.get(state.b);
     state.forging = true; closePlaque(); renderSlots();
-    if (isLand()) closeWalls();
+    closeWalls();
     const hadClass = new Set(racks().map(r => r.c));
     $("phone").classList.add("forging"); room.heat = 1;
     sparks(14, ["#fff6c8", "#fee761", "#f77622", "#ffffff"]);
@@ -725,7 +741,7 @@
     const A = world.get(state.ma), B = world.get(state.mb);
     if (Crucible.crucibleCheck(A, B, profile, G, true)) { renderSlots(); return; }
     state.pouring = true; closePlaque(); renderSlots();
-    if (isLand()) closeWalls();
+    closeWalls();
     $("pour").disabled = true;
     $("phone").classList.add("pouring"); room.heat = 1;
     sparks(16, ["#fee761", "#f77622", "#ffffff", "#fff6c8"]);
@@ -781,15 +797,6 @@
     const on = world.get(t.base.on) || { name: t.base.on };
     return `Forged on ${on.name} · a ${cap(t.base.root === t.id ? classOf(t) : (world.get(t.base.root) || { name: cap(t.base.root) }).name)} at heart`;
   }
-  function discLine(claim, t) {
-    const d = t.discovery || {};
-    const mine = d.first === profile.id;
-    if (claim.status === "pending") return `The world will settle this when you're back online.`;
-    if (claim.provisional) return `The Combiner's draft. The Oracle would name it.`;
-    if (claim.status === "first") return `No smith in the world had made this. <b>It carries your name for ever.</b>`;
-    if (claim.status === "rediscovered") return `The world already has this: <b>${esc(t.name)}</b>, first forged by <b>${esc(d.first || "someone")}</b>.`;
-    return `First forged by <b>${mine ? "you" : esc(d.first || "someone")}</b>${d.at ? ", " + fmtDate(d.at) : ""}.`;
-  }
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
   // sideways (amendment 8): the rarity as design pass 10's band under the icon, and the discovery line as one sentence at the foot
   const tierClass = t => "r" + Math.max(1, Math.min(6, t.tier | 0));
@@ -820,33 +827,24 @@
       ${giftLine ? `<div class="line">${giftLine}</div>` : ""}
       ${baseLineText(t) ? `<div class="line">${esc(baseLineText(t))}</div>` : ""}
       ${isIng ? `<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div><div class="line">Gives: ${esc(hintText(t))}</div>` : bars(t)}</div>
-      <div class="foot"><div class="line disc up">${discLine(claim, t)}</div><div class="line disc land">${esc(discText(claim, t))}</div>
-      <div class="btnrow"><div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button><button class="f-iron" id="hang">Store it</button>' : `<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button>`}<button class="f-iron" id="share">Share</button></div>
+      <div class="foot"><div class="line disc">${esc(discText(claim, t))}</div>
+      <div class="btnrow"><div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button>' : `<button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button>`}<button class="f-iron" id="share">Share</button></div>
       ${isIng ? "" : tryRow(t)}</div>${TAP_ON}</div>
       ${t.why || claim.provisional ? `<div class="why">${claim.provisional ? "The Combiner's draft. The Oracle would name it." : "Why the Oracle chose this: " + esc(t.why)}</div>` : ""}`;
-    p.querySelector(".art").appendChild(sprite(t, isLand() ? 4 : 6));
+    p.querySelector(".art").appendChild(sprite(t, 4));
     $("tapOn").addEventListener("click", continueOn);
     p.querySelector("h2").textContent = t.name;
     p.querySelector(".flavor").textContent = "“" + t.flavor + "”";
     const cls = classOf(t);
     p.querySelector(".meta span").textContent = cls ? cls : storeOf(t);
     p.hidden = false;
-    $("hang").addEventListener("click", () => { closePlaque(); state.a = null; state.b = null; renderSlots(); hangIt(t); });
     const eq = $("equipBtn"); if (eq) eq.addEventListener("click", () => equip(t, eq));
-    const ap = $("applyBtn"); if (ap) ap.addEventListener("click", () => { closePlaque(); state.a = null; state.b = t.id; renderSlots(); setTab("weapons"); if (isLand()) openWalls("pick"); toast("Pick a weapon for the base"); });
+    const ap = $("applyBtn"); if (ap) ap.addEventListener("click", () => { closePlaque(); state.a = null; state.b = t.id; renderSlots(); setTab("weapons"); openWalls("pick"); toast("Pick a weapon for the base"); });
     $("share").addEventListener("click", () => share(t));
     const tr = $("tryBtn"); if (tr) tr.addEventListener("click", () => goDown(t.id));
   }
   function tryRow(t) { return `<button class="f-iron tryit" id="tryBtn">↓ Try it in the cellar${Progress.canEquip(t, profile, G) ? "" : "<small>practice only</small>"}</button>`; }
   function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.forms || []), ...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
-  function hangIt(t) {
-    const cls = classOf(t);
-    state.glowItem = t.id; state.sort = "newest";
-    if (isLand()) { toast(`${t.name} is on the ${cls ? plural(cls).toLowerCase() : storeOf(t).toLowerCase()} shelf`); return; }   // sideways the anvil stays whole
-    if (cls) { setTab("weapons"); openCabinet({ kind: "class", key: cls }); }
-    else { setTab("materials"); openCabinet({ kind: "store", key: storeOf(t) }); }
-    toast(`${t.name} is on the ${cls ? plural(cls).toLowerCase() : storeOf(t).toLowerCase()} shelf`);
-  }
   function equip(t, btn) {
     if (!Progress.canEquip(t, profile, G)) { toast(classOf(t) === "legendary" ? "Legends can be wielded from level 25" : `The ${plural(classOf(t))} rack is chained: open the class to wield it`); return; }
     if (!session.equipped.includes(t.id)) { session.equipped.push(t.id); if (session.equipped.length > 2) session.equipped.shift(); }
@@ -859,8 +857,8 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => toast("Copied: " + txt), () => toast(txt)); else toast(txt);
   }
   function closePlaque() { $("plaque").hidden = true; $("legendPlaque").hidden = true; }
-  // Tap anywhere to continue (sideways; upright keeps Hang it): the plaque closes, the anvil empties, the new weapon's rack is marked
-  // to glow and a toast says where it hangs. Nothing while the terms, naming or confirm plank is open
+  // Tap anywhere to continue: the plaque closes, the anvil empties, the new weapon's rack is marked to glow and a toast says where it
+  // hangs. Nothing while the terms, naming or confirm plank is open
   const plaqueOpen = () => !$("plaque").hidden || !$("legendPlaque").hidden;
   const plankOpen = () => !$("termsPlank").hidden || !$("namePlank").hidden || !$("confirmPlank").hidden;
   function continueOn() {
@@ -873,13 +871,13 @@
     return true;
   }
   $("app").addEventListener("click", e => {
-    if (!isLand() || !plaqueOpen() || plankOpen()) return;
+    if (!plaqueOpen() || plankOpen()) return;
     if (e.target.closest("#plaque button, #legendPlaque button, .plank-over, .overlay, .sign, #setPlank, input")) return;   // the buttons keep their jobs
     e.preventDefault(); e.stopPropagation();
     continueOn();
   }, true);
   window.addEventListener("keydown", e => {
-    if ((e.key !== "Enter" && e.key !== "Escape") || !isLand() || !plaqueOpen() || plankOpen() || !$("setPlank").hidden) return;
+    if ((e.key !== "Enter" && e.key !== "Escape") || !plaqueOpen() || plankOpen() || !$("setPlank").hidden) return;
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
     e.preventDefault(); continueOn();
   });
@@ -904,16 +902,15 @@
       <div class="flavor"></div>
       <div class="meta"><span><b>${TIER[t.tier]}</b></span><span>${esc(sentence(t))}</span></div>
       ${bars(t)}</div>
-      <div class="foot"><div class="line disc up">${discLine(claim, t)}</div><div class="line disc land">${esc(discText(claim, t))}</div>
-      <div class="btnrow"><div class="pbtns">${(canName || canNameLocal) ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}<button class="f-ember primary" id="hang">Hang it</button><button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button><button class="f-iron" id="share">Share</button></div>
+      <div class="foot"><div class="line disc">${esc(discText(claim, t))}</div>
+      <div class="btnrow"><div class="pbtns">${(canName || canNameLocal) ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}<button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button><button class="f-iron" id="share">Share</button></div>
       ${tryRow(t)}</div>${TAP_ON}</div>`;
-    p.querySelector(".art").appendChild(sprite(t, isLand() ? 4 : 6));
+    p.querySelector(".art").appendChild(sprite(t, 4));
     $("tapOn").addEventListener("click", continueOn);
     $("legendName").textContent = t.name;
     renderNamedBy(t);
     p.querySelector(".flavor").textContent = "“" + t.flavor + "”";
     p.hidden = false;
-    $("hang").addEventListener("click", () => { closePlaque(); renderSlots(); hangIt(t); });
     $("equipBtn").addEventListener("click", () => equip(t, $("equipBtn")));
     $("share").addEventListener("click", () => share(t));
     const nb = $("nameBtn"); if (nb) nb.addEventListener("click", () => openNaming(t));
@@ -1252,10 +1249,10 @@
     closePlaque();
     state.ledgerOpen = true; if (page) state.page = page; if (filter) state.filter = filter;
     $("ledger").hidden = false; $("walls").hidden = true; $("ledgerBtn").setAttribute("aria-pressed", "true");
-    if (isLand()) openWalls("ledger");
+    openWalls("ledger");
     renderLedger();
   }
-  function closeLedger() { state.ledgerOpen = false; $("ledger").hidden = true; $("walls").hidden = false; $("ledgerBtn").setAttribute("aria-pressed", "false"); if (isLand() && !state.picking) closeWalls(); }
+  function closeLedger() { state.ledgerOpen = false; $("ledger").hidden = true; $("walls").hidden = false; $("ledgerBtn").setAttribute("aria-pressed", "false"); if (!state.picking) closeWalls(); }
   $("ledgerBtn").addEventListener("click", () => { if (state.ledgerOpen) closeLedger(); else openLedger("ledger"); });
   $("chipFirsts").addEventListener("click", () => openLedger("ledger", "firsts"));
   for (const [id, pg] of [["pgLedger", "ledger"], ["pgRoll", "roll"], ["pgKinds", "kinds"]]) $(id).addEventListener("click", () => { state.page = pg; renderLedger(); });
@@ -1493,7 +1490,7 @@
     $("bench").hidden = false;
     settings = Settings.mount($("setBody"), {
       build: document.body.getAttribute("data-build") || "dev", section: $("bench"), toast,
-      onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); },
+      onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); if (name === "forced") { turn.forced = on; fitTurn(); } },
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
       onClose: closeSettings
     });
@@ -1523,17 +1520,18 @@
   }
   window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openLedger, closeLedger, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
     save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
-    openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get land() { return isLand(); } };
+    openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; } };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderLedger(); renderInfo(); }
   if (window.Nav) Nav.arrive("forge");
-  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
+  lockLandscape();
   // the pour assist follows the shared Tap to pour switch; a save from before it (assist: true) sets the switch once
   function takeAssist() { if (!window.Settings) return; if (Settings.isOn("pour")) session.assistTap = true; else if (session.assistTap) { if (!Settings.setOn("pour", true)) session.assistTap = true; } }
-  fitRoom();
-  window.addEventListener("resize", fitRoom);
-  window.addEventListener("orientationchange", fitRoom);
-  if (window.visualViewport) window.visualViewport.addEventListener("resize", fitRoom);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitRoom);
+  fitTurn();
+  window.addEventListener("resize", fitTurn);
+  window.addEventListener("orientationchange", fitTurn);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", fitTurn);
+  document.addEventListener("fullscreenchange", fitTurn);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTurn);
   (async function boot() {
     const w = params.get("world"), p = params.get("player");
     if (w) { $("worldUrl").value = w; $("smithName").value = p || "isaac"; if (await connect(w, p || "isaac")) { takeAssist(); return; } }
@@ -1549,8 +1547,8 @@
     if (!e.persisted) return;
     session.leaving = false; window.TheForge.wentTo = null; window.TheForge.wentDown = null;
     if (window.Settings && (erasedSinceBoot() || Settings.reduce() !== reduce)) { window.location.reload(); return; }
-    if (window.Settings) session.assistTap = Settings.isOn("pour");
-    fitRoom();
+    if (window.Settings) { session.assistTap = Settings.isOn("pour"); turn.forced = Settings.isOn("forced"); }
+    lockLandscape(); fitTurn();
     if (!takeLoadoutBack()) return;
     renderAll();
     const eq = $("equipBtn"), t = session.lastClaim && session.lastClaim.thing;

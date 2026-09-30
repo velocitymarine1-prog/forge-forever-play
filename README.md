@@ -14,11 +14,11 @@ the wall holds every weapon you own.
 
 Play: https://velocitymarine1-prog.github.io/forge-forever-play/
 
-Built for a phone held sideways, and add it to the home screen: the menu and the Forge also work upright; the cellar is landscape
-only, and if the screen won't turn (rotation lock) its turn plate has a "My screen won't turn" button. On a desktop: W A S D, J
-strikes, K swaps, L dodges, E uses the rack and the stairs, Esc opens the cellar's menu.
+Built for a phone held sideways, landscape only, and add it to the home screen: held upright, every page shows a turn plate, and
+if the screen won't turn (rotation lock) "My screen won't turn" turns the game for you. On a desktop: W A S D, J strikes, K swaps,
+L dodges, E uses the rack and the stairs, Esc opens the cellar's menu.
 
 This is a **world of one**: the pairs the seed ledger knows reveal the Forge Oracle's real results (the model wrote them once), and
 every other pair is the offline Combiner's provisional draft. Your smithy is saved in this browser. The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `4c2dd08`.
+`tools/deploy.sh` from commit `c4f6132`.

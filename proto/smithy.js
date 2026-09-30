@@ -358,5 +358,18 @@
     return cv;
   }
 
-  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, TONES, GLOW, BAYER, OUT, hex, rng, GLYPHS, GPAL, glyph };
+  // the tipping phone of the turn plate (the cellar's drawing, shared by every page since design pass 11 amendment 9): 32 x 32, two frames
+  function drawTurnPhone(cv, sideways) {
+    cv.width = 32; cv.height = 32; const g = cv.getContext("2d");
+    const w = sideways ? 22 : 12, h = sideways ? 12 : 22, x0 = 16 - w / 2, y0 = 16 - h / 2;
+    g.fillStyle = OUT; g.fillRect(x0 - 1, y0 - 1, w + 2, h + 2);
+    g.fillStyle = "#5a6988"; g.fillRect(x0, y0, w, h);
+    g.fillStyle = "#231c2e"; g.fillRect(x0 + 2, y0 + 2, w - 4, h - 4);
+    g.fillStyle = "#f77622"; g.fillRect(x0 + (sideways ? 4 : 3), y0 + (sideways ? 5 : 8), 2, 2);
+    g.fillStyle = "#8b9bb4"; if (sideways) g.fillRect(x0 + w - 2, y0 + 5, 1, 2); else g.fillRect(x0 + 5, y0 + h - 2, 2, 1);
+    if (!sideways) { g.fillStyle = "#fee761"; for (let i = 0; i < 5; i++) g.fillRect(24 + Math.round(3 * Math.cos(-1.2 + i * 0.5)), 8 + Math.round(3 * Math.sin(-1.2 + i * 0.5)), 1, 1); g.fillRect(26, 11, 1, 1); g.fillRect(27, 10, 1, 1); }
+    return cv;
+  }
+
+  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, drawTurnPhone, TONES, GLOW, BAYER, OUT, hex, rng, GLYPHS, GPAL, glyph };
 })(typeof window !== "undefined" ? window : globalThis);

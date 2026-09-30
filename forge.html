@@ -15,8 +15,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;700;800&family=Alegreya:ital,wght@0,400;0,700;1,400&family=Pixelify+Sans:wght@400;600&display=swap">
 <style>
 /* Forge Forever: The Forge (design pass 2's smithy, pass 5's final layout, pass 6's named legends; sideways first since design pass 11,
-   card t69). One dark look on purpose. The page is an app frame that fills the screen: sideways, the sign across the top with the room
-   on the left and the walls on the right; upright, one column. The same DOM both ways. */
+   card t69, and landscape only since its amendment 9). One dark look on purpose. The page is an app frame that fills the screen: the
+   sign across the top, the room the whole screen until a slot asks for the walls, which open on the right. A phone held upright sees
+   the turn plate, or, with My screen won't turn, the frame laid out at height x width and turned a quarter (the cellar's rule). */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;--shelf:#241a2a;
   --parch:#ead4aa;--parch-2:#e4a672;--mute:#b3a48c;--dim:#8a7d6e;--ember:#f77622;--brass:#feae34;--hot:#fee761;--blood:#e43b44;--ice:#2ce8f5;--gold:#feae34;--gold-d:#be4a2f;
   --ink:#3e2731;--ink2:#733e39;--ink3:#a22633;--clay:#b86f50;
@@ -29,6 +30,7 @@ body{font-family:var(--text);font-size:16px;line-height:1.45;background-image:va
 canvas{image-rendering:pixelated;image-rendering:crisp-edges}
 button{font:inherit;color:inherit}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
+.turn button:focus-visible{outline-offset:-3px}
 /* pixel frames */
 .f-plank{border:12px solid transparent;border-image:var(--frame-plank) 4 fill round;image-rendering:pixelated}
 .f-iron{border:9px solid transparent;border-image:var(--frame-iron) 4 fill round;image-rendering:pixelated}
@@ -40,13 +42,18 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .f-stone{border:9px solid transparent;border-image:var(--frame-stone) 4 fill round;image-rendering:pixelated}
 .f-plank>*,.f-parch>*,.f-gold>*,.f-iron>*,.f-slot>*,.f-clay>*,.f-stone>*,.f-ember>*{image-rendering:auto}
 .f-plank canvas,.f-slot canvas,.f-clay canvas,.f-parch canvas,.f-gold canvas,.f-iron canvas{image-rendering:pixelated}
-/* the frame: the whole screen on a phone (padded by the safe areas), at most 1180 x 820 on a desktop, centred on the brick */
-.phone{position:fixed;inset:0;margin:auto;width:100%;height:100%;max-width:1180px;max-height:820px;padding:var(--st) var(--sr) var(--sb) var(--sl);background:var(--soot);overflow:hidden}
+/* the frame: the whole screen on a phone (padded by the safe areas), at most 1180 x 820 on a desktop, centred on the brick; in forced
+   landscape it is laid out at height x width and turned a quarter (the script sizes it) */
+.phone{position:fixed;inset:0;margin:auto;width:100%;height:100%;max-width:1180px;max-height:820px;padding:var(--st) var(--sr) var(--sb) var(--sl);background:var(--soot);overflow:hidden;transform-origin:0 0}
+.phone.forced{margin:0;max-width:none;max-height:none;padding:var(--sr) var(--sb) var(--sl) var(--st)}
 @media (min-width:1200px) and (min-height:840px){.phone{border:3px solid #0d0a14;box-shadow:0 0 0 3px var(--oak-d),0 16px 0 -4px #0d0a14}}
-/* the app inside it: one column upright, two panes sideways; every overlay is placed against this box */
-.app{position:relative;width:100%;height:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);grid-template-areas:"sign" "room" "walls"}
-/* the sign: two rows upright (the way home, the name and the Ledger, then the chips in one line, design pass 9), one row sideways */
-.sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;grid-template-areas:"home name title ledger cog" "chips chips chips chips chips";align-items:center;column-gap:8px;row-gap:4px;padding:6px 8px;background:var(--oak-d);border-bottom:3px solid var(--soot)}
+/* the app inside it: the sign across the top; the room the whole screen, or beside the walls pane when .open (a slot tapped, the
+   Ledger); every overlay is placed against this box */
+.app{position:relative;width:100%;height:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign" "room"}
+.app:not(.open) .wallspane{display:none}
+.app.open{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
+/* the sign, one row: the way home, the name, the title, the chips, the Ledger, the cog */
+.sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips ledger cog";align-items:center;column-gap:8px;padding:6px 8px;background:var(--oak-d);border-bottom:3px solid var(--soot)}
 .sign .home{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:none;cursor:pointer}
 .sign .home canvas{width:16px;height:16px}
 .sign #homeBtn{grid-area:home}
@@ -55,7 +62,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .sign h1{grid-area:name;margin:0;font-family:var(--display);font-weight:800;font-size:26px;line-height:1;color:var(--parch);white-space:nowrap}
 .sign .title{grid-area:title;justify-self:start;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--data);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--brass)}
 .sign #ledgerBtn{grid-area:ledger}
-.sign .chips{grid-area:chips;display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;min-width:0}
+.sign .chips{grid-area:chips;display:flex;gap:4px;justify-content:flex-end;flex-wrap:nowrap;min-width:0}
 .chip{height:30px;padding:0 6px;background:var(--stone);border:2px solid var(--stone-2);color:var(--parch);font-family:var(--data);font-size:12px;letter-spacing:.03em;display:flex;align-items:center;gap:4px;cursor:pointer}
 .chip b{font-weight:600}
 .chip .xp{display:block;width:34px;height:4px;background:var(--stone-2);position:relative}
@@ -68,7 +75,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .sign button.f-iron{height:34px;padding:0 6px;background:none;cursor:pointer;font-family:var(--data);font-size:12px;letter-spacing:.04em;color:var(--parch)}
 /* the room pane: the smithy, then the state and price lines */
 .roompane{grid-area:room;display:flex;flex-direction:column;align-items:center;min-height:0;min-width:0;overflow:hidden}
-.room{position:relative;width:100%;max-width:640px}
+.room{position:relative;width:100%}
 .room>canvas{display:block;width:100%;height:auto;aspect-ratio:200/112}
 .stationbar{position:absolute;right:6px;top:6px;display:flex;gap:0}
 .stationbar button{height:30px;padding:0 8px;background:var(--stone);border:2px solid var(--stone-2);font-family:var(--display);font-weight:700;font-size:15px;color:var(--mute);cursor:pointer}
@@ -104,7 +111,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .pour>span:last-child{position:relative}
 .mold.melt canvas{animation:melt 2s steps(6) 1 forwards}
 @keyframes melt{to{transform:translateY(18px) scaleY(.2);filter:brightness(2) saturate(2)}}
-.flash{position:absolute;inset:0;background:#fff6c8;opacity:0;pointer-events:none}
+/* the forging fills the screen: the flash covers the whole app */
+.app>.flash{position:absolute;inset:0;z-index:4;background:#fff6c8;opacity:0;pointer-events:none}
 .forging .flash{animation:flash .5s steps(2,end) 3}
 .quench .flash{animation:steam 1s steps(3,end) 1;background:#d8f4ff}
 @keyframes flash{0%{opacity:0}40%{opacity:.35}60%{opacity:0}}
@@ -116,54 +124,62 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .state{width:100%;font-family:var(--data);font-size:12px;letter-spacing:.04em;color:var(--mute);text-align:center;padding:6px 10px 0;min-height:24px}
 .state.warn{color:var(--parch-2)}
 .price{width:100%;font-family:var(--data);font-size:11px;letter-spacing:.03em;color:var(--dim);text-align:center;padding:0 10px 2px}
-/* plaques and planks (overlays inside the app): upright over the room from 52 px down; sideways over the walls pane */
-.plaque,.plank-over,.overlay{position:absolute;left:8px;right:8px;top:52px;z-index:5;color:var(--soot);animation:rise .35s steps(4,end);max-height:calc(100% - 60px);overflow:auto}
-.plank-over{z-index:7;top:60px;max-height:calc(100% - 68px)}
-.overlay{z-index:6;top:52px;bottom:8px;max-height:none;overflow:auto}
+/* plaques and planks (overlays inside the app): a wide card over the room while the walls are closed; over the walls pane while they
+   are open */
+.plaque,.plank-over,.overlay{position:absolute;left:8%;right:8%;top:52px;bottom:8px;z-index:5;color:var(--soot);animation:rise .35s steps(4,end);overflow:auto}
+.plank-over{z-index:7;top:60px;left:22%;right:22%}
+.overlay{z-index:6}
+.app.open .plaque,.app.open .plank-over,.app.open .overlay{left:calc(50% + 6px);right:8px}
 @keyframes rise{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+/* the plaque in three parts: the icon and the rarity left, the stats right, the date and TAP ANYWHERE at the foot (amendment 8) */
+.plaque{display:grid;grid-template-columns:minmax(150px,34%) minmax(0,1fr);column-gap:14px;align-content:start}
+.plaque .banner,.plaque .foot,.plaque .why{grid-column:1/-1}
+.plaque .side{grid-column:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;align-self:stretch}
+.plaque .main{grid-column:2;min-width:0;align-self:center}
 .plaque .banner{margin:-4px -4px 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:22px;color:var(--soot);padding:0 4px;height:40px;line-height:22px}
 .plaque .banner.gold{color:var(--ink);background:none;border-image-source:var(--frame-gold);height:34px;line-height:16px;font-size:19px}
 .plaque .banner.kind{font-size:17px;height:30px;line-height:12px;margin-top:2px}
 .plaque .stamp{position:absolute;right:6px;top:4px;transform:rotate(7deg);font-family:var(--data);font-weight:600;font-size:13px;letter-spacing:.08em;color:#a22633;border:2px solid #a22633;padding:0 5px;background:#ead4aa}
 .plaque .ribbon{position:absolute;right:6px;top:44px;transform:rotate(7deg);font-family:var(--data);font-weight:600;font-size:12px;letter-spacing:.08em;color:var(--ink3);border:2px solid var(--ink3);padding:0 5px;background:var(--parch);z-index:1}
 .plaque .art{display:flex;justify-content:center}
-.plaque .art canvas{width:198px;height:198px}
+.plaque .art canvas{width:132px;height:132px}
 .plaque.gold .art canvas{filter:drop-shadow(0 0 4px var(--hot))}
-.plaque h2{margin:0;text-align:center;font-family:var(--display);font-weight:800;font-size:31px;line-height:1;color:var(--ink);text-wrap:balance}
+.plaque h2{margin:0;text-align:left;font-family:var(--display);font-weight:800;font-size:31px;line-height:1;color:var(--ink);text-wrap:balance}
 .plaque h2.relit{animation:relit .9s steps(4) 1}
 @keyframes relit{50%{color:var(--gold-d);text-shadow:0 0 6px var(--hot)}}
-.plaque .kindline{text-align:center;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:3px}
-.plaque .flavor{text-align:center;font-style:italic;font-size:15px;color:var(--ink);margin:4px 6px}
-.plaque .meta{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2)}
+.plaque .kindline{text-align:left;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:3px}
+.plaque .flavor{text-align:left;font-style:italic;font-size:15px;color:var(--ink);margin:4px 0}
+.plaque .meta{display:flex;justify-content:flex-start;gap:8px;flex-wrap:wrap;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2)}
 .plaque .meta b{color:var(--ink3);font-weight:600}
-.plaque .line{text-align:center;font-size:13.5px;color:var(--ink);margin:3px 0}
+.plaque .line{text-align:left;font-size:13.5px;color:var(--ink);margin:3px 0}
 .plaque .line b{font-family:var(--display);font-weight:700;font-size:16px}
-.plaque .named{text-align:center;font-family:var(--data);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
-.bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 14px;margin:8px 4px 4px}
+.plaque .named{text-align:left;font-family:var(--data);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 14px;margin:8px 0 4px}
 .bar{display:grid;grid-template-columns:62px minmax(0,1fr) 16px;gap:4px;align-items:center;font-family:var(--data);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink)}
 .bar .pips{display:grid;grid-template-columns:repeat(10,1fr);gap:1px}
 .bar .pips i{height:6px;background:#c28569}
 .bar .pips i.on{background:#a22633}
 .bar.off{opacity:.4}
 .pbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
-.pbtns button{flex:1;min-width:84px;min-height:44px;height:auto;line-height:1.05;padding:4px 2px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--parch)}
+.pbtns button{flex:1;min-width:84px;min-height:40px;height:auto;line-height:1.05;padding:4px 2px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--parch)}
 .pbtns button.primary{color:var(--soot)}
 .pbtns button.goldbtn{border-image-source:var(--frame-gold);color:var(--ink)}
 .pbtns button:disabled{border-image-source:var(--frame-stone);color:var(--dim);cursor:not-allowed}
-.tryit{display:block;width:100%;min-height:42px;margin-top:6px;padding:2px 6px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05;color:var(--parch)}
+.tryit{display:block;width:100%;min-height:40px;margin-top:6px;padding:2px 6px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05;color:var(--parch)}
 .tryit small{font-family:var(--data);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);margin-left:6px}
-/* the plaque's foot (the discovery line; Hang it, Equip, Share; Try it in the cellar) stays under the thumb while the plaque scrolls */
-.plaque .foot{position:sticky;bottom:0;background:var(--parch);padding-bottom:1px;margin-top:2px}
+/* the plaque's foot (the buttons; who forged it and when; TAP ANYWHERE TO CONTINUE) stays under the thumb while the plaque scrolls */
+.plaque .foot{position:sticky;bottom:0;background:var(--parch);padding:0 0 1px;margin-top:2px;text-align:center;display:flex;flex-direction:column;gap:2px}
 .plaque.gold .foot{background:#ead4aa}
-/* sideways (amendment 8): the rarity band under the icon (design pass 10 section 3.3.2's colours), the one-sentence discovery line and
-   TAP ANYWHERE TO CONTINUE; upright shows none of them */
-.rarity{display:none;align-items:center;justify-content:center;min-width:112px;padding:3px 10px;border:2px solid var(--soot);box-shadow:inset 0 2px 0 var(--rl),inset 0 -2px 0 var(--rd);font-family:var(--data);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#fff;text-shadow:1px 1px 0 var(--rd)}
+.plaque .foot .btnrow{order:1;display:flex;gap:6px;align-items:stretch}
+.plaque .foot .btnrow .pbtns{flex:1;margin-top:6px}
+.plaque .foot .btnrow .tryit{flex:1;width:auto;margin-top:6px}
+.plaque .foot .disc{order:2;margin-top:4px;text-align:center}
+.tapon{order:3;display:block;width:100%;margin:4px 0 0;padding:4px 0 2px;background:none;border:0;cursor:pointer;font-family:var(--data);font-weight:600;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);animation:tapblink 1.6s steps(4) infinite}
+@keyframes tapblink{50%{opacity:.4}}
+/* the rarity band under the icon (design pass 10 section 3.3.2's colours) */
+.rarity{display:inline-flex;align-items:center;justify-content:center;min-width:112px;padding:3px 10px;border:2px solid var(--soot);box-shadow:inset 0 2px 0 var(--rl),inset 0 -2px 0 var(--rd);font-family:var(--data);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#fff;text-shadow:1px 1px 0 var(--rd)}
 .r1{background:#5a6988;--rl:#8b9bb4;--rd:#3a4466}.r2{background:#3e8948;--rl:#63c74d;--rd:#265c42}.r3{background:#124e89;--rl:#0099db;--rd:#262b44}
 .r4{background:#68386c;--rl:#b55088;--rd:#3e2731}.r5{background:#f77622;--rl:#feae34;--rd:#be4a2f;color:var(--soot);text-shadow:none}.r6{background:#a22633;--rl:#e43b44;--rd:#3e2731;color:#fee761}
-.plaque .disc.land,.tapon{display:none}
-.tapon{width:100%;margin:4px 0 0;padding:4px 0 2px;background:none;border:0;cursor:pointer;font-family:var(--data);font-weight:600;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);animation:tapblink 1.6s steps(4) infinite}
-@keyframes tapblink{50%{opacity:.4}}
-#wallsClose{display:none;flex:0 0 42px;width:42px;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:16px;color:var(--parch)}
 .why{font-size:12.5px;color:#733e39;margin-top:6px;border-top:2px dotted #c28569;padding-top:4px}
 /* the naming and terms planks */
 .plank-over h3{margin:0 0 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:25px;line-height:1;color:var(--ink)}
@@ -186,7 +202,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 /* the first-weapon screen and the unlock plaque */
 .overlay .head{font-family:var(--display);font-weight:800;font-size:24px;line-height:1.05;color:var(--ink);text-align:center;margin:0 0 4px}
 .overlay .sub{text-align:center;font-size:14px;color:var(--ink);margin:0 0 8px}
-.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.app.open .choices{grid-template-columns:repeat(2,minmax(0,1fr))}
 .choice{display:flex;flex-direction:column;align-items:center;background:none;cursor:pointer;padding:4px 0 6px;color:var(--parch);position:relative}
 .choice canvas{width:66px;height:66px}
 .choice b{font-family:var(--display);font-weight:700;font-size:19px;line-height:1}
@@ -201,6 +218,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .tabs button{flex:1;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:19px;color:var(--parch);position:relative}
 .tabs button[aria-selected="true"]{border-image-source:var(--frame-plank);color:var(--hot)}
 .tabs .badge{position:absolute;right:2px;top:-6px;font-family:var(--data);font-size:9px;letter-spacing:.03em;text-transform:uppercase;background:var(--ember);color:var(--soot);padding:1px 5px}
+#wallsClose{display:flex;align-items:center;justify-content:center;flex:0 0 42px;width:42px;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:16px;color:var(--parch)}
 .wallhead{font-family:var(--data);font-size:10.5px;letter-spacing:.04em;color:var(--mute);padding:6px 12px 0;text-align:center}
 .wall{padding:8px 10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;flex:1;min-height:0;overflow:auto;align-content:start}
 .rack{display:flex;flex-direction:column;align-items:center;background:none;cursor:pointer;padding:0 0 2px;min-width:0;color:var(--parch);position:relative}
@@ -297,9 +315,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .kind.unnamed{opacity:.6}
 .kind.unnamed b{color:var(--dim)}
 /* Settings: the four switches (settings.js), Erase, and under Developer the bench that used to sit beside the phone */
-.setplank{left:8px;right:8px;top:52px;bottom:8px;max-height:none;overflow:auto;color:var(--parch)}
+.setplank{left:8px;right:8px;top:52px;bottom:8px;overflow:auto;color:var(--parch)}
 .setplank h3{color:var(--parch)}
-.set-rows{display:grid;gap:6px}
+.set-rows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
 .set-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;align-items:center;width:100%;min-height:52px;padding:3px 8px;background:none;cursor:pointer;text-align:left}
 .set-row b{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.05;color:var(--parch)}
 .set-row i{grid-column:1;font-style:normal;font-family:var(--data);font-size:10.5px;letter-spacing:.03em;line-height:1.25;color:#c0cbdc}
@@ -314,7 +332,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .set-ask{color:var(--ink);margin-top:2px}
 .set-ask h3{margin:0 0 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:26px;line-height:1;color:var(--ink)}
 .set-ask p{margin:4px 0 8px;font-size:15px;color:var(--ink);text-align:center}
-.bench{display:grid;gap:6px;margin-top:14px;padding-top:10px;border-top:2px dotted var(--stone-2)}
+.bench{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:14px;padding-top:10px;border-top:2px dotted var(--stone-2)}
 .bench .k{grid-column:1/-1;font-family:var(--data);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--brass)}
 .bench button{min-height:44px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:18px;line-height:1.05;color:var(--parch);padding:2px 6px}
 .bench .row{display:flex;gap:6px;align-items:center;min-width:0}
@@ -324,56 +342,24 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .bench input[type=text]{flex:1}
 .bench label{font-family:var(--data);font-size:11px;color:var(--mute);display:flex;gap:4px;align-items:center;flex:none}
 .bench .info{grid-column:1/-1;font-family:var(--data);font-size:11.5px;color:var(--mute);letter-spacing:.03em;margin:0}
-.toast{position:fixed;left:50%;bottom:calc(24px + var(--sb));transform:translateX(-50%);z-index:20;font-family:var(--data);font-size:13px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);padding:6px 12px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90vw}
+/* the toast, inside the frame so it turns with it */
+.toast{position:absolute;left:50%;bottom:calc(24px + var(--sb));transform:translateX(-50%);z-index:20;font-family:var(--data);font-size:13px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);padding:6px 12px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phone.forced .toast{bottom:calc(24px + var(--sl))}
 .toast.show{opacity:1}
-/* sideways (the primary layout): the sign in one row across the top, the room on the left, the walls on the right; the plaques and
-   planks hang over the walls pane, beside the anvil; Settings takes both panes */
-@media (orientation:landscape) and (min-width:560px){
-  /* the anvil is the whole screen; .open (a slot tapped, the Ledger) puts the walls pane beside it (amendment 8) */
-  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign" "room"}
-  .app:not(.open) .wallspane{display:none}
-  .app.open{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
-  .sign{grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips ledger cog";row-gap:0}
-  .sign .chips{flex-wrap:nowrap;justify-content:flex-end}
-  .room{max-width:none}
-  #wallsClose{display:flex;align-items:center;justify-content:center}
-  /* the forging fills the screen: the flash covers the viewport */
-  .room .flash{position:fixed;inset:0;z-index:4}
-  /* overlays: a wide card over the room while the walls are closed; over the walls pane while they are open */
-  .plaque,.plank-over,.overlay{left:8%;right:8%;top:52px;bottom:8px;max-height:none}
-  .plank-over{top:60px;left:22%;right:22%}
-  .app.open .plaque,.app.open .plank-over,.app.open .overlay{left:calc(50% + 6px);right:8px}
-  /* the plaque in three parts: the icon and the rarity left, the stats right, the date and TAP ANYWHERE at the bottom */
-  .plaque{display:grid;grid-template-columns:minmax(150px,34%) minmax(0,1fr);column-gap:14px;align-content:start}
-  .plaque .banner,.plaque .foot,.plaque .why{grid-column:1/-1}
-  .plaque .side{grid-column:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;align-self:stretch}
-  .plaque .main{grid-column:2;min-width:0;align-self:center}
-  .plaque .art canvas{width:132px;height:132px}
-  .plaque .rarity{display:inline-flex}
-  .plaque h2,.plaque .kindline,.plaque .flavor,.plaque .line,.plaque .named{text-align:left}
-  .plaque .flavor{margin-left:0;margin-right:0}
-  .plaque .meta{justify-content:flex-start}
-  .plaque .main .bars{margin-left:0;margin-right:0}
-  .plaque .foot{text-align:center;display:flex;flex-direction:column;gap:2px}
-  .plaque .foot .btnrow{order:1;display:flex;gap:6px;align-items:stretch}
-  .plaque .foot .btnrow .pbtns{flex:1;margin-top:6px}
-  .plaque .foot .btnrow .tryit{flex:1;width:auto;margin-top:6px;min-height:40px}
-  .plaque .foot .pbtns button{min-height:40px}
-  .plaque .foot .disc.up{display:none}
-  .plaque .foot .disc.land{display:block;order:2;margin-top:4px;text-align:center}
-  .plaque .foot .tapon{display:block;order:3}
-  .plaque #hang{display:none}
-  .setplank{left:8px;right:8px;top:52px}
-  .set-rows{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .bench{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-@media (max-width:440px){.sign{padding:6px 6px}}
+/* the turn plate: a phone held upright (the cellar's), fixed to the viewport, above the frame */
+.turn{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:calc(18px + var(--st)) 18px calc(18px + var(--sb));text-align:center;background:rgba(24,20,37,.96)}
+.turn canvas{width:96px;height:96px}
+.turn b{font-family:var(--display);font-weight:800;font-size:27px;line-height:1.05;color:var(--parch)}
+.turn p{margin:0;max-width:300px;font-size:14.5px;color:var(--mute)}
+.turn button{width:min(88%,320px);min-height:44px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--parch)}
+.turn button.primary{color:var(--soot)}
+.turn button canvas{width:16px;height:16px;vertical-align:-2px;margin-right:6px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.pour.holding .fill{width:100%}}
 .still *{animation:none!important;transition:none!important}
 .still .pour.holding .fill{width:100%}
 </style>
 </head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="4c2dd08" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="c4f6132" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -390,7 +376,6 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <div class="roompane" id="roompane">
       <div class="room" id="room">
         <canvas id="scene" aria-label="The smithy: a hearth with a live fire, the anvil in front of it and the crucible over the flames"></canvas>
-        <div class="flash"></div>
         <div class="sparks" id="sparks" aria-hidden="true"></div>
         <button class="crucplate" id="crucPlate">Wakes at level 25</button>
         <button class="cellardoor" id="cellarDoor" aria-label="Go down to the Training Cellar with your weapons"><span class="cellarplate">↓ Cellar</span></button>
@@ -440,6 +425,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
         <div id="ledgerBody"></div>
       </div>
     </div>
+    <div class="flash"></div>
     <div class="plaque f-parch" id="plaque" hidden></div>
     <div class="plaque gold f-gold" id="legendPlaque" hidden></div>
     <div class="plank-over f-parch" id="termsPlank" hidden role="dialog" aria-label="The Smith's Naming Terms"></div>
@@ -451,7 +437,17 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
       <h3>Settings</h3>
       <div id="setBody"></div>
     </div>
-</div></div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+</div>
+<div class="turn" id="turnPlate" hidden role="dialog" aria-label="Turn your phone sideways">
+  <canvas id="turnPhone" width="32" height="32" role="img" aria-label="A phone tipping onto its side"></canvas>
+  <b>Turn your phone sideways</b>
+  <p>The Forge is played in landscape.</p>
+  <button class="f-ember primary" id="tFull" hidden>Play full screen</button>
+  <button class="f-iron" id="tForce">My screen won't turn</button>
+  <button class="f-iron" id="tHome"><canvas data-glyph="house" aria-hidden="true"></canvas>Main menu</button>
+</div>
 <!-- the developer's bench (design passes 2 to 6), moved into Settings under Developer by design pass 11; settings.js places it -->
 <div class="bench" id="bench" hidden>
   <div class="k">Developer · the bench</div>
@@ -465,12 +461,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
   <p class="info" id="worldLine">World: this page only</p>
   <p class="info" id="info"></p>
 </div>
-<div class="toast" id="toast" role="status"></div>
 
 <script>window.__errors = []; (function () { var note = function (m) { window.__errors.push(m); if (document.body) document.body.setAttribute("data-errors", String(window.__errors.length)); };
   window.addEventListener("error", function (e) { note(String(e.message) + (e.error && e.error.stack ? " @ " + String(e.error.stack).split("\n").slice(1, 3).join(" ") : " @ " + e.filename + ":" + e.lineno)); });
-  window.addEventListener("unhandledrejection", function (e) { note("unhandled: " + String(e.reason)); });
-  var p = new URLSearchParams(location.search).get("pointer"); if (p === "coarse" || p === "fine") document.documentElement.classList.add(p); })();</script>
+  window.addEventListener("unhandledrejection", function (e) { note("unhandled: " + String(e.reason)); }); })();</script>
 <script src="spec/grammar.js"></script>
 <script src="spec/things.js"></script>
 <script src="spec/shop.js"></script>

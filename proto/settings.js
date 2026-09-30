@@ -25,7 +25,7 @@
   // the four switches the whole game reads. left-handed keeps its "0" (the cellar's own menu writes it that way)
   const SWITCHES = [
     { name: "lefty", key: KEYS.lefty, label: "Left-handed", hint: "The stick on the right in the Battlegrounds", write: on => on ? "1" : "0" },
-    { name: "forced", key: KEYS.forced, label: "My screen won't turn", hint: "The Battlegrounds turn the game for you" },
+    { name: "forced", key: KEYS.forced, label: "My screen won't turn", hint: "The game turns for you" },
     { name: "motion", key: KEYS.motion, label: "Less motion", hint: "A still fire, no shake, no flashes" },
     { name: "pour", key: KEYS.pour, label: "Tap to pour", hint: "The Crucible pours on a tap, not a hold" }
   ];

@@ -119,16 +119,17 @@
     return { rgba: data, W, H, stars, sun, hy, skyBottom, ridges, pines };
   }
 
-  // mount(canvas, { still, seed }): the vista over the whole viewport at a whole number of device pixels per world pixel, repainted
-  // by refit() when the viewport changes; the stars twinkle on the 8-a-second clock unless still
+  // mount(canvas, { still, seed, size }): the vista over the whole viewport (or the box `size()` returns in CSS pixels: the menu's game
+  // root, which may be turned a quarter) at a whole number of device pixels per world pixel, repainted by refit() when the viewport
+  // changes; the stars twinkle on the 8-a-second clock unless still
   function mount(canvas, o) {
     o = o || {};
     const seed = o.seed === undefined ? SEED : o.seed, still = !!o.still;
     const ctx = canvas.getContext("2d");
     const st = { stopped: false, frame: 0, layout: null, stars: [], base: null, img: null };
     function refit() {
-      const vv = root.visualViewport;
-      const cw = Math.max(1, Math.round(vv ? vv.width : root.innerWidth)), ch = Math.max(1, Math.round(vv ? vv.height : root.innerHeight));
+      const vv = root.visualViewport, want = typeof o.size === "function" ? o.size() : null;
+      const cw = Math.max(1, Math.round(want ? want.w : (vv ? vv.width : root.innerWidth))), ch = Math.max(1, Math.round(want ? want.h : (vv ? vv.height : root.innerHeight)));
       const dpr = root.devicePixelRatio || 1, devW = Math.round(cw * dpr), devH = Math.round(ch * dpr);
       const k = kFor(devW, devH), W = Math.max(1, Math.ceil(devW / k)), H = Math.max(1, Math.ceil(devH / k));
       canvas.width = W; canvas.height = H;
