@@ -7,7 +7,7 @@
     level: "The Crucible wakes at level 25",
     weapons: "Put two weapons in the molds",
     locked: cls => "You can only fuse what you can wield: the " + cls[0].toUpperCase() + cls.slice(1) + " rack is chained",
-    ember: "You need a Legend Ember: bosses drop them, and the Trader sells them",
+    ember: "You need a Legend Ember: bosses, chests and rare enemies drop them in the Battlegrounds",
     offline: "The Crucible needs the world: connect to fuse"
   };
   function crucibleCheck(left, right, profile, G, online) {

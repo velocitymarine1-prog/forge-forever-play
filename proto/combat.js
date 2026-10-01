@@ -1,8 +1,9 @@
 // FORGE FOREVER: the combat rules of the Battlegrounds (design pass 7 section 3.8, revised by card t64; built by card t65).
 // What a weapon does when it is used: its numbers in units, the aim, the ten forms (slash, thrust, smash, shoot, stream, lob, orbit,
 // field, trap, summon), the hit (affinity, crits, mark, combo, charge), the twelve statuses, the 31 modifiers (each with its main
-// effect and its fallback for the other forms), a legend's second form on every third blow, and the training dummies (the wobble,
-// the rail, the armored dummy's resistances, the quintain that hits back).
+// effect and its fallback for the other forms), a legend's ability (design pass 10: a legend strikes with its body's form on every
+// blow, and its head's class gives it one of the twenty abilities of spec/abilities.json on a button of its own, with a cooldown per
+// hand), and the training dummies (the wobble, the rail, the armored dummy's resistances, the quintain that hits back).
 //
 // The rules are pure: no DOM, no canvas, no clock, no Math.random. A fight is plain state; step(fight, dt, input) moves it on by dt
 // and returns what happened as events. The same seed and the same inputs give the same events, byte for byte, so every weapon is
@@ -12,9 +13,11 @@
 // Every number lives in spec/combat.json (window.FORGE_COMBAT). Positions are world pixels on the floor, y growing down the screen;
 // a thing's height is drawn up the screen, so a chest is struck at (x, y - chest). Angles are radians, 0 to the right, clockwise.
 //
-//   Combat.units(weapon)                  the weapon's numbers in units, its modifiers applied (u.second: the second form's)
+//   Combat.units(weapon)                  the weapon's numbers in units, its modifiers applied (u.second: the second form's, kept
+//                                         on the record and no longer played)
+//   Combat.abilityUnits(legend)           a legend's ability in units (null for anything else): its numbers in the ability's form
 //   Combat.newFight(area, loadout, seed)  a fight in an area ({ w, h, floor, dummies, knight }) with one or two weapons
-//   Combat.step(fight, dt, input)         input = { move: [x, y], strike, swap, dodge }  (tests may add target and face)
+//   Combat.step(fight, dt, input)         input = { move: [x, y], strike, swap, dodge, ability }  (tests may add target and face)
 //   Combat.hold(fight, anim, frame)       where the weapon sits on the knight's hand, for the screen and for a shot's start
 //
 // Plain script, defines window.Combat (module.exports in node). Reads proto/pixel-forge.js and proto/knight.js when they are loaded
@@ -28,7 +31,10 @@
   function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   let DATA = null;
   function data() { if (!DATA) DATA = root.FORGE_COMBAT; if (!DATA) throw new Error("combat.js needs spec/combat.js (window.FORGE_COMBAT)"); return DATA; }
-  function use(spec) { DATA = spec; }
+  function use(spec, abilities) { DATA = spec; if (abilities) ABIL = abilities; }
+  // a legend's ability (design pass 10): the head's class decides it; spec/abilities.json holds all twenty
+  let ABIL = null;
+  function abilities() { if (!ABIL) ABIL = root.FORGE_ABILITIES || { classes: {} }; return ABIL.classes || {}; }
   const isRule = v => !!v && typeof v === "object";
   const NUMBERS = ["damage", "rate", "range", "speed", "area", "duration", "knockback", "crit"];
   const RANGES = ["reach", "shot", "streamLen", "lobDist", "orbitR", "throwD", "minionReach"];
@@ -56,7 +62,7 @@
       if (second && C.statuses[mine].element) element = C.statuses[mine].element;
       statuses = [mine];
     }
-    const u = { id: t && t.id, form, isSecond: !!second, second: null, element, statuses, mods, base: v.base || "sword", fuse: isFused(v) ? v.fuse : null, material: v.material || "steel",
+    const u = { id: t && t.id, form, isSecond: !!second, second: null, element, statuses, mods, over: {}, base: v.base || "sword", fuse: isFused(v) ? v.fuse : null, material: v.material || "steel",
       n, notes, K: F.K, melee, critX: C.critX, speed: 1, size: 1, spin: false, width: C.forms.thrust.width, touch: C.forms.orbit.touch, shotR: C.projectiles.radius };
     for (const key of Object.keys(C.units)) { const d = C.units[key]; if (!isRule(d)) continue; u[key] = d.div ? d.base + Math.floor(n[d.of] / d.div) : d.base + d.per * n[d.of]; }
     u.shotKind = shotKind(u, v, second);
@@ -88,6 +94,28 @@
     return P.kinds[u.fuse || u.base] || P.kinds[u.base] || P.other;
   }
   function units(t) { const u = unitsFor(t, false), w = (t && t.weapon) || {}; u.second = w.form2 ? unitsFor(t, true) : null; return u; }
+  // a modifier's numbers for these units: the ability's own when it has them
+  const mo = (u, m) => (u && u.over && u.over[m]) || data().modifiers[m];
+  // the ability's units: the legend's numbers played in the ability's form, carrying the legend's second status (its first when it has
+  // one) in that status's element, plus the ability's own status (at most two), the legend's modifiers plus the ability's; then the
+  // ability's set, times and over. null for a weapon that isn't a legend (or a head with no ability)
+  function abilityUnits(t) {
+    const C = data(), w = (t && t.weapon) || {}, v = w.visual || {};
+    const A = isFused(v) ? abilities()[v.fuse] : null;
+    if (!A || !isRule(C.forms[A.form])) return null;
+    const st = (w.status || []).filter(x => isRule(C.statuses[x])), mine = st.length > 1 ? [st[1]] : st.slice(0, 1);
+    if (A.status && isRule(C.statuses[A.status]) && !mine.includes(A.status)) mine.push(A.status);
+    const carried = mine[0] && C.statuses[mine[0]] && C.statuses[mine[0]].element;
+    const rec = { id: (t.id || "legend") + "#ability", weapon: Object.assign({}, w, { form: A.form, form2: null, status: mine.slice(0, 2),
+      modifiers: Array.from(new Set((w.modifiers || []).concat(A.add || []))), element: st.length > 1 && carried ? carried : (w.element || "physical") }) };
+    const u = unitsFor(rec, false);
+    u.over = Object.assign({}, A.over || {});
+    for (const k of Object.keys(A.set || {})) u[k] = A.set[k];
+    for (const k of Object.keys(A.times || {})) if (typeof u[k] === "number") u[k] *= A.times[k];
+    if (A.shot) { u.shotKind = A.shot; if (C.projectiles.byKind[A.shot]) u.shotR = C.projectiles.byKind[A.shot]; }
+    u.ability = A; u.isAbility = true;
+    return u;
+  }
 
   // ------------------------------------------------------------------ a fight
   // area: { w, h, floor: { x0, x1, y0, y1 }, dummies: [{ kind, x, y, a, rail, resist, weak, immune }], knight: { start: [x, y], face (degrees) },
@@ -103,14 +131,15 @@
     const kn = area.knight || {}, start = kn.start || [floor.x0 + 20, (floor.y0 + floor.y1) / 2];
     const fight = { t: 0, steps: 0, seed: seed >>> 0, rand: rng((seed >>> 0) || 1), crits: opts.crits !== false && area.crits !== false, W, H, floor, walls,
       k: { x: start[0], y: start[1], face: (kn.face === undefined ? 0 : kn.face) * RAD, active: 0, moving: false, walkT: 0, strike: null, twinQ: null, pressed: false, lastSwap: false, lastDodge: false,
-        streamOn: false, holdT: 0, stream: null, gout: null, charging: false, chargeT: 0, bonk: 0, shove: null, dodge: 0, dodgeCd: 0, safe: 0, dvx: 0, dvy: 0, swapT: 0, lunge: null, trailT: 0 },
+        streamOn: false, holdT: 0, stream: null, gout: null, charging: false, chargeT: 0, bonk: 0, shove: null, dodge: 0, dodgeCd: 0, safe: 0, dvx: 0, dvy: 0, swapT: 0, lunge: null, trailT: 0,
+        lastAbility: false, abQ: null, guardT: 0 },
       hands: [], dummies: [], shots: [], traps: [], minions: [], patches: [], live: [], events: [], logged: {}, board: { last: null, name: "", log: [], dps: 0 }, nextId: 1 };
     for (const t of (loadout || []).slice(0, 2)) if (t && t.weapon) fight.hands.push(newHand(t));
     if (!fight.hands.length) throw new Error("a fight needs a weapon in hand");
     (area.dummies || []).forEach((d, i) => fight.dummies.push(newDummy(d, i)));
     return fight;
   }
-  function newHand(t) { const u = units(t); return { thing: t, u, u2: u.second, cd: 0, recover: 0, recoverOf: 0, count: 0, lungeCd: 0, orbit: null, aura: null, practice: !!t.practice }; }
+  function newHand(t) { const u = units(t); return { thing: t, u, u2: u.second, ua: abilityUnits(t), acd: 0, acdOf: 1, cd: 0, recover: 0, recoverOf: 0, count: 0, lungeCd: 0, orbit: null, aura: null, practice: !!t.practice }; }
   function newDummy(d, i) {
     const C = data(), Z = isRule(C.dummies[d.kind]) ? C.dummies[d.kind] : C.dummies.straw;
     const o = { i, kind: isRule(C.dummies[d.kind]) ? d.kind : "straw", name: Z.name, x: d.x, y: d.y, r: Z.r, chest: Z.chest, head: Z.head, eyes: Z.eyes, size: Z.size, shadow: Z.shadow, puff: Z.puff,
@@ -145,7 +174,7 @@
   function aim(fight, u, want, not) {
     const C = data(), k = fight.k, [ox, oy] = chestOf(fight);
     if (want !== undefined && want !== null && fight.dummies[want]) { const d = fight.dummies[want], p = hitPoint(d); return { a: Math.atan2(p[1] - oy, p[0] - ox), d }; }
-    const seeking = u.mods.has("seeking"), lim = (reachOf(u) + (u.mods.has("lunge") && u.melee ? C.modifiers.lunge.dash : 0)) * C.aim.stretch, cone = C.aim.cone * RAD;
+    const seeking = u.mods.has("seeking"), lim = (reachOf(u) + (u.mods.has("lunge") && u.melee ? mo(u, "lunge").dash : 0)) * C.aim.stretch, cone = C.aim.cone * RAD;
     let best = null, bd = Infinity;
     for (const d of fight.dummies) {
       if (d === not) continue;
@@ -219,7 +248,8 @@
   // ------------------------------------------------------------------ the knight: walking, the dodge, swapping, striking
   function knightStep(fight, dt, inp) {
     const C = data(), k = fight.k, KN = C.knight;
-    for (const h of fight.hands) { h.cd -= dt; if (h.recover > 0) h.recover = Math.max(0, h.recover - dt); if (h.lungeCd > 0) h.lungeCd -= dt; }
+    for (const h of fight.hands) { h.cd -= dt; if (h.recover > 0) h.recover = Math.max(0, h.recover - dt); if (h.lungeCd > 0) h.lungeCd -= dt; if (h.acd > 0) { h.acd = Math.max(0, h.acd - dt); if (h.acd === 0) emit(fight, { type: "ready", hand: fight.hands.indexOf(h) }); } }
+    if (k.guardT > 0) k.guardT = Math.max(0, k.guardT - dt);
     if (k.dodgeCd > 0) k.dodgeCd -= dt;
     if (k.safe > 0) k.safe -= dt;
     // swapping takes 0.3 s: the knight sheathes and draws
@@ -268,7 +298,13 @@
     const held = !!inp.strike, pressed = held && !k.pressed;
     k.pressed = held;
     const F = C.forms[u.form], ready = k.swapT <= 0 && !k.strike && !k.gout;
-    const next = () => !!hand.u2 && hand.count % 3 === 2;   // a legend's third blow (or press) is its second form
+    const next = () => false;   // design pass 10: a legend strikes with its body's form only; its head gives the ability
+    // the ability: a press, when the hand has one and its clock is done; a blow in progress is cut short, as a dodge cuts it
+    const abil = !!inp.ability && !k.lastAbility; k.lastAbility = !!inp.ability;
+    // the queued plays of an ability (Frenzy's rakes, the Snare Line's traps...) come gap apart: the queue is stepped before a press
+    // starts one, so the press's own frame doesn't count against the first gap
+    if (k.abQ) { k.abQ.t -= dt; if (k.abQ.t <= 0 && (!k.strike || k.strike.done)) { const Q = k.abQ; Q.left--; Q.t = Q.gap; if (Q.left <= 0) k.abQ = null; playAbility(fight, hand, Q.ua, Q.i++, inp.target); } }
+    if (abil && hand.ua && hand.acd <= 0 && k.swapT <= 0) { useAbility(fight, hand, inp.target); }
     // a blow was struck with the units fu: it counts, and a blow of a repeating form starts the hand's cooldown (1 / rate, the overshoot
     // of the last one carried, so a held Strike keeps the weapon's rate exactly)
     const did = fu => { if (!fu) return; hand.count++; if (C.forms[fu.form].blow) hand.cd = Math.max(hand.cd, -dt) + 1 / fu.rate; };
@@ -300,6 +336,30 @@
     if (k.strike) strikeStep(fight, dt);
     // twin: every blow repeats 0.15 s later (once the first has landed)
     if (k.twinQ) { k.twinQ.t -= dt; if (k.twinQ.t <= 0 && (!k.strike || k.strike.done)) { const q = k.twinQ; k.twinQ = null; if (k.swapT <= 0) { startStrike(fight, q.fu, q.want, true, q.charge, q.first); strikeStep(fight, 0); } } }
+  }
+  function useAbility(fight, hand, want) {
+    const k = fight.k, ua = hand.ua, A = ua.ability;
+    k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; stopStream(fight);
+    hand.acd = A.cooldown; hand.acdOf = A.cooldown;
+    emit(fight, { type: "ability", name: A.name, hand: k.active, x: k.x, y: k.y, el: ua.element });
+    playAbility(fight, hand, ua, 0, want);
+    if ((A.n || 1) > 1) k.abQ = { left: A.n - 1, gap: A.gap || 0.1, t: A.gap || 0.1, i: 1, ua };
+    return true;
+  }
+  // one play of an ability: nova (a burst around the knight), guard (a blocking window, then the blow), line (a trap a step further each
+  // play), or one blow of the ability's form at its damage factor
+  function playAbility(fight, hand, ua, i, want) {
+    const C = data(), k = fight.k, A = ua.ability, x = A.x || 1;
+    if (A.special === "nova") { burst(fight, k.x, k.y, ua.fieldR, ua.hit * ua.K * x, "field", ua); return; }
+    if (A.special === "guard") k.guardT = ua.guardT || 2;
+    if (A.special === "line") { const d0 = ua.throwD; ua.throwD = d0 + i * ((ua.over.line || {}).step || 24); hand.cd = 0; placeTrap(fight, hand, ua, want, x); ua.throwD = d0; hand.cd = 0; return; }
+    const F = C.forms[ua.form];
+    if (F.blow) { startStrike(fight, ua, want, false, x); strikeStep(fight, 0); return; }
+    if (ua.form === "stream") { startGout(fight, ua, want, x); if (ua.goutT) k.gout.T = ua.goutT; return; }
+    if (ua.form === "orbit") { hand.orbit = null; hand.recover = 0; startOrbit(fight, hand, ua, x); return; }
+    if (ua.form === "field") { hand.aura = null; hand.recover = 0; startAura(fight, hand, ua, x); return; }
+    if (ua.form === "trap") { hand.cd = 0; placeTrap(fight, hand, ua, want, x); hand.cd = 0; return; }
+    if (ua.form === "summon") { const hi = fight.hands.indexOf(hand); fight.minions = fight.minions.filter(m => m.owner !== hi); summon(fight, hand, ua, x); }
   }
   function stopStream(fight) { const k = fight.k; if (k.streamOn) emit(fight, { type: "stream", on: false, hand: k.active }); k.streamOn = false; k.stream = null; }
   // the knight is a circle of radius 6 at its feet: pushed out of the dummies' bases, then kept on the floor; when both bind (a dummy
@@ -349,12 +409,13 @@
     const s = k.strike = { form: fu.form, fu, hand: k.active, t: 0, wind: F.wind, act: F.act, dur: F.dur, a: am.a, target: am.d, done: false, twin: !!isTwin, charge: charge || 1 };
     k.face = am.a;
     // lunge: close the gap before a melee blow
-    if (fu.mods.has("lunge") && fu.melee && am.d && hand.lungeCd <= 0) {
+    const LG = Object.assign({}, M.lunge, (fu.over || {}).lunge || {});
+    if (fu.mods.has("lunge") && fu.melee && am.d && (hand.lungeCd <= 0 || fu.isAbility)) {
       const p = hitPoint(am.d), [ox, oy] = chestOf(fight), dd = dist(ox, oy, p[0], p[1]);
-      if (dd > fu.reach && dd <= fu.reach + M.lunge.dash) {
-        const go = Math.min(M.lunge.dash, dd - fu.reach + M.lunge.past);
-        k.lunge = { t: 0, T: M.lunge.time, x0: k.x, y0: k.y, x1: k.x + Math.cos(am.a) * go, y1: k.y + Math.sin(am.a) * go };
-        s.wind = M.lunge.wind; hand.lungeCd = M.lunge.cooldown;
+      if (dd > fu.reach && dd <= fu.reach + LG.dash) {
+        const go = Math.min(LG.dash, dd - fu.reach + LG.past);
+        k.lunge = { t: 0, T: LG.time, x0: k.x, y0: k.y, x1: k.x + Math.cos(am.a) * go, y1: k.y + Math.sin(am.a) * go };
+        s.wind = LG.wind; if (!fu.isAbility) hand.lungeCd = LG.cooldown;
         emit(fight, { type: "fx", kind: "dash", x: k.x, y: k.y, a: am.a });
       }
     }
@@ -402,8 +463,10 @@
         if (hits.length) { const p = hitPoint(hits[0][1]); emit(fight, Object.assign({ type: "fx", kind: "star", x: p[0] - ca * 5, y: p[1] - sa * 5 }, look)); }
       }
     } else if (s.form === "smash") {
-      const cx = u.spin ? ox : ox + Math.cos(s.a) * u.reach, cy = u.spin ? oy : oy + Math.sin(s.a) * u.reach, r = u.spin ? u.reach : u.burst;
-      const gy = u.spin ? k.y : k.y + Math.sin(s.a) * u.reach * 0.6 + 2;
+      // land (the Wrecking Ball): the blow comes down on the foe it aims at, up to its reach
+      const R = u.land && s.target ? Math.min(u.reach, Math.max(0, dist(ox, oy, hitPoint(s.target)[0], hitPoint(s.target)[1]))) : u.reach;
+      const cx = u.spin ? ox : ox + Math.cos(s.a) * R, cy = u.spin ? oy : oy + Math.sin(s.a) * R, r = u.spin ? u.reach : u.burst;
+      const gy = u.spin ? k.y : k.y + Math.sin(s.a) * R * 0.6 + 2;
       emit(fight, Object.assign({ type: "fx", kind: u.spin ? "whirl" : "ring", x: cx, y: gy, r }, look));
       if (!u.spin) emit(fight, { type: "fx", kind: "crack", x: cx, y: gy, seed: fight.steps });
       emit(fight, { type: "shake", amp: C.forms.smash.shake, time: C.feel.shakeT });
@@ -437,13 +500,13 @@
   }
   function shoot(fight, s) {
     const C = data(), u = s.fu, M = C.modifiers, [x, y] = tip(fight);
-    const n = u.mods.has("spread") ? M.spread.shots : 1, fan = M.spread.fan * RAD;
+    const SP = Object.assign({}, M.spread, (u.over || {}).spread || {}), n = u.mods.has("spread") ? SP.shots : 1, fan = SP.fan * RAD;
     let a0 = s.a; if (s.target) { const hp = hitPoint(s.target); a0 = Math.atan2(hp[1] - y, hp[0] - x); }
     for (let i = 0; i < n; i++) {
       const a = a0 + (n > 1 ? (i - (n - 1) / 2) * fan / (n - 1) : 0);
       const p = addShot(fight, { kind: u.shotKind, x, y, a, v: u.pspeed, range: u.shot * (u.mods.has("bounce") ? M.bounce.travel : 1), reach: u.shot, target: s.target, fu: u, hand: s.hand, el: u.element, mat: u.material,
-        amount: u.hit * u.K * s.charge, r: u.shotR, size: u.size, pierce: u.mods.has("pierce") ? M.pierce.through : 0, phasing: u.mods.has("phasing"),
-        homing: u.mods.has("homing") ? M.homing.turn : u.mods.has("seeking") ? M.seeking.turn : 0, boomerang: u.mods.has("boomerang"), mult: n > 1 ? M.spread.each : 1,
+        amount: u.hit * u.K * s.charge, r: u.shotR, size: u.size, pierce: u.mods.has("pierce") ? mo(u, "pierce").through : 0, phasing: u.mods.has("phasing"),
+        homing: u.mods.has("homing") ? M.homing.turn : u.mods.has("seeking") ? M.seeking.turn : 0, boomerang: u.mods.has("boomerang"), mult: n > 1 ? SP.each : 1,
         split: u.mods.has("split"), ricochet: u.mods.has("ricochet") ? M.ricochet.turns : 0, bounce: u.mods.has("bounce") ? M.bounce.walls : 0, form: s.form });
       emit(fight, { type: "shot", id: p.id, kind: p.kind, x, y, a, el: u.element });
     }
@@ -455,7 +518,7 @@
   }
   function lob(fight, s) {
     const C = data(), k = fight.k, u = s.fu, M = C.modifiers, F = C.forms.lob, [x, y] = tip(fight);
-    const n = u.mods.has("spread") ? M.spread.shots : 1, fan = M.spread.fan * RAD;
+    const SP = Object.assign({}, M.spread, (u.over || {}).spread || {}), n = u.mods.has("spread") ? SP.shots : 1, fan = SP.fan * RAD;
     for (let i = 0; i < n; i++) {
       const turn = n > 1 ? (i - (n - 1) / 2) * fan / (n - 1) : 0;
       let tx, ty, T;
@@ -469,7 +532,7 @@
       [tx, ty] = onFloor(fight, tx, ty);   // aimed at a wall, it lands at the nearest floor point
       const d = dist(k.x, k.y, tx, ty); T = Math.max(F.minT, d / u.pspeed);
       const p = addShot(fight, { kind: "shell", x0: x, y0: k.y, sx: x, sy: y, x: x, y: y, tx, ty, T, age: 0, h: Math.max(F.minRise, d * F.rise), gx: x, gy: k.y, z: k.y - y, fu: u, hand: s.hand, el: u.element, mat: u.material,
-        amount: u.hit * u.K * s.charge * (n > 1 ? M.spread.each : 1), a: Math.atan2(ty - k.y, tx - k.x), size: u.size, hops: u.mods.has("bounce") ? 1 : 0, form: "lob" });
+        amount: u.hit * u.K * s.charge * (n > 1 ? SP.each : 1), a: Math.atan2(ty - k.y, tx - k.x), size: u.size, hops: u.mods.has("bounce") ? 1 : 0, form: "lob" });
       emit(fight, { type: "shot", id: p.id, kind: "shell", x, y, a: p.a, el: u.element });
     }
   }
@@ -767,7 +830,7 @@
     if (direct) d.flash = FEEL.flash;
     // the push and the pull: the rail dummy slides along its rail, the quintain's arm turns (0.15 rad/s per point of damage, 0.1 per
     // pixel of push), a dummy on a post wobbles
-    const pull = u.mods.has("pull") ? M.pull.px * share : 0, to = o.centre && !o.own ? o.centre : [k.x, k.y], Q = C.dummies.quintain, W = C.wobble;
+    const pull = u.mods.has("pull") ? mo(u, "pull").px * share : 0, to = o.centre && !o.own ? o.centre : [k.x, k.y], Q = C.dummies.quintain, W = C.wobble;
     if (d.rail) { if (!d.st.freeze && !d.st.stun && (push > 0 || pull > 0)) d.x = clamp(d.x + Math.cos(ang) * push + Math.sign(to[0] - d.x) * Math.min(pull, Math.abs(to[0] - d.x)), d.rail.x0, d.rail.x1); }
     else if (d.arm) { if (direct) d.arm.w += (Q.perDamage * dmg + Q.perPush * push) * (Math.sin(angDiff(ang, d.arm.a)) >= 0 ? 1 : -1); }
     else d.wv += (Math.sign(Math.cos(ang) || 1) * (W.kick + push * W.perPush) - Math.sign(to[0] - d.x) * pull * W.perPush) * W.gain * share;
@@ -776,7 +839,7 @@
     const strength = o.kind === "tick" ? dmg / share : dmg;
     for (const s of u.statuses) { if (d.immune.includes(s)) { emit(fight, { type: "immune", d: d.i, status: s, x: hp[0], y: hp[1] }); continue; } applyStatus(fight, d, s, strength, u, o); }
     if (u.mods.has("sticky")) d.st.sticky = { t: M.sticky.time };   // hits slow the target 40 % for 1 s
-    if (u.mods.has("vampiric")) emit(fight, { type: "heal", amount: dmg * M.vampiric.heal, why: "vampiric", x: k.x, y: k.y });
+    if (u.mods.has("vampiric")) emit(fight, { type: "heal", amount: dmg * mo(u, "vampiric").heal, why: "vampiric", x: k.x, y: k.y });
     if (u.mods.has("ignite_ground")) patch(fight, "fire", d.x, d.y, M.ignite_ground.radius, u.statusT, u);
     if (u.mods.has("frost_trail")) patch(fight, "frost", d.x, d.y, M.frost_trail.radius, u.statusT, u);
     if (o.ghost) return e;   // a ghost copy carries the statuses; it doesn't burst or jump
@@ -856,6 +919,7 @@
           arm.cool = Q.again;
           const facing = Math.abs(angDiff(Math.atan2(d.y - k.y, d.x - k.x), k.face)) < Math.PI / 2;
           if (st.blind && fight.rand() < S.blind.miss) emit(fight, { type: "miss", x: k.x, y: k.y, d: d.i });   // a blinded quintain misses half the time
+          else if (k.guardT > 0) { arm.w = -arm.w; emit(fight, { type: "block", x: k.x, y: k.y, bx: (bx + k.x) / 2, by: k.y - 14, d: d.i }); emit(fight, { type: "reflect", x: k.x, y: k.y, d: d.i }); }
           else if (u.mods.has("guard") && facing) { arm.w = -arm.w * Q.blockBack; emit(fight, { type: "block", x: k.x, y: k.y, bx: (bx + k.x) / 2, by: k.y - 14, d: d.i }); }
           else if (u.mods.has("reflect")) { arm.w = -arm.w; emit(fight, { type: "reflect", x: k.x, y: k.y, d: d.i }); }
           else {
@@ -872,12 +936,12 @@
   function reset(fight) {
     for (const d of fight.dummies) { d.st = {}; d.wob = 0; d.wv = 0; d.flash = 0; d.combo = null; d.chill = false; if (d.arm) { d.arm.w = 0; d.arm.cool = 0; } }
     fight.shots = []; fight.traps = []; fight.minions = []; fight.patches = [];
-    for (const h of fight.hands) { h.orbit = null; h.aura = null; h.recover = 0; h.cd = 0; }
+    for (const h of fight.hands) { h.orbit = null; h.aura = null; h.recover = 0; h.cd = 0; h.acd = 0; }
     fight.board = { last: null, name: "", log: [], dps: 0 };
-    const k = fight.k; k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; stopStream(fight);
+    const k = fight.k; k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.guardT = 0; stopStream(fight);
     return fight;
   }
 
-  root.Combat = { units, unitsFor, newFight, step, hold, tip, aim, animOf, weaponPose, facingOf, hitPoint, reachOf, setHand, addHand, reset, affinity, railAhead, use, rng, FACINGS, NUMBERS };
+  root.Combat = { abilityUnits, abilities, units, unitsFor, newFight, step, hold, tip, aim, animOf, weaponPose, facingOf, hitPoint, reachOf, setHand, addHand, reset, affinity, railAhead, use, rng, FACINGS, NUMBERS };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Combat;
 })(typeof window !== "undefined" ? window : globalThis);

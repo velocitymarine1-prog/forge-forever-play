@@ -3,22 +3,30 @@
 One game in three pages, in the browser. It opens on the **main menu** (the title over rolling mountains at dusk): Forge,
 Battlegrounds, General Settings.
 
-**The Forge** (`forge.html`). Put any two things on the anvil and see what they make: a weapon and an ingredient, two weapons (the
-left one is the base and takes one gift), two ingredients. From level 25 the Crucible melts two rare weapons into a legend, and the
-first smith to pour one may name it. The house on its sign goes back to the menu; the cog opens Settings.
+**The Forge** (`forge.html`). The smithy fills the screen wall to wall: the arch down to the Training Cellar on the left under the
+tool rack, the open door through to the Armory on the right, the hearth and the anvil between them. Put any two things on the anvil
+and strike: both fly into the fire, the room cuts in close, and the smith's hammer beats the glowing billet in slow, heavy blows until
+the world answers; the result comes out of the last blow onto its plaque (the rarity on its own coloured band, what it does in words,
+the stats, who forged it first, TAP ANYWHERE TO CONTINUE). A weapon and an ingredient, two weapons (the left one is the base and takes
+one gift), two ingredients. From level 25 the Crucible melts two rare weapons and a Legend Ember into a legend, and the first smith to
+pour one may name it. Legend Embers are found, never bought: bosses, chests and rare enemies in the Battlegrounds drop them. **The
+Armory** (through its door, or ARMORY on the sign) is a shelf for every weapon class with its weapons standing on it, a Legends tab
+newest first, the Roll of First Smiths and the Book of Kinds; any weapon opens its plaque. The house on the sign goes back to the
+menu; the cog opens Settings.
 
-**The Training Cellar** (`battlegrounds.html`), the first of the Battlegrounds. Go down through the low door in the smithy, with
+**The Training Cellar** (`battlegrounds.html`), the first of the Battlegrounds. Go down through the arch in the smithy, with
 **Try it in the cellar** on a new weapon's plaque, or from the menu. Walk a knight among the training dummies and swing, shoot,
-stream, lob, orbit, ward, trap and summon with anything you own. Nothing bleeds, nothing is used up, and nothing pays. The rack on
-the wall holds every weapon you own.
+stream, lob, orbit, ward, trap and summon with anything you own. A legend strikes with its body's weapon and has one ability from
+its head's class (Volley, Quake, Whirlwind…) on the gold button above Strike, with a cooldown. Nothing bleeds, nothing is used up,
+and nothing pays. The rack on the wall holds every weapon you own.
 
 Play: https://velocitymarine1-prog.github.io/forge-forever-play/
 
 Built for a phone held sideways, landscape only, and add it to the home screen: held upright, every page shows a turn plate, and
 if the screen won't turn (rotation lock) "My screen won't turn" turns the game for you. On a desktop: W A S D, J strikes, K swaps,
-L dodges, E uses the rack and the stairs, Esc opens the cellar's menu.
+L dodges, U plays a legend's ability, E uses the rack and the stairs, Esc opens the cellar's menu.
 
 This is a **world of one**: the pairs the seed ledger knows reveal the Forge Oracle's real results (the model wrote them once), and
 every other pair is the offline Combiner's provisional draft. Your smithy is saved in this browser. The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `c4f6132`.
+`tools/deploy.sh` from commit `679fcd4`.

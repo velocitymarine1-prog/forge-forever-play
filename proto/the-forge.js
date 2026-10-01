@@ -9,6 +9,12 @@
 // anvil the whole screen until a slot asks for the walls; a phone held upright sees the turn plate or, with My screen won't turn, the
 // frame turned a quarter; the house on the sign goes to the main menu through nav.js; the bench lives in Settings (settings.js)
 // under Developer; the handoff is written whenever the page is left.
+// Since build 4 (design pass 14) the room is the wide smithy (Smithy.mount with wide: true, 232 to 320 world pixels, the width the
+// pane's shape asks for): wall to wall sideways, the cellar's door on the left and the Armory's door on the right (it opens the book);
+// with the walls open the room keeps its height and is cut to the station. No "Wakes at level 25" plate: the Crucible's tab says it.
+// Build 4 also brings design pass 10 (card t67): the clean plaque (the rarity band, the traits in words, a legend's Strike and Ability
+// rows, no flavour and no placeholders), the Armory in place of the Ledger (a shelf per class, Legends by the date acquired, any
+// weapon's plaque again in view mode), and the Legend Ember found in the Battlegrounds only (spec/drops.json), never sold or given.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -26,6 +32,15 @@
   const FORM_VERB = { slash: "Slashes", thrust: "Thrusts", smash: "Smashes", shoot: "Shoots", stream: "Streams", lob: "Lobs", orbit: "Orbits", field: "Wards", trap: "Traps", summon: "Summons" };
   const FORM_LOW = { slash: "slashes", thrust: "thrusts", smash: "smashes", shoot: "shoots", stream: "streams", lob: "lobs", orbit: "orbits", field: "wards", trap: "traps", summon: "summons" };
   const CASE_SIGN = { apply: "+", gift: "▸", mix: "+", fuse: "✦" };
+  // the plaque's words for the grammar's (design pass 10 section 3.3.3): one readable line in place of the grammar's own tokens
+  const STATUS_WORD = { burn: "Burns", freeze: "Freezes", shock: "Shocks", poisoned: "Poisons", bleed: "Bleeds", slow: "Slows", stun: "Stuns", knockback: "Knocks back", blind: "Blinds", weaken: "Weakens", mark: "Marks", lifesteal: "Lifesteal" };
+  const MOD_WORD = { pierce: "Pierces", chain: "Chains", bounce: "Bounces", homing: "Homing", explode: "Explodes", split: "Splits", ricochet: "Ricochets", charge: "Charges", rapid: "Rapid", giant: "Giant", tiny: "Tiny", twin: "Twin", boomerang: "Returns", spread: "Spreads",
+    lunge: "Lunges", spin: "Spins", combo: "Combo", reach: "Long reach", guard: "Guards", reflect: "Reflects", vampiric: "Vampiric", crit: "Keen", heavy: "Heavy", light: "Light", sticky: "Sticky", seeking: "Seeking", phasing: "Phasing", pull: "Pulls", push: "Pushes",
+    ignite_ground: "Burning ground", frost_trail: "Frost trail" };
+  // a legend's ability (design pass 10 section 3.5): its head's class, from the right mold, gives it one of twenty (spec/abilities.js)
+  const AB = (window.FORGE_ABILITIES || { classes: {} }).classes || {};
+  const headOf = t => { const v = t && t.weapon && t.weapon.visual; return v && v.fuse && v.fuse !== v.base ? v.fuse : null; };
+  const abilityOf = t => AB[headOf(t)] || null;
   Smithy.installFrames();
 
   // ------------------------------------------------------------------ the world (things, rows, kinds), what you own, the smith
@@ -46,12 +61,16 @@
 
   const own = new Map();      // id -> { n, seq }
   let seq = 0;
-  function gain(id, n) { const o = own.get(id); if (o) { o.n += n || 1; } else own.set(id, { n: n || 1, seq: ++seq }); }
+  // when each thing was first acquired (design pass 10 section 3.4.2: the Legends tab sorts by it). gain writes the date the first time a
+  // thing is gained (not for gain(id, 0), which the cabinet uses to list a store's things); a save from before build 4 has none, and
+  // those legends sort last
+  const got = {};
+  function gain(id, n) { const o = own.get(id); if (o) { o.n += n || 1; } else own.set(id, { n: n || 1, seq: ++seq }); if ((n === undefined || n > 0) && !got[id]) got[id] = nowIso(); }
   function have(id) { const o = own.get(id); return o ? o.n : 0; }
   let profile = Progress.newProfile("isaac");
   const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false };
   const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
-    ledgerOpen: false, page: "ledger", filter: "all", rollWindow: "all", rollCache: null, kindsOpen: new Set(), lastCabKind: null, hold: null, wallsOpen: false, picking: false };
+    ledgerOpen: false, page: "ledger", armoryOpen: null, rollWindow: "all", rollCache: null, kindsOpen: new Set(), lastCabKind: null, hold: null, wallsOpen: false, picking: false };
   const svc = { url: null, player: null, smiths: 0, spare: null };
   const turn = { forced: window.Settings ? Settings.isOn("forced") : false, turned: false, plate: false };   // landscape only (amendment 9)
   const isForged = t => !!(t.parents && t.parents.length);
@@ -69,7 +88,7 @@
     const stock = {}; for (const [id, o] of own) stock[id] = o.n;
     const at = nowIso();
     const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
-    const data = { profile, stock, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players };
+    const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players };
     const put = d => { localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify(d)); session.savedAt = at; return true; };
     try { return put(data); }
     catch (e) {
@@ -91,7 +110,10 @@
       for (const p of (d.players || [])) if (p && p.id && !players.some(x => x.id === p.id)) players.push(p);
       for (const t of world.values()) if (F.isWeapon(t) && !t.base) t.base = F.baseOf(t, world);
       own.clear(); seq = 0;
-      for (const [id, n] of Object.entries(d.stock || {})) if (world.has(id)) gain(id, n);
+      // the dates acquired come back as saved, and none is invented: a thing the save has no date for stays undated
+      for (const k of Object.keys(got)) delete got[k];
+      for (const [id, at] of Object.entries(d.got || {})) if (typeof at === "string") got[id] = at;
+      for (const [id, n] of Object.entries(d.stock || {})) if (world.has(id)) { const had = got[id]; gain(id, n); if (!had) delete got[id]; }
       session.equipped = (d.equipped || []).filter(id => world.has(id));
       session.active = d.active | 0;
       session.assistTap = !!d.assist;
@@ -265,34 +287,34 @@
       save();
       return true;
     },
-    async run(level, boss, replay, things) {
+    // a run's pay (design pass 10 revision 1): XP and coins as always; Legend Embers only from what the run found (`finds`: gold
+    // chests, iron chests, rare enemies, quest Embers, by spec/drops.js), each chance rolled here; reaching level 25 gives none
+    async run(level, boss, replay, things, finds) {
       if (svc.url) {
-        const { code, body } = await api("POST", "/run", { player: svc.player, level, boss, replay, things });
+        const { code, body } = await api("POST", "/run", { player: svc.player, level, boss, replay, things, finds: finds || {} });
         if (code === 200) { await refreshProfile(); return body; }
         return null;
       }
       const before = profile.level;
-      const pay = Coin.runPay(level, boss, replay);
-      const ember = pay.ember || ((pay.ember_chance && Math.random() < pay.ember_chance) ? 1 : 0);
+      const pay = Coin.runPay(level, boss, replay, finds, window.FORGE_DROPS);
+      const ember = pay.ember + pay.ember_chances.filter(p => Math.random() < p).length;
       profile.xp += pay.xp; profile.coins += pay.coins; profile.embers += ember;
       for (const id of things) { gain(id); if (!profile.found.includes(id)) profile.found.push(id); }
       profile.level = Progress.levelFor(profile.xp);
       const woke = before < G.fuse.level && profile.level >= G.fuse.level;
-      if (woke) profile.embers += 1;
       save();
       return { pay: Object.assign({}, pay, { ember }), level: profile.level, levelled: profile.level > before, crucible_woke: woke };
     },
     async buy(id, n) {
       if (svc.url) {
         const { code, body } = await api("POST", "/buy", { player: svc.player, id, n });
-        if (code === 200) { await refreshProfile(); if (id === SHOP.ember.id) { } else if (id === "all-elements") { for (const e of SHOP.bundles[0].items) gain(e, n); } else gain(id, n); }
+        if (code === 200) { await refreshProfile(); if (id === "all-elements") { for (const e of SHOP.bundles[0].items) gain(e, n); } else gain(id, n); }
         return { ok: code === 200, cost: body.cost, reason: body.reason };
       }
-      const [ok, cost, reason] = Coin.buy(id, n, SHOP, profile, profile.found);
+      const [ok, cost, reason] = Coin.buy(id, n, SHOP, profile, profile.found);   // (the Legend Ember is refused here: it is never sold)
       if (!ok) return { ok, cost, reason };
       profile.coins -= cost;
-      if (id === SHOP.ember.id) profile.embers += n;
-      else if (id === "all-elements") { for (const e of SHOP.bundles[0].items) gain(e, n); }
+      if (id === "all-elements") { for (const e of SHOP.bundles[0].items) gain(e, n); }
       else gain(id, n);
       save();
       return { ok: true, cost };
@@ -453,7 +475,6 @@
     $("title").textContent = profile.level >= 50 ? "Master Smith" : "";
     $("stCruc").classList.toggle("dim", !awake);
     $("stCrucLv").hidden = awake;
-    $("crucPlate").hidden = awake || state.station === "crucible";
     if (room.crucible !== (awake ? "lit" : "cold")) room.setCrucible(awake ? "lit" : "cold");
     const picks = Progress.picksLeft(profile);
     profile.picks = picks;
@@ -463,24 +484,56 @@
   }
 
   // ------------------------------------------------------------------ the stations
-  let room = Smithy.mount($("scene"), { w: 200, h: 112, crucible: "cold", still: reduce });
+  // the room is as wide as the screen (design pass 14): the smithy is 112 world pixels high and W wide, W from 232 to 320, so the room
+  // fills the pane sideways; the station (the hearth, the anvil, the bellows, the barrel) stays centred and the doors keep to the walls
+  // (W_MIN keeps the Armory's door clear of the quench barrel; STATION is the least of the room the open view shows: the hood and the
+  // anvil, so with the walls open the station fills the pane's height on any screen a phone has)
+  const ROOM_H = 112, W_MIN = 232, W_MAX = 320, STATION = 76;
+  let roomW = W_MIN;
+  let room = Smithy.mount($("scene"), { w: roomW, h: ROOM_H, wide: true, crucible: "cold", still: reduce });
+  // mount the smithy again at the width W, keeping the crucible's mode and the fire's heat; the old room's loop is stopped first so two
+  // fires never draw into one canvas, and the forging's overlay is sized with the scene
+  function mountRoom(W) {
+    const mode = room ? room.crucible : "cold", heat = room ? room.heat : 0;
+    if (room) room.stop = true;
+    room = Smithy.mount($("scene"), { w: W, h: ROOM_H, wide: true, crucible: mode, still: reduce });
+    room.heat = heat; roomW = W;
+    const fx = $("forgeFx"); if (fx) { fx.width = W; fx.height = ROOM_H; }
+    return room;
+  }
   function setMotion(still) {
     reduce = !!still;
     document.documentElement.classList.toggle("still", reduce || params.get("harness") === "1");
-    const mode = room.crucible; room.stop = true;
-    room = Smithy.mount($("scene"), { w: 200, h: 112, crucible: mode, still: reduce });
+    mountRoom(roomW);
   }
   try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
-  // the room is as wide as its pane and no taller than the pane leaves after the state and price lines (design pass 11 section 3.3)
+  // the room fills its pane (design pass 14 section 3.3). Walls shut: as tall as the pane leaves after the state and price lines, and as
+  // wide as the pane, the smithy mounted at the width that makes it so (re-mounted only when that width changes, never during a forge
+  // or a pour). Walls open: the same height, the smithy kept at its width and cut to the left pane, centred on the anvil: the station,
+  // without the doors. The door buttons are laid over the doors from the scene's boxes, in % of the lens, so they stay on their doors
+  // at every width; a scene without a box (an old smithy.js) leaves its button hidden
   function fitRoom() {
-    const pane = $("roompane"), el = $("room");
-    let w = null;
-    if (pane.clientWidth && pane.clientHeight) {
-      const rest = $("state").offsetHeight + ($("price").hidden ? 0 : $("price").offsetHeight);
-      w = Math.max(200, Math.min(pane.clientWidth, Math.floor((pane.clientHeight - rest) * 200 / 112)));
+    const pane = $("roompane"), el = $("room"), lens = $("lens");
+    if (!pane.clientWidth || !pane.clientHeight) return window.TheForge && window.TheForge.layout;
+    const rest = $("state").offsetHeight + ($("price").hidden ? 0 : $("price").offsetHeight);
+    const boxW = pane.clientWidth, boxH = Math.max(60, pane.clientHeight - rest);
+    let s;
+    if (!state.wallsOpen) {
+      s = Math.min(boxH / ROOM_H, boxW / W_MIN);
+      const W = Math.max(W_MIN, Math.min(W_MAX, 2 * Math.ceil(boxW / s / 2)));
+      if (W !== roomW && !state.forging && !state.pouring) mountRoom(W);
+    } else s = Math.min(boxH / ROOM_H, boxW / STATION);
+    const lw = roomW * s, lh = ROOM_H * s, bw = Math.min(boxW, lw);
+    el.style.width = bw + "px"; el.style.height = lh + "px";
+    lens.style.width = lw + "px"; lens.style.height = lh + "px"; lens.style.left = (bw - lw) / 2 + "px";
+    const sc = room.scene, pct = (v, of) => (100 * v / of).toFixed(3) + "%";
+    for (const [id, d] of [["cellarDoor", sc.door], ["armoryDoor", sc.armory]]) {
+      const b = $(id); if (!b) continue;
+      b.hidden = !d; if (!d) continue;
+      b.style.left = pct(d.x0 - 1, roomW); b.style.width = pct(d.x1 - d.x0 + 3, roomW); b.style.top = pct(d.y0, ROOM_H); b.style.height = pct(d.y1 - d.y0 + 1, ROOM_H);
     }
-    el.style.width = w === null ? "" : w + "px";
-    window.TheForge.layout = { paneW: pane.clientWidth, paneH: pane.clientHeight, roomW: el.clientWidth, roomH: el.clientHeight, turned: turn.turned, plate: turn.plate };
+    const view = bw / s;
+    window.TheForge.layout = { paneW: pane.clientWidth, paneH: pane.clientHeight, roomW: el.clientWidth, roomH: el.clientHeight, W: roomW, s, view: [roomW / 2 - view / 2, roomW / 2 + view / 2], turned: turn.turned, plate: turn.plate };
     return window.TheForge.layout;
   }
   // landscape only (design pass 11 amendment 9): the cellar's rules. A phone held upright sees the turn plate; My screen won't turn
@@ -540,8 +593,10 @@
   }
   $("stAnvil").addEventListener("click", () => setStation("anvil"));
   $("stCruc").addEventListener("click", () => setStation("crucible"));
-  $("crucPlate").addEventListener("click", () => toast("The Crucible wakes at level 25. It melts two rare weapons into a legend."));
+  // the two doors (design pass 14 section 3.4): the cellar's goes down, the Armory's opens the book in the walls pane; neither while
+  // forging or pouring
   $("cellarDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; goDown(null); });
+  $("armoryDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; openLedger("ledger"); });
 
   function forecast() {
     const st = $("state");
@@ -577,9 +632,9 @@
     if (why) return why;
     const key = F.keyText("fuse", A.id, B.id);
     const known = session.revealed.has(key) ? resultOf(key) : null;
-    const forms = F.fuseForms(A, B, G);
+    const ab = AB[F.bodyClass(B)];   // the head's class gives the legend its ability (design pass 10 section 3.5.6)
     $("price").textContent = `Uses ${A.name}, ${B.name} and one Legend Ember.`;
-    return `${cap(F.bodyClass(A))} body, ${cap(F.bodyClass(B))} head · ${FORM_LOW[A.weapon.form]}, then ${FORM_LOW[forms[0]] || "strikes"} · ${known ? "You've forged this: " + known.name : "New to you"}`;
+    return `${cap(F.bodyClass(A))} body, ${cap(F.bodyClass(B))} head · ${FORM_LOW[A.weapon.form]} · ✦ ${ab ? ab.name : "an ability"} · ${known ? "You've forged this: " + known.name : "New to you"}`;
   }
   function resultOf(key) { const r = rows.get(key); return r ? (r.thing || world.get(r.linked_to)) : null; }
 
@@ -666,7 +721,9 @@
   $("moldB").addEventListener("click", () => { if (state.pouring) return; state.mb = null; renderSlots(); openWalls("pick"); });
   $("swap").addEventListener("click", swap);
   $("swapM").addEventListener("click", swap);
-  $("socket").addEventListener("click", () => { if (profile.embers === 0) { setStation("anvil"); setTab("materials"); openCabinet({ kind: "cart", key: "The Trader's Cart" }); toast(Progress.crucibleAwake(profile, G) ? "The Trader sells Legend Embers for 500 coins" : "Legend Embers are sold from level 25"); } });
+  // where Legend Embers come from (design pass 10 revision 1): the empty socket, and the Crucible's wake, say so; the Trader has none
+  const EMBER_WHERE = "Legend Embers drop from bosses, chests and rare enemies in the Battlegrounds";
+  $("socket").addEventListener("click", () => { if (profile.embers === 0) toast("No Legend Ember. " + EMBER_WHERE); });
 
   function sparks(n, cols) {
     const box = $("sparks"); box.innerHTML = "";
@@ -675,22 +732,54 @@
       s.style.setProperty("--dx", Math.cos(ang) * r + "px"); s.style.setProperty("--dy", Math.sin(ang) * r + "px"); s.style.animationDelay = (i % 3) * 0.5 + "s"; box.appendChild(s); }
   }
 
-  // ------------------------------------------------------------------ the anvil: STRIKE
+  // ------------------------------------------------------------------ the anvil: STRIKE (design pass 10's forging, in pass 14's wide room)
+  // Strike closes the plaque and the walls, measures where each thing's sprite sits in its slot (in the smithy's pixels), hides the
+  // slots, the tabs and the doors (.room.seq) and starts the overlay's run (forge-fx.js): both things fly into the hearth, the lens
+  // cuts to 2x, the hammer beats the billet until the world answers, the result comes out of the last blow, then the plaque. A
+  // landing puts .hit on the app for one beat; a pointerdown on the room skips to the result once the world has answered; a failed
+  // forge cools the billet and puts both things back, nothing consumed before the answer. Without forge-fx.js (the guard is
+  // window.ForgeFx) Strike waits as build 1 did and shows the plaque.
+  let run = null;   // the forging's run on the overlay; null between forges
+  // the sprite's centre in the room's layout box (offsets, so a frame turned a quarter measures the same), then the sprite's top-left
+  // in the lens's own pixels
+  function slotFrom(el) {
+    const c = el.querySelector("canvas") || el, lens = $("lens"), stop = $("room");
+    let x = c.offsetWidth / 2, y = c.offsetHeight / 2;
+    for (let n = c; n && n !== stop; n = n.offsetParent) { x += n.offsetLeft; y += n.offsetTop; }
+    const k = lens.offsetWidth / roomW;
+    return [Math.round((x - lens.offsetLeft) / k - 16), Math.round((y - lens.offsetTop) / k - 16)];
+  }
+  function endForging() { if (run) { run.stop(); run = null; } $("room").classList.remove("seq"); }
+  function hitRoom() { const a = $("app"); a.classList.remove("hit"); void a.offsetWidth; a.classList.add("hit"); setTimeout(() => a.classList.remove("hit"), ForgeFx.BEAT); }
   async function forge() {
     if (!state.a || !state.b || state.forging || state.station !== "anvil") return;
     const A = world.get(state.a), B = world.get(state.b);
-    state.forging = true; closePlaque(); renderSlots();
-    closeWalls();
+    closePlaque(); if (state.ledgerOpen) closeLedger(); closeWalls();   // (the walls close first, and the room re-lays out at once, so the slots are measured where the player saw them)
     const hadClass = new Set(racks().map(r => r.c));
-    $("phone").classList.add("forging"); room.heat = 1;
-    sparks(14, ["#fff6c8", "#fee761", "#f77622", "#ffffff"]);
-    $("state").textContent = "The hammer falls…";
-    const think = setTimeout(() => { if (state.forging) $("state").textContent = "the fire is thinking…"; }, 3000);
-    const wait = new Promise(res => setTimeout(res, reduce ? 300 : 1500));
-    const [claim] = await Promise.all([World.forge(A.id, B.id, "anvil"), wait]);
+    const FX = window.ForgeFx;
+    const from = FX ? [slotFrom($("slotA")), slotFrom($("slotB"))] : null;
+    state.forging = true; renderSlots();
+    if (FX) {
+      $("room").classList.add("seq");
+      $("state").textContent = reduce ? "The hammer falls…" : "Into the fire…";
+      run = FX.start({ canvas: $("forgeFx"), lens: $("lens"), room, from, things: [A, B], reduce, W: roomW,
+        onPhase: ph => { if (ph === "blow") $("state").textContent = "The hammer falls…"; }, onStrike: hitRoom });
+    } else { room.heat = 1; $("state").textContent = "The hammer falls…"; }
+    const think = setTimeout(() => { if (state.forging) $("state").textContent = "The fire is thinking…"; }, 3000);
+    const wait = FX ? null : new Promise(res => setTimeout(res, reduce ? 300 : 1500));
+    const claim = await World.forge(A.id, B.id, "anvil");
     clearTimeout(think);
-    state.forging = false; $("phone").classList.remove("forging");
-    if (!claim || claim.error) { toast(claim ? claim.error : "The forge failed"); renderSlots(); return; }
+    if (!claim || claim.error) {
+      if (run) { run.fail(); await run.done; }
+      endForging(); state.forging = false;
+      toast(claim ? claim.error : "The forge failed"); renderSlots(); return;
+    }
+    if (run) {
+      run.answer(claim.thing, claim.status === "first");
+      if (params.get("hold") === "1") return claim;   // (the harness's pictures only: ?hold=1 leaves the run to TheForge.run.hold(ms); nothing is consumed)
+      await run.done;
+    } else await wait;
+    state.forging = false;
     const thing = claim.thing;
     const [kase, base, added] = F.roles(A, B);
     const key = F.keyText(kase, base.id, added.id);
@@ -701,14 +790,14 @@
     const cls = classOf(thing);
     claim.newRack = !!(cls && !hadClass.has(cls));
     showPlaque(claim, base, added);
-    if (claim.status === "first" && !claim.provisional) { $("phone").classList.add("burst"); sparks(18, ["#feae34", "#fee761", "#ffffff"]); setTimeout(() => $("phone").classList.remove("burst"), 1600); }
     if (claim.newRack) { toast("A new rack goes up: " + plural(cls)); state.glow = cls; }
-    $("state").textContent = claim.provisional ? (claim.status === "pending" ? "Pending: the world will settle it" : "Provisional: the Combiner's draft") : claim.status === "first" ? "A world first" : claim.status === "rediscovered" ? "A re-discovery" : "A known recipe";
+    $("state").textContent = claim.status === "pending" ? "Pending: the world will settle it" : claim.status === "first" ? "First forged" : claim.status === "rediscovered" ? "Already in the world" : "A known recipe";
     renderSign();
     if (state.view === "wall") renderWall(); else renderCabinet();
     renderLedger(); renderInfo();
     return claim;
   }
+  $("room").addEventListener("pointerdown", () => { if (run) run.skip(); });   // a tap on the room cuts to the result once the world has answered
   $("strike").addEventListener("click", forge);
 
   // ------------------------------------------------------------------ the Crucible: POUR (hold one second)
@@ -775,15 +864,17 @@
     showLegend(claim, A, B);
     if (claim.status === "first") { $("phone").classList.add("burst"); sparks(22, ["#feae34", "#fee761", "#ffffff"]); setTimeout(() => $("phone").classList.remove("burst"), 1600); }
     if (!hadLegends) { state.glow = "legendary"; toast("The Legendary rack takes its first legend"); }
-    $("state").textContent = claim.provisional ? "Provisional: the Combiner's legend" : claim.status === "first" ? "A world first" : "A known legend";
+    $("state").textContent = claim.status === "pending" ? "Pending: the world will settle it" : claim.status === "first" ? "First forged" : "A known legend";
     renderSign(); renderSlots();
     if (state.view === "wall") renderWall(); else renderCabinet();
     renderLedger(); renderInfo();
     return claim;
   }
 
-  // ------------------------------------------------------------------ the plaques
-  function sentence(t) { const w = t.weapon; return w ? [w.form + (w.form2 ? "/" + w.form2 : ""), w.element, ...w.status, ...w.modifiers].join(" · ") : "ingredient" + (t.hints && t.hints.element ? " · " + t.hints.element : ""); }
+  // ------------------------------------------------------------------ the plaques (design pass 10 section 3.3, in amendment 8's three parts)
+  // What is left says what the weapon is, how rare it is (the band), what it's made of (the recipe), what it does (the traits in words;
+  // a legend's Strike and Ability rows), how strong it is (the stats), who made it first (the discovery line) and what to do next (TAP
+  // ANYWHERE TO CONTINUE). No flavour, no meta line, no gift or base line, no PROVISIONAL stamp, no "Why the Oracle chose this".
   function fmtDate(iso) { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); }
   function recipeLine(t) {
     const p = t.parents || [];
@@ -792,52 +883,61 @@
     const kase = t.hybrid && t.gift === null && p.every(id => { const x = world.get(id); return x && !x.hybrid; }) && t.weapon && t.weapon.visual.fuse ? "fuse" : t.gift ? "gift" : "apply";
     return `${a.name} ${CASE_SIGN[kase]} ${b.name}`;
   }
-  function baseLineText(t) {
-    if (!F.isWeapon(t) || !t.base || !t.base.on || !isForged(t)) return "";
-    const on = world.get(t.base.on) || { name: t.base.on };
-    return `Forged on ${on.name} · a ${cap(t.base.root === t.id ? classOf(t) : (world.get(t.base.root) || { name: cap(t.base.root) }).name)} at heart`;
-  }
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-  // sideways (amendment 8): the rarity as design pass 10's band under the icon, and the discovery line as one sentence at the foot
+  // the rarity band (section 3.3.2) under the icon: one of six colours, the word in it
   const tierClass = t => "r" + Math.max(1, Math.min(6, t.tier | 0));
   function rarityHTML(t) { return `<span class="rarity ${tierClass(t)}">${esc(TIER[t.tier] || "")}</span>`; }
-  function discText(claim, t) {
-    const d = t.discovery || {}, when = fmtDate(d.at || nowIso());
-    if (claim.status === "pending") return "Pending: the world will settle it";
-    if (claim.provisional) return "The Combiner's draft · " + when;
-    if (claim.status === "rediscovered") return `Already in the world · first forged by ${d.first || "someone"}`;
-    return `First forged by ${d.first === profile.id ? "you" : (d.first || "someone")} · ${when}`;
+  // the traits line (section 3.3.3): the form, the element, the statuses and the modifiers in words; a legend shows its element and
+  // modifiers only (its statuses are on the Strike and Ability rows); an ingredient says what it gives
+  function traitLine(t, legend) {
+    const w = t.weapon;
+    if (!w) { const g = hintText(t); return "An ingredient" + (g !== "nothing yet" ? " · gives " + g : ""); }
+    if (legend === undefined) legend = !!headOf(t);
+    return [legend ? null : (FORM_VERB[w.form] || cap(w.form)), w.element && w.element !== "physical" ? cap(w.element) : null,
+      ...(legend ? [] : (w.status || []).map(x => STATUS_WORD[x] || cap(x))), ...(w.modifiers || []).map(m => MOD_WORD[m] || cap(m.replace(/_/g, " ")))].filter(Boolean).join(" · ");
+  }
+  // the discovery line (section 3.3.3), one quiet line at the foot: a first or a known pair, a re-discovery, a pending claim; opened
+  // from the Armory, a weapon no longer held says so
+  function discHTML(claim, t, view) {
+    const d = t.discovery || {}, who = d.first === profile.id ? "you" : (d.first || "someone");
+    let line;
+    if (claim.status === "pending") line = "Pending · the world will settle it when you're back online";
+    else if (claim.status === "rediscovered") line = `Already in the world · first forged by <b>${esc(who)}</b>`;
+    else if (!isForged(t) && !d.first) line = "One of the twenty class weapons";
+    else line = `First forged by <b>${esc(who)}</b>${d.at ? " · " + esc(fmtDate(d.at)) : ""}`;
+    return line + (view && !own.has(t.id) ? " · <b>no longer held</b>" : "");
   }
   const TAP_ON = '<button type="button" class="tapon" id="tapOn">Tap anywhere to continue</button>';
+  function equipLabel(t) { return session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"; }
+  function equipBtnHTML(t) { return `<button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${equipLabel(t)}</button>`; }
+  // the plaque's mode: "forge" (after Strike), "pour" (after the Crucible) or "view" (a weapon opened from the Armory: no banner, To the
+  // anvil among the buttons, TAP ANYWHERE back to the Armory); and the thing on it
+  let plaqueMode = null, plaqueThing = null;
   function bars(t) {
     const w = t.weapon; if (!w) return "";
     const uses = new Set([...G.forms[w.form].uses, ...(w.form2 ? G.forms[w.form2].uses : [])]);
     return `<div class="bars">${G.numbers.map(k => `<div class="bar ${uses.has(k) ? "" : "off"}"><span>${k}</span><span class="pips">${Array.from({ length: 10 }, (_, i) => `<i class="${i < w.numbers[k] ? "on" : ""}"></i>`).join("")}</span><span>${w.numbers[k]}</span></div>`).join("")}</div>`;
   }
-  function showPlaque(claim, base, added) {
-    const t = claim.thing, w = t.weapon;
-    const p = $("plaque");
-    const first = claim.status === "first" && !claim.provisional;
-    const isIng = t.kind !== "weapon";
-    const giftLine = t.gift ? `takes ${t.gift.word ? esc(t.gift.word.replace("_", " ")) : "nothing new"} from the ${esc((world.get(t.gift.from) || { name: t.gift.from }).name)}${t.gift.replaced ? " · in place of " + esc(t.gift.replaced.replace("_", " ")) : ""}${t.gift.word ? "" : " · re-tempered"}` : "";
-    p.innerHTML = `${first ? '<div class="banner f-ember">First forged</div>' : ""}${claim.provisional ? '<span class="stamp">PROVISIONAL</span>' : ""}
+  // the weapon plaque: after Strike (the First forged banner for every first, Equip · Share · Try it, or Apply on an ingredient), or
+  // from the Armory in view mode (no banner; To the anvil · Equip · Share · Try it while held, Share alone once no longer held)
+  function showPlaque(claim, base, added, o) {
+    const t = claim.thing, p = $("plaque"), isIng = t.kind !== "weapon", view = !!(o && o.view), held = own.has(t.id);
+    plaqueMode = view ? "view" : "forge"; plaqueThing = t;
+    $("legendPlaque").hidden = true; $("legendPlaque").innerHTML = "";   // (one plaque holds the ids at a time: a hidden one would answer getElementById first)
+    p.classList.toggle("view", view);
+    const btns = view
+      ? (held ? `<div class="pbtns"><button class="f-ember primary" id="toAnvil">To the anvil</button>${equipBtnHTML(t)}<button class="f-iron" id="share">Share</button></div>${tryRow(t)}` : '<div class="pbtns"><button class="f-iron" id="share">Share</button></div>')
+      : `<div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button>' : equipBtnHTML(t)}<button class="f-iron" id="share">Share</button></div>${isIng ? "" : tryRow(t)}`;
+    p.innerHTML = `${claim.status === "first" && !view ? '<div class="banner f-ember">First forged</div>' : ""}
       <div class="side"><div class="art"></div>${rarityHTML(t)}</div>
-      <div class="main"><h2></h2><div class="kindline">${esc(recipeLine(t))}</div><div class="flavor"></div>
-      <div class="meta"><span></span><span><b>${TIER[t.tier]}</b></span><span>${esc(sentence(t))}</span></div>
-      ${giftLine ? `<div class="line">${giftLine}</div>` : ""}
-      ${baseLineText(t) ? `<div class="line">${esc(baseLineText(t))}</div>` : ""}
-      ${isIng ? `<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div><div class="line">Gives: ${esc(hintText(t))}</div>` : bars(t)}</div>
-      <div class="foot"><div class="line disc">${esc(discText(claim, t))}</div>
-      <div class="btnrow"><div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button>' : `<button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button>`}<button class="f-iron" id="share">Share</button></div>
-      ${isIng ? "" : tryRow(t)}</div>${TAP_ON}</div>
-      ${t.why || claim.provisional ? `<div class="why">${claim.provisional ? "The Combiner's draft. The Oracle would name it." : "Why the Oracle chose this: " + esc(t.why)}</div>` : ""}`;
+      <div class="main"><h2></h2><div class="kindline">${esc(recipeLine(t) || (isIng ? "" : "A class weapon"))}</div><div class="traits">${esc(traitLine(t))}</div>
+      ${isIng ? '<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div>' : bars(t)}</div>
+      <div class="foot"><div class="line disc">${discHTML(claim, t, view)}</div><div class="btnrow">${btns}</div>${TAP_ON}</div>`;
     p.querySelector(".art").appendChild(sprite(t, 4));
-    $("tapOn").addEventListener("click", continueOn);
     p.querySelector("h2").textContent = t.name;
-    p.querySelector(".flavor").textContent = "“" + t.flavor + "”";
-    const cls = classOf(t);
-    p.querySelector(".meta span").textContent = cls ? cls : storeOf(t);
     p.hidden = false;
+    $("tapOn").addEventListener("click", continueOn);
+    const ta = $("toAnvil"); if (ta) ta.addEventListener("click", () => toAnvil(t));
     const eq = $("equipBtn"); if (eq) eq.addEventListener("click", () => equip(t, eq));
     const ap = $("applyBtn"); if (ap) ap.addEventListener("click", () => { closePlaque(); state.a = null; state.b = t.id; renderSlots(); setTab("weapons"); openWalls("pick"); toast("Pick a weapon for the base"); });
     $("share").addEventListener("click", () => share(t));
@@ -845,26 +945,33 @@
   }
   function tryRow(t) { return `<button class="f-iron tryit" id="tryBtn">↓ Try it in the cellar${Progress.canEquip(t, profile, G) ? "" : "<small>practice only</small>"}</button>`; }
   function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.forms || []), ...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
+  // To the anvil (a weapon opened from the Armory, pass 10 section 3.4.2): the book closes, the station is the anvil, the anvil is
+  // emptied and this weapon goes on it as the base
+  function toAnvil(t) { closePlaque(); closeLedger(); if (state.station !== "anvil") setStation("anvil"); state.a = null; state.b = null; pick(t.id); }
   function equip(t, btn) {
     if (!Progress.canEquip(t, profile, G)) { toast(classOf(t) === "legendary" ? "Legends can be wielded from level 25" : `The ${plural(classOf(t))} rack is chained: open the class to wield it`); return; }
     if (!session.equipped.includes(t.id)) { session.equipped.push(t.id); if (session.equipped.length > 2) session.equipped.shift(); }
     if (btn) btn.textContent = "Equipped"; save(); toast(`${t.name} goes to the Battlegrounds with you`);
   }
+  // Share's text in the traits words (pass 10 section 3.3.5): "Emberbrand (uncommon sword): slashes · fire · burns · burning ground · long reach. Forged from Sword + Fire. First forged by isaac. Forge Forever"
   function share(t) {
     const cls = classOf(t);
     const named = t.naming && t.naming.status === "named" ? ` Named by ${t.naming.by}.` : "";
-    const txt = `${t.name} (${TIER[t.tier]} ${cls || "ingredient"}): ${sentence(t)}. ${recipeLine(t) ? "Forged from " + recipeLine(t) + "." : ""}${t.discovery && t.discovery.first ? " First forged by " + t.discovery.first + "." : ""}${named} Forge Forever`;
+    const txt = `${t.name} (${TIER[t.tier]} ${cls || "ingredient"}): ${traitLine(t, false).toLowerCase()}. ${recipeLine(t) ? "Forged from " + recipeLine(t) + "." : ""}${t.discovery && t.discovery.first ? " First forged by " + t.discovery.first + "." : ""}${named} Forge Forever`;
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => toast("Copied: " + txt), () => toast(txt)); else toast(txt);
   }
-  function closePlaque() { $("plaque").hidden = true; $("legendPlaque").hidden = true; }
-  // Tap anywhere to continue: the plaque closes, the anvil empties, the new weapon's rack is marked to glow and a toast says where it
-  // hangs. Nothing while the terms, naming or confirm plank is open
+  // closing the plaque (a tap anywhere, Apply, the station, the Armory, Settings) also ends the forging's overlay, unless a forge is running
+  function closePlaque() { $("plaque").hidden = true; $("legendPlaque").hidden = true; plaqueMode = null; plaqueThing = null; if (!state.forging) endForging(); }
+  // Tap anywhere to continue: after a forge or a pour the plaque closes, the anvil empties, the new thing's shelf item is marked to glow
+  // and a toast says where it hangs; from the Armory (view mode) the plaque closes back to the Armory as it was, its class still open.
+  // Nothing while the terms, naming or confirm plank is open
   const plaqueOpen = () => !$("plaque").hidden || !$("legendPlaque").hidden;
   const plankOpen = () => !$("termsPlank").hidden || !$("namePlank").hidden || !$("confirmPlank").hidden;
   function continueOn() {
     if (!plaqueOpen() || plankOpen()) return false;
-    const t = session.lastClaim && session.lastClaim.thing;
+    const mode = plaqueMode, t = mode === "view" ? null : session.lastClaim && session.lastClaim.thing;
     closePlaque();
+    if (mode === "view") return true;
     if (state.station === "anvil") { state.a = null; state.b = null; } else { state.ma = null; state.mb = null; }
     renderSlots();
     if (t && own.has(t.id)) { const cls = classOf(t); state.glowItem = t.id; state.sort = "newest"; toast(`${t.name} is on the ${cls ? plural(cls).toLowerCase() : storeOf(t).toLowerCase()} shelf`); }
@@ -882,39 +989,45 @@
     e.preventDefault(); continueOn();
   });
 
-  function showLegend(claim, A, B) {
-    const t = claim.thing, w = t.weapon, p = $("legendPlaque");
+  // what a legend's ability carries (pass 10 section 3.5.3): the legend's second status (its first when it has only one) and the
+  // ability's own, two at most
+  function abilityStatuses(t, ab) { const st = (t.weapon.status || []).slice(); const mine = st.length > 1 ? [st[1]] : st.slice(0, 1); if (ab && ab.status && !mine.includes(ab.status)) mine.push(ab.status); return mine.slice(0, 2); }
+  // the legend plaque: the First forged banner and A new kind as they apply, the name and who named it, the kind line, the Strike row
+  // (the body's form and first status) and the Ability row (the head's ability, its line and the carried status), the element and the
+  // modifiers, the stats; Name it first while the name is open to this smith, after the pour and again from the Armory
+  function showLegend(claim, A, B, o) {
+    const t = claim.thing, w = t.weapon, p = $("legendPlaque"), view = !!(o && o.view), held = own.has(t.id);
     const kind = claim.kind || (t.hybrid && kinds.find(k => k.id === t.hybrid.kind)) || null;
-    const first = claim.status === "first" && !claim.provisional;
-    const founded = !!kind && kind.first === profile.id && kind.thing === t.id && claim.status === "first";
-    const canName = claim.status === "first" && t.naming && t.naming.status === "open" && (t.discovery || {}).first === profile.id && !claim.provisional;
-    const canNameLocal = claim.status === "first" && t.naming && t.naming.status === "open" && (t.discovery || {}).first === profile.id && !svc.url;
-    const body = world.get(t.base && t.base.on) || A;
-    p.innerHTML = `<div class="banner f-ember gold">${t.tier >= 6 ? "Mythic" : "Legendary"}</div>${first ? '<span class="ribbon">FIRST FORGED</span>' : ""}${claim.provisional ? '<span class="stamp">PROVISIONAL</span>' : ""}
-      ${founded ? '<div class="banner f-ember kind">A new kind</div>' : ""}
+    const founded = !view && !!kind && kind.first === profile.id && kind.thing === t.id && claim.status === "first";
+    const canName = !!(t.naming && t.naming.status === "open" && (t.discovery || {}).first === profile.id && (view || claim.status === "first") && (!claim.provisional || !svc.url));
+    plaqueMode = view ? "view" : "pour"; plaqueThing = t;
+    $("plaque").hidden = true; $("plaque").innerHTML = "";
+    p.classList.toggle("view", view);
+    const [body, head] = t.hybrid.classes, ab = abilityOf(t);
+    const abWords = ab ? abilityStatuses(t, ab).filter(x => x !== ab.status).map(x => (STATUS_WORD[x] || x).toLowerCase()) : [];
+    const traits = traitLine(t, true);
+    const btns = view && !held ? '<div class="pbtns"><button class="f-iron" id="share">Share</button></div>'
+      : `<div class="pbtns">${canName ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}${view ? '<button class="f-ember primary" id="toAnvil">To the anvil</button>' : ""}${equipBtnHTML(t)}<button class="f-iron" id="share">Share</button></div>${tryRow(t)}`;
+    const banners = [claim.status === "first" && !view ? '<div class="banner f-ember">First forged</div>' : "", founded ? '<div class="banner f-ember kind">A new kind</div>' : ""].filter(Boolean);
+    p.innerHTML = `${banners.length ? `<div class="banners">${banners.join("")}</div>` : ""}
       <div class="side"><div class="art"></div>${rarityHTML(t)}</div>
       <div class="main"><h2 id="legendName"></h2><div class="named" id="namedBy"></div>
-      <div class="kindline">${kind ? "A " + esc(kind.name) : "A new kind"} · ${esc(t.hybrid.classes[0])} ✦ ${esc(t.hybrid.classes[1])}</div>
-      ${kind ? `<div class="line" style="font-style:italic">${esc(kind.line)}</div>` : ""}
-      ${founded ? `<div class="line">The first ${esc(kind.name)} in the world: you founded the kind.</div>` : ""}
-      <div class="line"><b>${FORM_VERB[w.form] || cap(w.form)}</b> · every third blow ${w.form2 ? FORM_LOW[w.form2] : "strikes again"}</div>
-      <div class="line">Fused on ${esc(body ? body.name : "?")} · a ${esc(cap(t.hybrid.classes[0]))} at heart</div>
-      <div class="flavor"></div>
-      <div class="meta"><span><b>${TIER[t.tier]}</b></span><span>${esc(sentence(t))}</span></div>
+      <div class="kindline">${kind ? "A " + esc(kind.name) : "A new kind"} · ${esc(cap(body))} ✦ ${esc(cap(head))}</div>
+      <div class="moves"><div><b>Strike<small>${esc(body)}</small></b> <span>${esc(FORM_VERB[w.form] || cap(w.form))}${(w.status || [])[0] ? " · " + esc((STATUS_WORD[w.status[0]] || w.status[0]).toLowerCase()) : ""}</span></div>
+        ${ab ? `<div><b>Ability<small>${esc(head)}</small></b> <span><em>✦ ${esc(ab.name)}</em> ${esc(ab.line)}${abWords.length ? " · " + esc(abWords.join(", ")) : ""}</span></div>` : ""}</div>
+      ${traits ? `<div class="traits">${esc(traits)}</div>` : ""}
       ${bars(t)}</div>
-      <div class="foot"><div class="line disc">${esc(discText(claim, t))}</div>
-      <div class="btnrow"><div class="pbtns">${(canName || canNameLocal) ? '<button class="f-ember goldbtn" id="nameBtn">Name it</button>' : ""}<button class="f-iron" id="equipBtn" ${Progress.canEquip(t, profile, G) ? "" : "disabled"}>${session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained"}</button><button class="f-iron" id="share">Share</button></div>
-      ${tryRow(t)}</div>${TAP_ON}</div>`;
+      <div class="foot"><div class="line disc">${discHTML(claim, t, view)}</div><div class="btnrow">${btns}</div>${TAP_ON}</div>`;
     p.querySelector(".art").appendChild(sprite(t, 4));
-    $("tapOn").addEventListener("click", continueOn);
     $("legendName").textContent = t.name;
     renderNamedBy(t);
-    p.querySelector(".flavor").textContent = "“" + t.flavor + "”";
     p.hidden = false;
-    $("equipBtn").addEventListener("click", () => equip(t, $("equipBtn")));
+    $("tapOn").addEventListener("click", continueOn);
+    const ta = $("toAnvil"); if (ta) ta.addEventListener("click", () => toAnvil(t));
+    const eb = $("equipBtn"); if (eb) eb.addEventListener("click", () => equip(t, eb));
     $("share").addEventListener("click", () => share(t));
     const nb = $("nameBtn"); if (nb) nb.addEventListener("click", () => openNaming(t));
-    $("tryBtn").addEventListener("click", () => goDown(t.id));
+    const tb = $("tryBtn"); if (tb) tb.addEventListener("click", () => goDown(t.id));
   }
   function renderNamedBy(t) {
     const el = $("namedBy"); if (!el) return;
@@ -936,7 +1049,7 @@
       <div class="pbtns"><button class="f-ember primary" id="termsAccept" disabled>Accept</button><button class="f-iron" id="termsNo">Not now</button></div>`);
     $("termsTick").addEventListener("change", e => { $("termsAccept").disabled = !e.target.checked; });
     $("termsAccept").addEventListener("click", async () => { if (!$("termsTick").checked) return; const ok = await World.acceptTerms(); if (!ok) { toast("The world can't record the terms right now"); return; } el.hidden = true; then(); });
-    $("termsNo").addEventListener("click", () => { el.hidden = true; toast("The offer stays open: Name it from the Ledger when you're ready"); renderLedger(); });
+    $("termsNo").addEventListener("click", () => { el.hidden = true; toast("The offer stays open: Name it from the Armory when you're ready"); renderLedger(); });
   }
   function openNamePlank(t) {
     const el = $("namePlank");
@@ -1115,7 +1228,7 @@
         const dimWhy = state.station === "crucible" && F.isWeapon(t) ? fuseWhy(t) : null;
         const picked = state.station === "crucible" ? (state.ma === t.id || state.mb === t.id) : (state.a === t.id || state.b === t.id);
         const b = document.createElement("button"); b.className = "shelfitem" + (picked ? " picked" : "") + (state.glowItem === t.id ? " glow" : "") + (n === 0 && t.kind !== "weapon" ? " out" : "") + (dimWhy ? " dim" : "");
-        b.title = `${t.name} · ${TIER[t.tier]}: ${t.flavor}` + (dimWhy ? " · " + dimWhy : ""); b.appendChild(sprite(t, 2));
+        b.title = `${t.name} · ${TIER[t.tier]}` + (dimWhy ? " · " + dimWhy : ""); b.appendChild(sprite(t, 2));   // (the name and the tier; no flavour, pass 10 section 3.3.5)
         const s = document.createElement("span"); s.textContent = t.name; b.appendChild(s);
         if (n > 1 || (t.kind !== "weapon" && !isForged(t))) b.insertAdjacentHTML("beforeend", `<span class="x">×${n}</span>`);
         if (n === 0 && t.kind !== "weapon") b.insertAdjacentHTML("beforeend", `<span class="buy">BUY</span>`);
@@ -1139,7 +1252,6 @@
     const rowsOut = [];
     const bundle = SHOP.bundles[0];
     rowsOut.push({ id: bundle.id, name: bundle.name, sub: "one of each element · 60 off the singles", sprite: world.get("arcane-dust"), price: Coin.price(bundle.id, SHOP, profile, profile.found) });
-    if (Progress.crucibleAwake(profile, G) || profile.level >= SHOP.ember.from_level) rowsOut.push({ id: SHOP.ember.id, name: SHOP.ember.name, sub: "melts two rare weapons into a legend", ember: true, price: Coin.price(SHOP.ember.id, SHOP, profile, profile.found) });
     for (const it of items) if (it.thing) rowsOut.push({ id: it.id, name: it.thing.name, sub: `${it.store} · you have ${have(it.id)}`, sprite: it.thing, price: Coin.price(it.id, SHOP, profile, profile.found) });
     for (const r of rowsOut) {
       const [unit, why] = r.price;
@@ -1147,9 +1259,9 @@
       if (r.sprite) b.appendChild(sprite(r.sprite, 1)); else { const cv = document.createElement("canvas"); cv.width = 33; cv.height = 33; const g = cv.getContext("2d"); g.fillStyle = "#f77622"; g.fillRect(12, 6, 9, 21); g.fillStyle = "#fee761"; g.fillRect(14, 10, 5, 12); b.appendChild(cv); }
       const d = document.createElement("div"); d.innerHTML = `<div class="n"></div><div class="s"></div>`; d.firstChild.textContent = r.name; d.lastChild.textContent = why ? why : r.sub;
       b.appendChild(d);
-      const tag = document.createElement("span"); tag.className = "tag" + (unit === null ? " off" : ""); tag.textContent = unit === null ? "—" : (unit * (r.id === bundle.id || r.ember ? 1 : n)).toLocaleString(); b.appendChild(tag);
+      const tag = document.createElement("span"); tag.className = "tag" + (unit === null ? " off" : ""); tag.textContent = unit === null ? "—" : (unit * (r.id === bundle.id ? 1 : n)).toLocaleString(); b.appendChild(tag);
       b.addEventListener("click", async () => {
-        const count = (r.id === bundle.id || r.ember) ? 1 : n;
+        const count = r.id === bundle.id ? 1 : n;
         const res = await World.buy(r.id, count);
         if (!res.ok) { tag.classList.add("red"); $("chipCoins").classList.remove("shake"); void $("chipCoins").offsetWidth; $("chipCoins").classList.add("shake"); toast(res.reason || "Not sold"); setTimeout(() => tag.classList.remove("red"), 900); return; }
         toast(`Bought ${count === 1 ? "" : count + " "}${r.name} for ${res.cost} coins`);
@@ -1237,69 +1349,98 @@
     if (picks > 0 && profile.classes.length) openUnlock();
     if (woke) {
       room.setCrucible("lit");
-      setTimeout(() => { toast("The Crucible wakes: melt two rare weapons into a legend"); setTimeout(() => toast("Here is your first Legend Ember"), 1800); }, picks > 0 ? 400 : 0);
+      setTimeout(() => { toast("The Crucible wakes: melt two rare weapons into a legend"); if (!profile.embers) setTimeout(() => toast(EMBER_WHERE), 1800); }, picks > 0 ? 400 : 0);
       state.glow = "legendary";
       renderSign();
       if (state.view === "wall") renderWall();
     }
   }
 
-  // ------------------------------------------------------------------ the ledger book: your Ledger, the Roll, the Book of Kinds
-  function openLedger(page, filter) {
+  // ------------------------------------------------------------------ the book behind ARMORY (design pass 10 section 3.4, pass 14 section 3.8):
+  // the Armory (a shelf per class), Legends (newest first), the Roll of First Smiths, the Book of Kinds. The element ids and
+  // state.ledgerOpen keep the old name: the world's data is still the ledger; the player's word is the Armory
+  function openLedger(page) {
     closePlaque();
-    state.ledgerOpen = true; if (page) state.page = page; if (filter) state.filter = filter;
+    state.ledgerOpen = true; if (page) state.page = page;
     $("ledger").hidden = false; $("walls").hidden = true; $("ledgerBtn").setAttribute("aria-pressed", "true");
     openWalls("ledger");
     renderLedger();
   }
-  function closeLedger() { state.ledgerOpen = false; $("ledger").hidden = true; $("walls").hidden = false; $("ledgerBtn").setAttribute("aria-pressed", "false"); if (!state.picking) closeWalls(); }
+  function closeLedger() { if (plaqueMode === "view") closePlaque(); state.ledgerOpen = false; $("ledger").hidden = true; $("walls").hidden = false; $("ledgerBtn").setAttribute("aria-pressed", "false"); if (!state.picking) closeWalls(); }
   $("ledgerBtn").addEventListener("click", () => { if (state.ledgerOpen) closeLedger(); else openLedger("ledger"); });
-  $("chipFirsts").addEventListener("click", () => openLedger("ledger", "firsts"));
-  for (const [id, pg] of [["pgLedger", "ledger"], ["pgRoll", "roll"], ["pgKinds", "kinds"]]) $(id).addEventListener("click", () => { state.page = pg; renderLedger(); });
-  let ledgerShown = 60;
-  function ledgerItems() {
-    const items = [];
-    const seen = new Set();
-    const mine = new Set([...(profile.found || []), ...own.keys()]);
-    for (const id of mine) { const t = world.get(id); if (!t || !isForged(t) || seen.has(id)) continue; seen.add(id); items.push({ t, at: (t.discovery || {}).at || "", gold: (t.discovery || {}).first === profile.id, prov: !!(t.oracle && t.oracle.provisional) }); }
-    let list = items.sort((x, y) => String(y.at).localeCompare(String(x.at)));
-    if (state.filter === "firsts") list = list.filter(i => i.gold);
-    if (state.filter === "legends") list = list.filter(i => classOf(i.t) === "legendary");
-    return list;
-  }
+  $("ledgerClose").addEventListener("click", closeLedger);   // the book's own ✕ (design pass 14 section 3.8): the pane closes too unless a slot is waiting
+  $("chipFirsts").addEventListener("click", () => openLedger("roll"));   // the ★ chip opens the Roll: its page is about firsts
+  const PAGES = [["pgLedger", "ledger"], ["pgLegends", "legends"], ["pgRoll", "roll"], ["pgKinds", "kinds"]];
+  for (const [id, pg] of PAGES) $(id).addEventListener("click", () => { state.page = pg; renderLedger(); });
   function renderLedger() {
-    $("ledgerBtn").textContent = "LEDGER";
+    $("ledgerBtn").textContent = "ARMORY";
     if (!state.ledgerOpen) return;
-    for (const [id, pg] of [["pgLedger", "ledger"], ["pgRoll", "roll"], ["pgKinds", "kinds"]]) $(id).setAttribute("aria-selected", String(state.page === pg));
+    for (const [id, pg] of PAGES) $(id).setAttribute("aria-selected", String(state.page === pg));
     const el = $("ledgerBody");
     if (state.page === "roll") return renderRoll(el);
     if (state.page === "kinds") return renderKinds(el);
-    const items = ledgerItems();
-    el.innerHTML = `<div class="cabhead"><b>The Ledger</b><span class="n">${profile.found.length} found</span></div>
-      <div class="chips2">${["all", "firsts", "legends"].map(f => `<button data-f="${f}" aria-pressed="${String(state.filter === f)}">${f}</button>`).join("")}</div><div id="tree"></div><div id="lrows"></div>`;
-    for (const b of el.querySelectorAll(".chips2 button")) b.addEventListener("click", () => { state.filter = b.dataset.f; renderLedger(); });
-    const box = el.querySelector("#lrows");
-    for (const { t, gold, prov } of items.slice(0, ledgerShown)) {
-      const b = document.createElement("button"); b.className = "lrow" + (gold ? " gold" : ""); b.appendChild(sprite(t, 1));
-      const d = document.createElement("div"); d.innerHTML = `<div class="n"></div><div class="s"></div>`; d.firstChild.textContent = t.name;
-      d.lastChild.textContent = `${TIER[t.tier]} · ${recipeLine(t)} · ${prov ? "provisional" : "first forged by " + ((t.discovery && t.discovery.first) === profile.id ? "you" : (t.discovery && t.discovery.first) || "?")}`;
-      b.appendChild(d);
-      if (t.naming && t.naming.status === "open" && (t.discovery || {}).first === profile.id) { const tag = document.createElement("span"); tag.className = "nametag"; tag.textContent = "Name it"; b.appendChild(tag); }
-      else b.appendChild(document.createElement("span"));
-      b.addEventListener("click", e => { if (e.target.classList.contains("nametag")) { openNaming(t); return; } showTree(t.id); });
-      box.appendChild(b);
-    }
-    if (!items.length) box.innerHTML = `<div class="empty">${state.filter === "all" ? "Nothing forged yet." : "Nothing here yet."}</div>`;
-    if (items.length > ledgerShown) { const m = document.createElement("button"); m.className = "f-iron"; m.style.cssText = "width:100%;height:40px;margin-top:8px;background:none;cursor:pointer;font-family:var(--data);font-size:12px;color:var(--parch)";
-      m.textContent = `Show more (${items.length - ledgerShown} older)`; m.addEventListener("click", () => { ledgerShown += 60; renderLedger(); }); box.appendChild(m); }
+    if (state.page === "legends") return renderLegends(el);
+    return renderArmory(el);
   }
-  function roleOf(t, i) { if (!t.parents || t.parents.length < 2) return ""; if (t.hybrid && t.weapon && t.weapon.visual.fuse && !((world.get(t.parents[0]) || {}).hybrid)) return i === 0 ? "base" : "fused"; if (t.gift) return i === 0 ? "base" : "gift"; if (t.kind !== "weapon") return ""; return i === 0 ? "base" : "added"; }
-  function treeHTML(id, depth, role) { const t = world.get(id); if (!t) return `<li>${esc(id)}</li>`;
-    const kids = isForged(t) && depth < 8 ? `<ul>${t.parents.map((p, i) => treeHTML(p, depth + 1, roleOf(t, i))).join("")}</ul>` : "";
-    return `<li><b>${esc(t.name)}</b>${role ? `<span class="role">${role}</span>` : ""} <span style="font-family:var(--data);font-size:11px;color:#733e39">${TIER[t.tier]}${isForged(t) ? "" : " · base"}</span>${kids}</li>`; }
-  function baseChain(t) { const chain = []; let cur = t, guard = 0; while (cur && guard++ < 12) { chain.unshift(cur.name); if (!cur.base || !cur.base.on || cur.base.on === cur.id) break; cur = world.get(cur.base.on); } return chain; }
-  function showTree(id) { const t = world.get(id); const chain = F.isWeapon(t) ? baseChain(t) : [];
-    $("tree").innerHTML = `<div class="tree f-parch"><b>Family tree</b><ul style="border:0;margin-left:0">${treeHTML(id, 0, "")}</ul>${chain.length > 1 ? `<div class="baseline">${chain.map(esc).join(" → ")}</div>` : ""}${t.why ? `<div class="why">${esc(t.why)}</div>` : ""}</div>`; $("ledger").scrollTop = 0; }
+  // the smith's weapons: everything held now or ever found (a weapon melted into another, or poured into a legend, stays, marked gone).
+  // Class weapons are in (the plain Sword is a common sword); ingredients are not (they live on the Materials wall)
+  function armoryWeapons() { const out = [], seen = new Set(); for (const id of [...own.keys(), ...(profile.found || [])]) { if (seen.has(id)) continue; seen.add(id); const t = world.get(id); if (t && F.isWeapon(t)) out.push(t); } return out; }
+  const tierCount = list => { const n = {}; for (const t of list) n[t.tier] = (n[t.tier] || 0) + 1; return n; };
+  const smallBand = t => `<span class="rarity sm ${tierClass(t)}">${esc(TIER[t.tier] || "")}</span>`;
+  // a row (pass 10 section 3.4.2): the sprite, the name (★ when the smith forged it first in the world), the small band and the recipe
+  // (or the kind, the ability and the date acquired on Legends), ×n when more than one is held or "gone"; a tap opens its plaque in view mode
+  function weaponRow(t, sub) {
+    const held = own.get(t.id), b = document.createElement("button"), gold = (t.discovery || {}).first === profile.id;
+    b.className = "lrow" + (gold ? " gold" : "") + (held ? "" : " gone"); b.appendChild(sprite(t, 1));
+    const d = document.createElement("div"); d.innerHTML = `<div class="n"></div><div class="s">${sub}</div>`; d.firstChild.textContent = t.name + (gold ? " ★" : "");
+    b.appendChild(d);
+    const r = document.createElement("span"); r.className = "x2"; r.textContent = held ? (held.n > 1 ? "×" + held.n : "") : "gone"; b.appendChild(r);
+    b.setAttribute("aria-label", `${t.name}: ${TIER[t.tier] || ""}${held ? "" : ", no longer held"}`);
+    b.addEventListener("click", () => viewWeapon(t));
+    return b;
+  }
+  function viewWeapon(t) {
+    const claim = { thing: t, status: t.oracle && t.oracle.provisional && svc.url ? "pending" : "known", kind: t.hybrid ? kinds.find(k => k.id === t.hybrid.kind) || null : null };
+    if (classOf(t) === "legendary") showLegend(claim, null, null, { view: true }); else showPlaque(claim, null, null, { view: true });
+  }
+  // page 1, the Armory: twenty shelves (pass 14 section 3.8), the classes with weapons first, then the rest, each group in the grammar's
+  // order, which never moves. A shelf's head: the plural name, a small band per tier present with its count, the total, ▸ or ▾. Its
+  // board: the class's weapons at 1x, rarest first, as many as fit, then "+N"; with none, the class weapon greyed and "none yet". A tap
+  // opens the class's rows under it, from the most common to the rarest and by name within a tier; one class open at a time
+  function renderArmory(el) {
+    const all = armoryWeapons().filter(t => classOf(t) !== "legendary");
+    const by = new Map(G.visual.bases.map(c => [c, []])); for (const t of all) { const c = classOf(t); if (by.has(c)) by.get(c).push(t); }
+    const order = G.visual.bases.filter(c => by.get(c).length).concat(G.visual.bases.filter(c => !by.get(c).length));
+    el.innerHTML = `<div class="cabhead"><b>The Armory</b><span class="n">${all.length} weapon${all.length === 1 ? "" : "s"}</span></div><div class="lhead">A shelf for every class. Open one to see its weapons from the most common to the rarest. Legends have their own tab.</div><div id="aclasses"></div>`;
+    const box = el.querySelector("#aclasses"), fit = Math.max(3, Math.floor(((el.clientWidth || 380) - 30) / 35));
+    for (const c of order) {
+      const list = by.get(c).sort((a, b) => (a.tier - b.tier) || a.name.localeCompare(b.name)), open = state.armoryOpen === c;
+      const b = document.createElement("button"); b.className = "ashelf" + (list.length ? "" : " none"); b.setAttribute("aria-expanded", String(open)); b.dataset.cls = c;
+      const counts = tierCount(list);
+      b.innerHTML = `<span class="ahead"><b>${esc(plural(c))}</b><span class="tiers">${list.length ? Object.keys(counts).sort().map(k => `<span class="rarity sm r${Math.max(1, Math.min(6, k | 0))}">${counts[k]}</span>`).join("") : ""}</span><span class="cnt">${list.length || ""}</span><i>${open ? "▾" : "▸"}</i></span><span class="board"></span>`;
+      b.setAttribute("aria-label", `${plural(c)}: ${list.length ? list.length + " weapon" + (list.length === 1 ? "" : "s") : "none yet"}`);
+      const board = b.querySelector(".board"), show = list.slice().reverse();   // rarest first on the shelf
+      if (!list.length) { const t = classWeapon(c); if (t) board.appendChild(sprite(t, 1)); board.insertAdjacentHTML("beforeend", '<span class="none">none yet</span>'); }
+      else { for (const t of show.slice(0, show.length > fit ? fit - 1 : fit)) board.appendChild(sprite(t, 1)); if (show.length > fit) board.insertAdjacentHTML("beforeend", `<span class="more">+${show.length - fit + 1}</span>`); }
+      b.addEventListener("click", () => { if (!list.length) { toast(`No ${plural(c).toLowerCase()} yet`); return; } state.armoryOpen = open ? null : c; renderLedger(); });
+      box.appendChild(b);
+      if (open) { const rows = document.createElement("div"); rows.className = "arows"; for (const t of list) rows.appendChild(weaponRow(t, `${smallBand(t)} ${esc(recipeLine(t) || "a class weapon")}`)); box.appendChild(rows); }
+    }
+  }
+  // page 2, Legends: every legend held or held before, newest first by the date acquired; legends with no date (a save from before this
+  // build) after the dated ones, newest first by the order they were gained
+  function renderLegends(el) {
+    const list = armoryWeapons().filter(t => classOf(t) === "legendary");
+    const when = t => got[t.id] || "";
+    list.sort((a, b) => String(when(b)).localeCompare(String(when(a))) || ((own.get(b.id) || { seq: 0 }).seq - (own.get(a.id) || { seq: 0 }).seq));
+    el.innerHTML = `<div class="cabhead"><b>Legends</b><span class="n">${list.length}</span></div><div class="lhead">Every legend you have poured or found, the newest first.</div><div id="lrows"></div>`;
+    const box = el.querySelector("#lrows");
+    for (const t of list) {
+      const k = t.hybrid && kinds.find(x => x.id === t.hybrid.kind), ab = abilityOf(t);
+      box.appendChild(weaponRow(t, `${smallBand(t)} ${esc(k ? "A " + k.name : cap(t.hybrid.classes[0]) + " ✦ " + cap(t.hybrid.classes[1]))}${ab ? " · ✦ " + esc(ab.name) : ""}${when(t) ? " · acquired " + esc(fmtDate(when(t))) : ""}`));
+    }
+    if (!list.length) box.innerHTML = '<div class="empty">No legends yet. The Crucible wakes at level 25.</div>';
+  }
 
   async function renderRoll(el) {
     el.innerHTML = `<div class="cabhead"><b>The Roll of First Smiths</b></div><div class="lhead">Weapons no smith had made before, by the smith who made them first.</div>
@@ -1335,7 +1476,8 @@
           const d = document.createElement("div"); d.className = "kind" + (k ? "" : " unnamed");
           const founding = k ? world.get(k.thing) : null;
           d.appendChild(founding ? sprite(founding, 2) : silhouette(body, head));
-          d.insertAdjacentHTML("beforeend", k ? `<b>${esc(k.name)}</b><span>${esc(k.line)}</span><span>founded by ${esc(k.first === profile.id ? "you" : k.first)}${founding ? " · " + esc(founding.name) : ""}</span>` : `<b>not yet named</b><span>${esc(cap(body))} ✦ ${esc(cap(head))}</span>`);
+          const abn = AB[head] ? "✦ " + AB[head].name : "";   // every tile names its ability, named or not (pass 10 section 3.5.6): a smith can plan a fusion by it
+          d.insertAdjacentHTML("beforeend", k ? `<b>${esc(k.name)}</b><span>${esc(k.line)}</span>${abn ? `<span>${esc(abn)}</span>` : ""}<span>founded by ${esc(k.first === profile.id ? "you" : k.first)}${founding ? " · " + esc(founding.name) : ""}</span>` : `<b>not yet named</b><span>${esc(cap(body))} ✦ ${esc(cap(head))}</span>${abn ? `<span>${esc(abn)}</span>` : ""}`);
           grid.appendChild(d);
         }
         g.appendChild(grid);
@@ -1369,8 +1511,7 @@
     } else {
       if (levels) { profile.xp = Progress.xpForLevel(Math.min(50, profile.level + levels)); profile.level = Progress.levelFor(profile.xp); }
       if (embers) profile.embers += embers;
-      const woke = before < G.fuse.level && profile.level >= G.fuse.level;
-      if (woke) profile.embers += 1;
+      const woke = before < G.fuse.level && profile.level >= G.fuse.level;   // (no Ember with the wake: Grant an Ember is the bench's way)
       save();
       afterLevelChange(before, { crucible_woke: woke });
     }
@@ -1388,7 +1529,8 @@
     const missing = window.FORGE_THINGS.filter(t => t.kind === "weapon" && !own.has(t.id));
     if (missing.length && lootRng() < 0.5) got.push(missing[Math.floor(lootRng() * missing.length)]);
     const ings = window.FORGE_THINGS.filter(t => t.kind !== "weapon"); for (let i = 0; i < 2; i++) got.push(ings[Math.floor(lootRng() * ings.length)]);
-    const res = await World.run(level, boss, false, got.map(t => t.id));
+    const finds = { gold_chests: $("runGold").checked ? 1 : 0, rare_enemies: $("runRare").checked ? 1 : 0 };   // the run's finds (design pass 10 revision 1): one each when ticked
+    const res = await World.run(level, boss, false, got.map(t => t.id), finds);
     if (!res) { toast("The world can't be reached"); return; }
     if (svc.url) for (const t of got) gain(t.id);
     const nc = got.map(classOf).find(c => c && !hadClass.has(c));
@@ -1520,7 +1662,8 @@
   }
   window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openLedger, closeLedger, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
     save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
-    openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; } };
+    openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderLedger, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
+    showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderLedger(); renderInfo(); }
   if (window.Nav) Nav.arrive("forge");
   lockLandscape();
@@ -1551,7 +1694,7 @@
     lockLandscape(); fitTurn();
     if (!takeLoadoutBack()) return;
     renderAll();
-    const eq = $("equipBtn"), t = session.lastClaim && session.lastClaim.thing;
-    if (eq && t && (!$("plaque").hidden || !$("legendPlaque").hidden)) eq.textContent = session.equipped.includes(t.id) ? "Equipped" : Progress.canEquip(t, profile, G) ? "Equip" : "Chained";
+    const eq = $("equipBtn"), t = plaqueThing;
+    if (eq && t && plaqueOpen()) eq.textContent = equipLabel(t);
   });
 })();

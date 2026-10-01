@@ -6,6 +6,9 @@
 // (hidden, cold or lit). Plain script, defines window.Smithy. Needs no other file.
 // Since build 2 (card t65, design pass 7) the parts of the room that the Training Cellar shares (the stone bricks, the beam, the posts,
 // the floor's tones, the dithered firelight) are helpers any room can call, and the smithy has a low arched door down to the cellar.
+// Since build 4 (design pass 14) Scene(W, H, { wide: true }) draws the room as wide as the screen's shape (232 to 320 world pixels): the
+// station centred, the cellar's bigger arch, tool rack and coal scuttle on the left wall, the door to the Armory under crossed swords
+// (and a grindstone from W 278) on the right. Without `wide` the 200 x 112 smithy is what it always was, pixel for pixel.
 (function (root) {
   "use strict";
   const OUT = "#181425";
@@ -73,6 +76,165 @@
     return { x0, x1, y0: top - 2, y1: bot };
   }
 
+  // ------------------------------------------------------------------ the wide smithy (design pass 14): the room as wide as the screen
+  // The hearth, the anvil, the bellows and the barrel stay centred. The left wall holds the cellar's door, bigger (a round stone arch
+  // over five steps going down), under a longer tool rack, and a coal scuttle when there is room; the right wall holds the door to the
+  // Armory (an oak frame, the door swung open, the weapon rack lit inside) under a pair of crossed swords, and a grindstone when there
+  // is room. Each helper paints with the painter p and returns its box; lit 0 marks pixels the hearth's glow doesn't reach.
+  const STEP_LIT = ["#8b9bb4", "#6e6a70", "#555064", "#3a3448", "#2c2540"], STEP_FILL = ["#3e3149", "#352d45", "#2a2338", "#1e1828", "#181425"];
+  function cellarArch(p, x0, x1, top, bot) {
+    const cx = (x0 + x1 + 1) / 2, hw = (x1 - x0 + 1) / 2, ra = Math.round(hw * 0.8), sw = 4, spring = top + ra;
+    const inArch = (x, y) => { const dx = x + 0.5 - cx; if (Math.abs(dx) > hw || y > bot || y < top) return false; if (y >= spring) return true; return (dx / hw) ** 2 + ((y + 0.5 - spring) / ra) ** 2 <= 1; };
+    const iw = hw - sw, ir = ra - sw + 0.5;
+    const inOpen = (x, y) => { const dx = x + 0.5 - cx; if (Math.abs(dx) > iw || y > bot) return false; if (y >= spring) return true; return (dx / iw) ** 2 + ((y + 0.5 - spring) / ir) ** 2 <= 1; };
+    for (let y = top - 1; y <= bot; y++) for (let x = x0 - 1; x <= x1 + 1; x++) {
+      const dx = x + 0.5 - cx;
+      if (inOpen(x, y)) {
+        // the way down: five steps of four rows, each narrower and darker than the one before it, the hearth's light on the threshold
+        // (the hearth's light catches the noses of the two nearest steps, nothing else: a step is a band, not a grate)
+        const d = bot - y; let c = TONES.dark;
+        if (d < 20) { const step = Math.floor(d / 4), inStep = d % 4; c = inStep === 3 ? (step === 0 ? "#feae34" : step === 1 ? "#be4a2f" : STEP_LIT[step]) : inStep === 2 && step < 2 ? STEP_LIT[step + 1] : STEP_FILL[step]; if (Math.abs(dx) > iw - step) c = TONES.dark; }
+        p.set(x, y, c, 0);
+      } else if (inArch(x, y)) {
+        // the stones: nine voussoirs round the arch, courses of six rows down the jambs; lit on the outer top-left edge, shadowed where
+        // the ring meets the dark
+        let block;
+        if (y < spring) block = Math.floor(Math.atan2(spring - y - 0.5, dx) / (Math.PI / 9));
+        else block = Math.floor((y - spring) / 6) + (dx < 0 ? 0 : 1);
+        const joint = y < spring ? Math.floor(Math.atan2(spring - y - 0.5, dx - 1) / (Math.PI / 9)) !== block : (y - spring) % 6 === 5;
+        const outer = !inArch(x - 1, y) || !inArch(x, y - 1), inner = inOpen(x - 1, y) || inOpen(x + 1, y) || inOpen(x, y + 1) || inOpen(x, y - 1);
+        p.set(x, y, outer ? "#8b9bb4" : inner ? "#3a3448" : joint ? "#3a3448" : block === 4 && y < spring ? "#8b9bb4" : block % 2 ? "#555064" : "#6e6a70", 1);
+      } else if (inArch(x - 1, y) || inArch(x + 1, y) || inArch(x, y - 1) || inArch(x, y + 1)) p.set(x, y, OUT, 1);
+    }
+    return { x0, x1, y0: top, y1: bot };
+  }
+  // the tool rack: an oak shelf on two brackets with tongs, a hammer, a file and a punch hanging from it
+  function toolRack(p, x0, x1, y) {
+    p.fill(x0, y, x1, y + 2, (x, yy) => x === x0 || x === x1 ? OUT : yy === y ? "#b86f50" : yy === y + 2 ? "#3e2731" : "#733e39");
+    for (const bx of [x0 + 2, x1 - 3]) p.fill(bx, y + 3, bx + 1, y + 5, (x, yy) => yy === y + 5 && x === bx ? OUT : "#3e2731");
+    // the tongs: two legs drifting right as they fall, jaws at the foot
+    for (const [lx, len] of [[x0 + 5, 19], [x0 + 9, 18]]) for (let i = 0; i < len; i++) { p.set(lx + (i >> 3), y + 3 + i, "#5a6988"); p.set(lx + 1 + (i >> 3), y + 3 + i, "#262b44"); }
+    // the hammer: an oak handle, the iron head at the top, hung by it
+    p.fill(x0 + 17, y + 3, x0 + 18, y + 21, (x) => x === x0 + 17 ? "#b86f50" : "#733e39");
+    p.fill(x0 + 13, y + 3, x0 + 22, y + 7, (x, yy) => yy === y + 3 ? "#8b9bb4" : yy === y + 7 ? "#3a4466" : x === x0 + 13 ? "#8b9bb4" : "#5a6988");
+    p.fill(x0 + 12, y + 3, x0 + 12, y + 7, OUT); p.fill(x0 + 23, y + 3, x0 + 23, y + 7, OUT);
+    // the file: a grip, then a long hatched blade
+    p.fill(x0 + 26, y + 3, x0 + 27, y + 7, (x) => x === x0 + 26 ? "#b86f50" : "#733e39");
+    p.fill(x0 + 26, y + 8, x0 + 27, y + 19, (x, yy) => x === x0 + 26 ? ((yy & 1) ? "#8b9bb4" : "#5a6988") : "#3a4466");
+    // the punch
+    p.fill(x0 + 31, y + 3, x0 + 32, y + 13, (x) => x === x0 + 31 ? "#5a6988" : "#262b44");
+    p.fill(x0 + 30, y + 3, x0 + 33, y + 4, (x, yy) => yy === y + 3 ? "#8b9bb4" : "#5a6988");
+    return { x0, x1, y0: y, y1: y + 21 };
+  }
+  // a coal scuttle on the floor: an iron pail heaped with coal (lumps outlined in soot, lit on top), its handle up
+  function scuttle(p, x0, floorY) {
+    const top = floorY - 8;
+    for (let y = top; y < floorY; y++) { const inset = Math.floor((y - top) / 4); for (let x = x0 + inset; x <= x0 + 10 - inset; x++) p.set(x, y, x === x0 + inset || x === x0 + 10 - inset || y === floorY - 1 ? OUT : y === top ? "#8b9bb4" : y === top + 1 ? "#262b44" : x < x0 + 4 ? "#5a6988" : x > x0 + 7 ? "#262b44" : "#3a4466"); }
+    // the handle: an iron hoop over the heap
+    for (let i = 0; i <= 10; i++) { const yy = top - 2 - Math.round(4 * Math.sin(Math.PI * i / 10)); if (i > 0 && i < 10) p.set(x0 + i, yy, i < 5 ? "#8b9bb4" : "#5a6988"); }
+    // the heap: five lumps of coal standing proud of the rim
+    const lumps = [[x0 + 1, top - 1], [x0 + 4, top - 1], [x0 + 7, top - 1], [x0 + 2, top - 3], [x0 + 5, top - 3]];
+    for (const [lx, ly] of lumps) for (let y = ly; y <= ly + 1; y++) for (let x = lx; x <= lx + 2; x++) p.set(x, y, x === lx && y === ly ? "#5a6988" : y === ly ? "#3a4466" : "#262b44");
+    for (const [lx, ly] of lumps) { p.set(lx - 1, ly + 1, OUT); p.set(lx + 3, ly + 1, OUT); p.set(lx, ly - 1, OUT); p.set(lx + 1, ly - 1, OUT); p.set(lx + 2, ly - 1, OUT); }
+    for (const [lx, ly] of lumps) for (let y = ly; y <= ly + 1; y++) for (let x = lx; x <= lx + 2; x++) p.set(x, y, x === lx && y === ly ? "#8b9bb4" : y === ly ? "#3a4466" : "#262b44");
+    return { x0, x1: x0 + 10, y0: top - 6, y1: floorY - 1 };
+  }
+  // the Armory's door: an oak frame studded with iron, the door swung open against the wall on the right, a stone step; inside, lit by
+  // its own lamp, the armory's oak panelling, a rack of weapons standing against it (a sword, a spear, an axe, a sword), a round shield on
+  // the wall; the lamplight spills out onto the smithy's floor
+  function armoryDoor(p, x0, x1, top, bot, floorY, H) {
+    const oak = TONES.oak, ix0 = x0 + 4, ix1 = x1 - 4, iy0 = top + 5;
+    const lampX = ix0 + 22, lampY = iy0 + 5, glowX = (ix0 + ix1) / 2, glowY = iy0 + 8;
+    // everything inside the opening is lit 0: the Armory has its own lamp, and the hearth's glow stops at the jambs
+    const q = { set: (x, y, c) => p.set(x, y, c, 0), fill: (fx0, fy0, fx1, fy1, f) => { for (let y = fy0; y <= fy1; y++) for (let x = fx0; x <= fx1; x++) { const c = typeof f === "function" ? f(x, y) : f; if (c) p.set(x, y, c, 0); } } };
+    for (let y = iy0; y <= bot; y++) for (let x = ix0; x <= ix1; x++) {
+      const k = Math.max(0, 1 - Math.hypot((x - glowX) * 0.8, (y - glowY) * 1.0) / 30), b = BAYER[(y & 3) * 4 + (x & 3)];
+      // the far wall: warm stone in courses of five, lit by the lamp and falling into shadow at the jambs; the ceiling dark; the floor
+      const side = Math.min(x - ix0, ix1 - x), shade = side < 2 ? 0.45 : side < 4 ? 0.2 : 0;
+      const course = Math.floor((y - iy0) / 5), off = course % 2 ? 4 : 0, joint = (y - iy0) % 5 === 4 || (x - ix0 + off) % 8 === 7;
+      let c;
+      if (y <= iy0 + 1) c = k * 0.5 - shade > b ? "#733e39" : "#3e2731";
+      else if (y >= bot - 3) c = y === bot - 3 ? "#3e2731" : (x - ix0 + (y & 1) * 4) % 8 === 0 ? "#733e39" : k + 0.35 - shade > b ? "#c28569" : "#b86f50";
+      else c = joint ? (k - shade > 0.55 ? "#733e39" : "#3e2731") : k - shade > b ? (k - shade > 0.6 + b * 0.3 ? "#c28569" : "#b86f50") : k - shade + 0.35 > b ? "#733e39" : "#3e2731";
+      p.set(x, y, c, 0);
+    }
+    // the lamp: a little iron cage on a chain, a flame inside
+    for (let y = iy0; y < lampY - 1; y++) p.set(lampX, y, "#262b44", 0);
+    q.fill(lampX - 1, lampY - 1, lampX + 1, lampY + 1, (x, y) => x === lampX && y === lampY ? "#fff6c8" : y === lampY - 1 ? "#5a6988" : "#fee761");
+    p.set(lampX - 2, lampY, OUT, 0); p.set(lampX + 2, lampY, OUT, 0); p.set(lampX, lampY + 2, "#5a6988", 0);
+    // the shield on the wall: a red disc in an iron rim with a brass boss
+    const scx = ix0 + 7, scy = iy0 + 9;
+    for (let y = scy - 5; y <= scy + 5; y++) for (let x = scx - 5; x <= scx + 5; x++) { const d = Math.hypot(x - scx, y - scy); if (d > 5.2) continue;
+      p.set(x, y, d > 4.4 ? OUT : d > 3.4 ? (x + y < scx + scy ? "#c0cbdc" : "#5a6988") : d < 1.2 ? "#feae34" : (x + y < scx + scy - 1 ? "#e43b44" : "#a22633"), 0); }
+    // the rack: a wall bar the weapons lean on, a low oak bench with slots they stand in
+    const barY = iy0 + 19, benchY = bot - 7;
+    q.fill(ix0, barY, ix1, barY + 1, (x, y) => y === barY ? "#e4a672" : "#3e2731");
+    q.fill(ix0, benchY, ix1, benchY + 3, (x, y) => y === benchY ? "#e4a672" : y === benchY + 3 ? OUT : "#b86f50");
+    const blade = (x, yTop, yBot) => {
+      for (let y = yTop; y <= yBot; y++) { p.set(x - 1, y, OUT, 0); p.set(x, y, "#c0cbdc", 0); p.set(x + 1, y, "#5a6988", 0); p.set(x + 2, y, OUT, 0); }
+      p.set(x, yTop - 1, "#c0cbdc", 0); p.set(x + 1, yTop - 1, OUT, 0); p.set(x - 1, yTop - 1, OUT, 0); p.set(x, yTop - 2, OUT, 0);
+    };
+    const sword = (x, tip) => { blade(x, tip, benchY - 6); q.fill(x - 2, benchY - 5, x + 3, benchY - 4, (xx, y) => y === benchY - 5 ? "#feae34" : "#be4a2f"); q.fill(x, benchY - 3, x + 1, benchY - 1, "#3e2731"); };
+    sword(ix0 + 4, iy0 + 17);
+    // a spear: a long shaft, a leaf point
+    const spx = ix0 + 13, spy = iy0 + 9; for (let y = spy; y <= benchY - 1; y++) p.set(spx, y, y < spy + 5 ? "#c0cbdc" : "#e4a672", 0);
+    for (const [dx, dy, c] of [[-1, 2, "#c0cbdc"], [1, 2, "#5a6988"], [-1, 3, "#c0cbdc"], [1, 3, "#5a6988"], [0, -1, OUT], [-1, 1, OUT], [1, 1, OUT], [-2, 2, OUT], [2, 2, OUT], [-2, 3, OUT], [2, 3, OUT], [-1, 4, OUT], [1, 4, OUT]]) p.set(spx + dx, spy + dy, c, 0);
+    // an axe: a handle, the bit at the top on the left, its edge curved
+    const axx = ix0 + 20, axy = iy0 + 14; for (let y = axy - 1; y <= benchY - 1; y++) { p.set(axx, y, "#e4a672", 0); p.set(axx + 1, y, "#b86f50", 0); }
+    const BIT = ["..oooo", ".o5433", "o54333", "o54332", "o54332", "o54333", ".o5433", "..oooo"], BC = { o: OUT, 5: "#c0cbdc", 4: "#8b9bb4", 3: "#5a6988", 2: "#3a4466" };
+    BIT.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== ".") p.set(axx - 6 + i, axy - 1 + j, BC[ch], 0); }));
+    sword(ix0 + 26, iy0 + 15);
+    // the frame: oak jambs and a lintel standing proud of the wall, studded with iron
+    for (let y = top; y <= bot; y++) for (let x = x0; x <= x1; x++) {
+      if (x >= ix0 && x <= ix1 && y >= iy0) continue;
+      const lintel = y < iy0, edge = x === x0 || x === x1 || y === top;
+      const stud = (lintel && y === top + 2 && (x - x0) % 6 === 3) || (!lintel && (x === x0 + 2 || x === x1 - 1) && (y - iy0) % 7 === 3);
+      p.set(x, y, edge ? OUT : stud ? "#8b9bb4" : lintel ? (y === top + 1 ? oak[2] : y === iy0 - 1 ? oak[0] : oak[1]) : x === x0 + 1 || x === x1 - 3 ? oak[2] : x === ix0 - 1 || x === x1 - 1 ? oak[0] : oak[1], 1);
+    }
+    for (let x = x0 - 2; x <= x1 + 2; x++) { p.set(x, top - 1, OUT, 1); if (x < x0 || x > x1) { p.set(x, top, OUT, 1); p.set(x, top + 1, x === x0 - 2 || x === x1 + 2 ? OUT : oak[2], 1); p.set(x, top + 2, x === x0 - 2 || x === x1 + 2 ? OUT : oak[1], 1); p.set(x, top + 3, OUT, 1); } }
+    // the door itself, swung open against the wall on the right: an oak leaf seen at a slant, two iron bands, a ring
+    const lx0 = x1 + 1, lx1 = x1 + 5;
+    for (let x = lx0; x <= lx1; x++) { const t = x - lx0, y0 = top + 3 + t, y1 = bot - Math.floor(t / 2);
+      for (let y = y0; y <= y1; y++) p.set(x, y, x === lx1 || y === y0 || y === y1 ? OUT : (y - top) % 18 === 9 || (y - top) % 18 === 10 ? "#5a6988" : t === 0 ? oak[2] : t === 1 ? oak[1] : oak[0], 1); }
+    p.set(lx0 + 2, Math.round((top + bot) / 2) + 2, "#feae34", 1);
+    // the step: a stone sill across the threshold, lit by the lamp like the rest of the opening
+    q.fill(x0 - 1, bot, x1 + 1, bot, (x) => x === x0 - 1 || x === x1 + 1 ? OUT : "#8b9bb4");
+    // the lamplight on the smithy's floor in front of the door, dithered and fading
+    if (floorY !== undefined) for (let y = floorY; y < Math.min(H, floorY + 7); y++) for (let x = ix0 - 2; x <= ix1 + 2; x++) {
+      const k = 1 - (y - floorY) / 7 - Math.abs(x + 0.5 - (ix0 + ix1 + 1) / 2) / 26;
+      if (k > 0 && BAYER[(y & 3) * 4 + (x & 3)] < k * 0.7) p.set(x, y, y === floorY ? "#e4a672" : "#733e39", 0);
+    }
+    return { x0, x1: lx1, y0: top, y1: bot, inside: { x0: ix0, x1: ix1, y0: iy0, y1: bot } };
+  }
+  // two swords crossed on the wall over the Armory's door, hilts down
+  function crossedSwords(p, cx, top) {
+    const L = 14;
+    for (const s of [-1, 1]) for (let i = 0; i <= L; i++) {
+      const x = cx - s * 7 + s * i, y = top + i;
+      if (i <= 10) { p.set(x, y, "#c0cbdc"); p.set(x + s, y, "#5a6988"); p.set(x - s, y, OUT); p.set(x + 2 * s, y, OUT); }
+      else if (i === 11) { for (let j = -2; j <= 2; j++) { p.set(x - j, y + j * -s * 0 - 0, "#feae34"); } p.fill(x - 2, y, x + 2, y, "#feae34"); p.fill(x - 3, y, x - 3, y, OUT); p.fill(x + 3, y, x + 3, y, OUT); }
+      else { p.set(x, y, i === L ? "#feae34" : "#733e39"); p.set(x + s, y, i === L ? "#be4a2f" : "#3e2731"); p.set(x - s, y, OUT); p.set(x + 2 * s, y, OUT); }
+    }
+    p.set(cx - 7, top - 1, OUT); p.set(cx + 7, top - 1, OUT);
+    return { cx, top, y1: top + L };
+  }
+  // a grindstone in its oak frame over a trough of water, the crank to the right
+  function grindstone(p, x0, floorY) {
+    const cx = x0 + 9, cy = floorY - 12, R = 7;
+    // the frame's legs, splayed, behind the wheel
+    for (let y = cy; y < floorY; y++) { const t = y - cy, a = x0 + 4 - (t >> 2), b = x0 + 14 + (t >> 2);
+      p.set(a - 1, y, OUT); p.set(a, y, "#b86f50"); p.set(a + 1, y, "#733e39"); p.set(a + 2, y, OUT); p.set(b - 1, y, OUT); p.set(b, y, "#733e39"); p.set(b + 1, y, "#3e2731"); p.set(b + 2, y, OUT); }
+    // the wheel: sandstone, lit from the top left, an iron axle
+    for (let y = cy - R - 1; y <= cy + R + 1; y++) for (let x = cx - R - 1; x <= cx + R + 1; x++) { const d = Math.hypot(x - cx, y - cy); if (d > R + 0.6) continue;
+      p.set(x, y, d > R - 0.4 ? OUT : (x - cx) + (y - cy) < -5 ? "#e4a672" : (x - cx) + (y - cy) > 4 ? "#733e39" : d > R - 1.6 ? "#b86f50" : "#c28569"); }
+    p.fill(cx - 1, cy - 1, cx + 1, cy + 1, (x, y) => x === cx && y === cy ? "#8b9bb4" : "#262b44");
+    // the crank
+    for (let i = 2; i <= 6; i++) p.set(cx + i, cy - Math.floor(i / 2), "#8b9bb4"); p.fill(cx + 6, cy - 7, cx + 7, cy - 3, (x) => x === cx + 6 ? "#b86f50" : "#733e39"); p.set(cx + 6, cy - 8, OUT); p.set(cx + 7, cy - 8, OUT);
+    // the trough under the wheel, the water at its brim
+    p.fill(x0 + 1, floorY - 4, x0 + 17, floorY - 1, (x, y) => x === x0 + 1 || x === x0 + 17 || y === floorY - 1 ? OUT : y === floorY - 4 ? "#2ce8f5" : y === floorY - 3 ? "#0099db" : x < x0 + 5 ? "#b86f50" : "#733e39");
+    return { x0, x1: x0 + 18, y0: cy - R - 1, y1: floorY - 1 };
+  }
+
   // ------------------------------------------------------------------ the scene
   function Scene(W, H, o) {
     o = o || {};
@@ -106,13 +268,26 @@
     // the beam and posts
     beam(p, W);
     for (const px of [0, W - 7]) post(p, px, 8, floorY - 1);
-    // a tool rack on the left: two pegs, tongs and a hammer
-    const tx = 14; fillRect(tx, 18, tx + 26, 20, (x, y) => y === 18 ? "#b86f50" : y === 20 ? "#3e2731" : "#733e39");
-    for (const [x0, len] of [[tx + 4, 16], [tx + 8, 15]]) for (let i = 0; i < len; i++) { set(x0 + (i >> 3), 21 + i, "#5a6988"); set(x0 + 1 + (i >> 3), 21 + i, "#262b44"); }
-    fillRect(tx + 16, 21, tx + 17, 36, "#733e39"); fillRect(tx + 13, 21, tx + 20, 24, (x, y) => y === 21 ? "#8b9bb4" : "#5a6988");
-    fillRect(tx + 22, 21, tx + 22, 30, "#262b44"); fillRect(tx + 21, 31, tx + 23, 33, "#5a6988");
-    // the way down to the Training Cellar: a low arched door at the left of the floor, between the post and the bellows (pass 7 section 3.9.1)
-    this.door = o.door === false ? null : doorway(p, 12, 40, floorY - 30, floorY - 1);
+    this.wide = !!o.wide;
+    if (this.wide) {
+      // design pass 14: the left wall is the cellar's (a longer tool rack over a bigger door, a coal scuttle when there is room), the
+      // right wall the Armory's (its door under crossed swords, a grindstone when there is room). Both doors keep their distance from
+      // the walls' edges, so a wider screen widens the plain wall between them and the hearth
+      this.tools = toolRack(p, 10, 45, 12);
+      this.door = o.door === false ? null : cellarArch(p, 10, 45, floorY - 40, floorY - 1);
+      if (cx - 52 - 47 >= 14) this.scuttle = scuttle(p, 50, floorY);
+      this.armory = armoryDoor(p, W - 54, W - 15, floorY - 52, floorY - 1, floorY, H);
+      this.swords = crossedSwords(p, W - 34, floorY - 52 - 26);
+      if ((W - 58) - (cx + 57) >= 24) this.grind = grindstone(p, cx + 62, floorY);
+    } else {
+      // a tool rack on the left: two pegs, tongs and a hammer
+      const tx = 14; fillRect(tx, 18, tx + 26, 20, (x, y) => y === 18 ? "#b86f50" : y === 20 ? "#3e2731" : "#733e39");
+      for (const [x0, len] of [[tx + 4, 16], [tx + 8, 15]]) for (let i = 0; i < len; i++) { set(x0 + (i >> 3), 21 + i, "#5a6988"); set(x0 + 1 + (i >> 3), 21 + i, "#262b44"); }
+      fillRect(tx + 16, 21, tx + 17, 36, "#733e39"); fillRect(tx + 13, 21, tx + 20, 24, (x, y) => y === 21 ? "#8b9bb4" : "#5a6988");
+      fillRect(tx + 22, 21, tx + 22, 30, "#262b44"); fillRect(tx + 21, 31, tx + 23, 33, "#5a6988");
+      // the way down to the Training Cellar: a low arched door at the left of the floor, between the post and the bellows (pass 7 section 3.9.1)
+      this.door = o.door === false ? null : doorway(p, 12, 40, floorY - 30, floorY - 1);
+    }
     // bellows by the hearth, left
     const bx = cx - hw - 20, by = floorY - 12;
     for (let y = 0; y < 10; y++) for (let x = 0; x < 16; x++) { const w = 8 - Math.abs(y - 5) * 0.6; if (Math.abs(x - 8) <= w) set(bx + x, by + y, y === 0 || y === 9 ? OUT : y % 3 === 0 ? "#3e2731" : "#733e39"); }
@@ -173,8 +348,9 @@
       // the molten metal inside the rim, and embers above it
       for (let x = cx - 6; x <= cx + 5; x++) put(x, top, Math.abs(x - cx + 0.5) < 4 ? "#fee761" : "#feae34", true);
       for (const [x, y, c] of [[cx - 3, 44, "#fee761"], [cx + 2, 43, "#f77622"], [cx + 5, 45, "#feae34"], [cx - 1, 42, "#f77622"]]) put(x, y, c, true);
-    } else {
-      // a small chained plate under the pot ("Wakes at level 25"; the page letters it)
+    } else if (!this.wide) {
+      // a small chained plate under the pot ("Wakes at level 25"; the page letters it). Since design pass 14 the wide room has no plate:
+      // the Crucible's tab says the level, and the cold pot says the rest
       put(cx, bottom + 2, iron[1]); put(cx, bottom + 3, iron[0]);
       for (let y = bottom + 4; y <= bottom + 7; y++) for (let x = cx - 4; x <= cx + 3; x++)
         put(x, y, y === bottom + 4 || y === bottom + 7 || x === cx - 4 || x === cx + 3 ? OUT : y === bottom + 5 ? "#b86f50" : "#733e39");
@@ -210,7 +386,7 @@
     ctx.putImageData(img, 0, 0);
   };
   function mount(canvas, o) {
-    o = o || {}; const W = o.w || 200, H = o.h || 112, sc = new Scene(W, H, { door: o.door });
+    o = o || {}; const W = o.w || 200, H = o.h || 112, sc = new Scene(W, H, { door: o.door, wide: o.wide });
     canvas.width = W; canvas.height = H; const ctx = canvas.getContext("2d");
     const still = o.still || (root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
     const state = { heat: 0, scene: sc, stop: false, crucible: o.crucible || "hidden" };
@@ -371,5 +547,5 @@
     return cv;
   }
 
-  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, drawTurnPhone, TONES, GLOW, BAYER, OUT, hex, rng, GLYPHS, GPAL, glyph };
+  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, drawTurnPhone, TONES, STEP_LIT, STEP_FILL, GLOW, BAYER, OUT, hex, rng, GLYPHS, GPAL, glyph };
 })(typeof window !== "undefined" ? window : globalThis);

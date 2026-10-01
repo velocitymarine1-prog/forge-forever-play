@@ -1,6 +1,7 @@
 // FORGE FOREVER: The Battlegrounds screen (design pass 7, revised by card t64; built by card t65). The first area is the Training
 // Cellar: a small room under the smithy where the smith walks a knight among training dummies and tries the weapons they forged.
-// Landscape, two thumbs: a floating stick on the left, Strike, Swap and Dodge on the right; aim is automatic.
+// Landscape, two thumbs: a floating stick on the left, Strike, Swap and Dodge on the right, and above Strike a legend's gold ability
+// button (design pass 10: a legend strikes with its body's form, and its head's class gives it one of twenty abilities); aim is automatic.
 //
 // This file is the screen and nothing else. The rules are proto/combat.js (pure: the fight's state and its events); the room, the
 // dummies and the font are proto/cellar.js; the knight is proto/knight.js; the weapon in the hand is proto/pixel-forge.js. The screen
@@ -74,12 +75,15 @@
     return d && d.v === 1 && Array.isArray(d.loadout) ? d : null;
   }
   const classOf = t => { const v = (t.weapon || {}).visual || {}; return v.fuse && v.fuse !== v.base ? "legendary" : (v.base || "sword"); };
-  function sentence(t) { const w = t.weapon; return [w.form + (w.form2 ? " / " + w.form2 : ""), w.element !== "physical" ? w.element : null].concat(w.status || [], w.modifiers || []).filter(Boolean).join(" · ").replace(/_/g, " ").toUpperCase(); }
+  // the weapon plate's line: the form, the element, the statuses and the modifiers (a legend's second form is no longer played, so it
+  // is no longer said: design pass 10)
+  function sentence(t) { const w = t.weapon; return [w.form, w.element !== "physical" ? w.element : null].concat(w.status || [], w.modifiers || []).filter(Boolean).join(" · ").replace(/_/g, " ").toUpperCase(); }
 
   // the hands (what the knight holds now, practice weapons included) and the loadout (what goes back up)
   const state = { visiting, handoff: visiting ? null : handoff, loadout: [], empty: false, slow: false, reach: false, lefty: store.get(KEYS.lefty) === "1", forced: store.get(KEYS.forced) === "1",
     t: 0, arrive: reduce ? 0 : AREA.knight.arrive, lit: reduce ? 3 : 0, hold: 0, shake: { t: 0, amp: 0 }, fx: [], nums: [], parts: [], rings: [], sums: {}, heal: { n: 0, at: 0 }, trail: [],
-    plank: null, turned: false, left: false, leftTo: null, went: null, tookBack: false, stairs: 0, zone: null, booted: false, layout: { x: 0, y: 0, s: 1, k: 1, w: W, h: H, pl: 0, pt: 0 }, frames: 0, log: [] };
+    plank: null, turned: false, left: false, leftTo: null, went: null, tookBack: false, stairs: 0, zone: null, booted: false, layout: { x: 0, y: 0, s: 1, k: 1, w: W, h: H, pl: 0, pt: 0 }, frames: 0, log: [],
+    legendNoted: false, noteUntil: 0, noteText: "" };   // the first legend of the visit: a note under the plate for 3 s (design pass 10)
   function firstHands() {
     let ids = [], active = 0;
     const asked = (params.get("weapons") || "").split(",").map(s => s.trim()).filter(id => world.has(id));
@@ -185,7 +189,7 @@
   const paused = () => !!(state.plank || state.plate || document.hidden || state.left);
 
   // ------------------------------------------------------------------ input: the stick, the buttons, the keyboard
-  const input = { stick: null, sx: 0, sy: 0, strike: false, swap: false, dodge: false, keys: {}, test: null };
+  const input = { stick: null, sx: 0, sy: 0, strike: false, swap: false, dodge: false, ability: false, keys: {}, test: null };
   const R = 44, DEAD = 0.12;
   function stickTo(gx, gy) {
     const dx = gx - input.stick.cx, dy = gy - input.stick.cy, d = Math.hypot(dx, dy), m = Math.min(1, d / R);
@@ -219,7 +223,9 @@
   holdButton($("strikeBtn"), () => { input.strike = true; }, () => { input.strike = false; });
   holdButton($("swapBtn"), () => { input.swap = true; });
   holdButton($("dodgeBtn"), () => { input.dodge = true; });
-  const KEYMAP = { KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down", KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right", KeyJ: "strike", Space: "strike", KeyK: "swap", KeyL: "dodge", ShiftLeft: "dodge", ShiftRight: "dodge", KeyE: "use", Escape: "menu" };
+  // a legend's ability (design pass 10): the gold button above Strike, or U (above J, as the button is above Strike); pressed, it is brighter
+  holdButton($("abilityBtn"), () => { input.ability = true; $("abilityBtn").classList.add("on"); }, () => { $("abilityBtn").classList.remove("on"); });
+  const KEYMAP = { KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down", KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right", KeyJ: "strike", Space: "strike", KeyK: "swap", KeyL: "dodge", ShiftLeft: "dodge", ShiftRight: "dodge", KeyE: "use", KeyU: "ability", Escape: "menu" };
   window.addEventListener("keydown", e => {
     const what = KEYMAP[e.code];
     if (!what || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -227,7 +233,7 @@
     if (paused() || (e.target && e.target.tagName === "BUTTON" && (e.code === "Space"))) return;
     e.preventDefault();
     if (e.repeat) return;
-    if (what === "swap") input.swap = true; else if (what === "dodge") input.dodge = true; else if (what === "use") use(); else input.keys[what] = true;
+    if (what === "swap") input.swap = true; else if (what === "dodge") input.dodge = true; else if (what === "ability") input.ability = true; else if (what === "use") use(); else input.keys[what] = true;
   });
   window.addEventListener("keyup", e => { const what = KEYMAP[e.code]; if (what) input.keys[what] = false; });
   window.addEventListener("blur", () => { input.keys = {}; input.strike = false; stickUp(); });
@@ -237,9 +243,9 @@
     const K = input.keys, T = input.test;
     let mx = input.sx, my = input.sy;
     if (!input.stick) { mx = (K.right ? 1 : 0) - (K.left ? 1 : 0); my = (K.down ? 1 : 0) - (K.up ? 1 : 0); const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; } }
-    const inp = { move: [mx, my], strike: input.strike || !!K.strike, swap: input.swap, dodge: input.dodge };
-    input.swap = false; input.dodge = false;
-    if (T) { if (T.move) inp.move = T.move; if (T.strike !== undefined) inp.strike = !!T.strike; if (T.swap) { inp.swap = true; T.swap = false; } if (T.dodge) { inp.dodge = true; T.dodge = false; } if (T.target !== undefined) inp.target = T.target; if (T.face !== undefined) inp.face = T.face; }
+    const inp = { move: [mx, my], strike: input.strike || !!K.strike, swap: input.swap, dodge: input.dodge, ability: input.ability };
+    input.swap = false; input.dodge = false; input.ability = false;   // Swap, Dodge and the ability are passed once, a press each
+    if (T) { if (T.move) inp.move = T.move; if (T.strike !== undefined) inp.strike = !!T.strike; if (T.swap) { inp.swap = true; T.swap = false; } if (T.dodge) { inp.dodge = true; T.dodge = false; } if (T.ability) { inp.ability = true; T.ability = false; } if (T.target !== undefined) inp.target = T.target; if (T.face !== undefined) inp.face = T.face; }
     // arriving: the knight walks down off the bottom step while input waits
     if (state.arrive > 0) { state.arrive -= STEP; return { move: fight.k.y < AREA.knight.walkTo[1] ? [0, 1] : [0, 0] }; }
     return inp;
@@ -295,6 +301,10 @@
       else if (e.type === "hit") onHit(e);
       else if (e.type === "shake") { if (!reduce) state.shake = { t: e.time, amp: e.amp }; }
       else if (e.type === "bonk") say(e.x, e.y - 36, "BONK", INK.bonk);
+      // an ability (design pass 10): its name in capitals floats over the knight in the carried element's lightest tone (white for
+      // physical), with a star at the chest; when its clock is done the button is drawn ready again
+      else if (e.type === "ability") { say(e.x, e.y - 40, String(e.name).toUpperCase(), elemRamp(e.el)[3], true); addFx({ kind: "star", x: e.x, y: e.y - 16, c: "#fee761", big: true, life: 0.2 }); }
+      else if (e.type === "ready") hud.ab = -1;
       else if (e.type === "block") { say(e.x, e.y - 36, "BLOCK", INK.block); addFx({ kind: "sparks", x: e.bx, y: e.by, seed: fight.steps }); }
       else if (e.type === "reflect") say(e.x, e.y - 36, "REFLECT", INK.reflect);
       else if (e.type === "miss") say(e.x, e.y - 36, "MISS", INK.miss);
@@ -624,7 +634,9 @@
 
   // ------------------------------------------------------------------ the HUD
   const icon = (t, scale) => PF.canvasFor(t, { scale: scale || 2, shadow: false });
-  const hud = { held: null, other: null, pip: -1, tag: null, p: -1, c: -1, on: null, x: -1, y: -1 };
+  const hud = { held: null, other: null, pip: -1, tag: null, p: -1, c: -1, on: null, x: -1, y: -1, ab: -1 };
+  // a legend's ability button (design pass 10) carries its head class's own weapon, drawn at 1x
+  const classWeapon = c => (window.FORGE_THINGS || []).find(t => t.kind === "weapon" && t.weapon && t.weapon.visual && t.weapon.visual.base === c);
   function syncHud() {
     const k = fight.k, hand = fight.hands[k.active], t = hand.thing, other = fight.hands.length > 1 ? fight.hands[1 - k.active].thing : null;
     if (hud.held !== t.id) {
@@ -632,7 +644,19 @@
       $("wName").textContent = t.name || t.id; $("wLine").textContent = sentence(t);
       const sb = $("strikeBtn"); sb.replaceChildren(icon(t, 2)); sb.insertAdjacentHTML("beforeend", '<i class="clock"></i><i class="glow"></i>');
       sb.setAttribute("aria-label", "Strike with " + (t.name || t.id));
-      $("pips").hidden = !hand.u2;
+      $("pips").hidden = true;   // design pass 10: no third blow and no pips; a legend's head is its ability
+      // the gold button above Strike, only while a legend is in hand: the head's class weapon as its icon, the ability's words as its label
+      const ab = $("abilityBtn"), ua = hand.ua;
+      ab.hidden = !ua;
+      if (ua) {
+        const cw = classWeapon((t.weapon.visual || {}).fuse);
+        ab.replaceChildren(cw ? icon(cw, 1) : document.createTextNode("✦")); ab.insertAdjacentHTML("beforeend", '<i class="clock"></i><i class="glow"></i>');
+        ab.setAttribute("aria-label", ua.ability.name + ": " + ua.ability.line); ab.title = ua.ability.name;
+        // the first legend of the visit: a note under the plate says where its ability is, for 3 s
+        if (!state.legendNoted) { state.legendNoted = true; state.noteUntil = state.t + 3; state.noteText = "✦ " + ua.ability.name + " · the gold button above Strike"; }
+      }
+      hud.ab = -1;
+      if (ua) syncAbility(hand);   // the clock of the hand now held, at once (a swap never shows the other hand's clock for a frame)
       hud.pip = -1; hud.p = -1; hud.c = -1;
     }
     const oid = other ? other.id : "";
@@ -645,13 +669,16 @@
     const tag = practice(t) ? "practice" : "";
     if (hud.tag !== tag) { hud.tag = tag; $("wTag").hidden = !tag; $("wTag").textContent = tag ? "⛓ practice only" : ""; }
     $("wSlow").hidden = !state.slow;
-    const note = $("note"), text = state.empty && state.loadout.length === 0 ? "Bring weapons from the Forge, or take one from the rack" : "";
+    const note = $("note"), text = state.empty && state.loadout.length === 0 ? "Bring weapons from the Forge, or take one from the rack" : state.noteUntil > state.t ? state.noteText : "";
     note.hidden = !text; if (text) note.textContent = text;
   }
-  // what changes every frame: a legend's pips, the recovery clock, the charge, the held button, the prompt's place
+  // the ability's clock sweeps while it cools (--p in 40 steps); ready, the button pulses
+  function syncAbility(hand) { const q = hand.acd > 0 ? Math.round((1 - hand.acd / (hand.acdOf || 1)) * 40) / 40 : 1; if (q !== hud.ab) { hud.ab = q; const ab = $("abilityBtn"); ab.style.setProperty("--p", String(q)); ab.classList.toggle("ready", q >= 1); } }
+  // what changes every frame: a legend's ability clock, the recovery clock, the charge, the held button, the prompt's place
   function syncLive() {
     const k = fight.k, hand = fight.hands[k.active];
-    if (hand.u2) { const n = hand.count % 3; if (n !== hud.pip) { hud.pip = n; const pips = $("pips").children; for (let i = 0; i < 3; i++) { pips[i].classList.toggle("on", i < n); pips[i].classList.toggle("next", i === n); } } }
+    if (hand.ua) syncAbility(hand);
+    if (state.noteUntil && state.t >= state.noteUntil) { state.noteUntil = 0; syncHud(); }   // the first-legend note is over
     const of = hand.recoverOf || 1, p = hand.recover > 0 ? Math.round((1 - hand.recover / of) * 40) / 40 : 1;
     if (p !== hud.p) { hud.p = p; $("strikeBtn").style.setProperty("--p", String(p)); }
     const c = k.charging ? Math.round(clamp(k.chargeT / SPEC.modifiers.charge.time, 0, 1) * 20) / 20 : 0;
@@ -801,8 +828,8 @@
   lockLandscape();
   fit();
   syncHud(); syncPrompt();
-  if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = "You came without weapons from the Forge, so the rack holds the twenty class weapons and the ledger's forged ones."; }
-  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = "E uses the rack on the wall and the stairs back up. Esc opens the cellar's menu."; }
+  if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = "You came without weapons from the Forge, so the rack holds the twenty class weapons and the world's forged weapons."; }
+  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = "E uses the rack on the wall and the stairs back up. U: a legend's ability. Esc opens the cellar's menu."; }
   if (params.get("seen") !== "1" && (store.get(KEYS.seen) !== "1" || params.get("fresh") === "1")) openPlank("first");
   draw();
   state.booted = true;

@@ -39,8 +39,9 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .f-parch{border:12px solid transparent;background:var(--parch) padding-box;border-image:var(--frame-parchment) 4 fill round;image-rendering:pixelated}
 .f-stone{border:9px solid transparent;background:#332b40 padding-box;border-image:var(--frame-stone) 4 fill round;image-rendering:pixelated}
 .f-slot{border:9px solid transparent;background:var(--stone) padding-box;border-image:var(--frame-slot) 4 fill round;image-rendering:pixelated}
-.f-plank>*,.f-parch>*,.f-iron>*,.f-stone>*,.f-ember>*,.f-slot>*{image-rendering:auto}
-.f-plank canvas,.f-parch canvas,.f-iron canvas,.f-ember canvas,.f-slot canvas{image-rendering:pixelated}
+.f-gold{border:9px solid transparent;background:#ead4aa padding-box;border-image:var(--frame-gold) 4 fill round;image-rendering:pixelated}
+.f-plank>*,.f-parch>*,.f-iron>*,.f-stone>*,.f-ember>*,.f-slot>*,.f-gold>*{image-rendering:auto}
+.f-plank canvas,.f-parch canvas,.f-iron canvas,.f-ember canvas,.f-slot canvas,.f-gold canvas{image-rendering:pixelated}
 /* the probe reads the safe-area insets for the stage's fit */
 #probe{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--st) var(--sr) var(--sb) var(--sl)}
 /* the game root: the whole viewport; in forced landscape it is laid out at height x width and turned a quarter (the script sizes it) */
@@ -89,6 +90,13 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 #dodgeBtn{right:102px;bottom:14px;width:52px;height:52px}
 #swapBtn{right:102px;bottom:78px;width:52px;height:52px}
 #swapBtn canvas{width:33px;height:33px}
+/* a legend's ability (design pass 10): a gold button above Strike, with its head's class weapon; the clock shows the cooldown */
+#abilityBtn{right:22px;bottom:102px;width:60px;height:60px}
+#abilityBtn canvas{width:33px;height:33px}
+.lefty #abilityBtn{right:auto;left:22px}
+#abilityBtn.ready .glow{opacity:1;animation:ready 1.2s steps(2) infinite}
+#abilityBtn:not(.ready) canvas{filter:grayscale(.7) brightness(.8)}
+@keyframes ready{50%{opacity:.35}}
 .lefty #strikeBtn{right:auto;left:14px}
 .lefty #dodgeBtn,.lefty #swapBtn{right:auto;left:102px}
 .hbtn.on{filter:brightness(1.3) drop-shadow(0 0 6px var(--hot))}
@@ -175,6 +183,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
     <div class="note" id="note" hidden></div>
     <button class="hbtn f-iron" id="swapBtn" aria-label="Swap weapons"></button>
     <button class="hbtn f-iron" id="dodgeBtn" aria-label="Dodge">Dodge</button>
+    <button class="hbtn f-gold" id="abilityBtn" aria-label="Ability" hidden></button>
     <button class="hbtn f-ember" id="strikeBtn" aria-label="Strike"></button>
     <button class="prompt f-iron" id="prompt" hidden></button>
     <div class="toast" id="toast" role="status"></div>
@@ -234,6 +243,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="spec/things.js"></script>
 <script src="spec/combat.js"></script>
 <script src="spec/cellar.js"></script>
+<script src="spec/abilities.js"></script>
 <script src="ledger/ledger.js"></script>
 <script src="proto/pixel-forge.js"></script>
 <script src="proto/smithy.js"></script>
