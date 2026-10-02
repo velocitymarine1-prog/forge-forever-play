@@ -1,15 +1,17 @@
 // FORGE FOREVER: the forging (design pass 10, card t67; widened by design pass 14 for the wide smithy; the hammer alone since design
-// pass 15, card t70: no arm, no hand).
-// When the smith strikes, the two things lift out of the anvil's slots and fly into the hearth, melt into one glowing billet, and a
-// hammer, floating over the anvil, beats it until the world answers (the forge's loading screen); then the result comes out of the
-// last blow. Everything is drawn in world pixels on an overlay canvas the size of the smithy (W x 112: 200 in pass 10, the room's own width
+// pass 15, card t70; since build 6, design pass 17 revision 1 (card t71), Grycus swinging it: the floating hammer and its four poses
+// went, and Grycus, the smith, stands at the anvil's left and swings a sledge from behind his back, over his head and onto the billet).
+// When the player strikes, the two things lift out of the anvil's slots and fly into the hearth, melt into one glowing billet, and
+// Grycus beats it until the world answers (the forge's loading screen); then the result comes out of the last blow. Everything is drawn in world pixels on an overlay canvas the size of the smithy (W x 112: 200 in pass 10, the room's own width
 // since pass 14) stacked on the room's canvas, by the pixel rules: a soot outline, ramps lit from the top left, motion on four frames,
 // nothing turned or resampled. The station's numbers below are pass 10's, for a room 200 wide; a wider room is drawn shifted by
 // ox = W / 2 - 100, so the hearth and the anvil stay where the room has them. From the cut on, a dithered curtain of soot closes in at
 // the sides beyond the station (pass 14): the 2x lens of a wide room shows more than the station, and the curtain frames the close-up.
 //
 // Time is in milliseconds from the Strike. Most of the sequence moves in beats of 90 ms (the fire's own pace); a hammer blow is 960 ms
-// (revision 1: Isaac slowed the strikes by 0.6 s): raised 360, swinging 90, on the billet 360, rebounding 150.
+// (pass 10, revision 1: Isaac slowed the strikes by 0.6 s): behind his back 240, over his head 120, coming down 90, on the billet 300,
+// swung back 210 (pass 17, revision 1). The head still lands 450 ms into a blow, so every moment of the timeline is what it was: two
+// swings when the world answers at once (the plaque at 2.67 s), more while it thinks. Grycus's frames are window.Grycus.swing(name).
 //   ForgeFx.frame(ctx, plan, ms)     draws the overlay at that moment; pure: the same plan and ms give the same pixels
 //   ForgeFx.zoomAt(plan, ms)         1 or 2: the room's lens (the cut to the anvil when both things are in the fire)
 //   ForgeFx.phaseAt(plan, ms)        "fly" | "melt" | "hop" | "blow" | "last" | "reveal" | "done" | "fail" | "still"
@@ -23,8 +25,9 @@
   const W0 = 200, H = 112, N = 32, STEP = 30, BEAT = 90, CLEAR = 56, CURTAIN = 16;
   const OUT = "#181425";
   const T = { fly: 4, melt: 2, hop: 2, min: 1, rise: 3 };                // beats: a flight's steps, the melt, the hop; blows before the last; the rise
-  const POSE_MS = [360, 90, 360, 150];                                    // a blow: raised, swinging, on the billet, rebounding (960 ms)
-  const BLOW = POSE_MS.reduce((a, b) => a + b, 0), STRIKE = POSE_MS[0] + POSE_MS[1];   // 960, and the hammer lands 450 ms into it
+  const POSE_MS = [240, 120, 90, 300, 210];                               // a blow: behind, over, down, impact, back (960 ms)
+  const SWING_POSES = ["behind", "over", "down", "impact", "back"];       // Grycus's frame for each (window.Grycus.swing)
+  const BLOW = POSE_MS.reduce((a, b) => a + b, 0), STRIKE = POSE_MS[0] + POSE_MS[1] + POSE_MS[2];   // 960, and the head lands 450 ms into it
   const FIRST_BLOW = (1 + T.fly + T.melt + T.hop) * BEAT;                // 810: A flies 0-360, B 90-450, the melt 450-630, the hop 630-810
   const REVEAL = 5 * BEAT;                                                // from the last strike to the plaque: a white beat, then colour and the rise
   const MOUTH = [84, 50];                                                  // where a thing enters the fire (its top-left)
@@ -65,8 +68,8 @@
     return "blow";
   }
   const zoomAt = (plan, t) => plan.reduce ? 1 : (t >= (1 + T.fly) * BEAT || t >= strikeAt(plan)) ? 2 : 1;
-  // where a moment falls in the blows: the blow k, the pose f (0 raised, 1 swinging, 2 on the billet, 3 rebounding), and the ms into it
-  function blowAt(t) { const k = Math.floor((t - FIRST_BLOW) / BLOW), b = t - FIRST_BLOW - k * BLOW; let f = 0, acc = 0; while (f < 3 && b >= acc + POSE_MS[f]) { acc += POSE_MS[f]; f++; } return { k, f, b }; }
+  // where a moment falls in the blows: the blow k, the pose f (0 behind, 1 over, 2 down, 3 impact, 4 back), and the ms into it
+  function blowAt(t) { const k = Math.floor((t - FIRST_BLOW) / BLOW), b = t - FIRST_BLOW - k * BLOW; let f = 0, acc = 0; while (f < 4 && b >= acc + POSE_MS[f]) { acc += POSE_MS[f]; f++; } return { k, f, b }; }
   // the moments the hammer lands, up to t (the page flashes and shakes then)
   function strikesUpTo(plan, t) { const out = [], S = strikeAt(plan); for (let k = 0; FIRST_BLOW + BLOW * k + STRIKE <= Math.min(t, S - 1); k++) out.push(FIRST_BLOW + BLOW * k + STRIKE); if (S <= t) out.push(S); return out; }
 
@@ -110,30 +113,13 @@
     for (let j = 0; j < 3; j++) for (let i = 0; i < len; i++) P.put(x0 + i, y + j, (i === 0 || i === len - 1) && j !== 1 ? ramp[1] : ramp[j]);
     P.outline();
   }
-  // the hammer, floating over the anvil (design pass 15: no arm, no hand): the grip point at (fx, fy), the handle along the angle
-  // (degrees: 90 up, 45 up and left, 0 left). It swings about its grip as it did in the smith's fist; the handle runs on through where
-  // the fist was, to a butt wrapped in leather
-  function hammer(P, fx, fy, deg, smear) {
-    const a = deg * Math.PI / 180, dx = -Math.cos(a), dy = -Math.sin(a), px = -dy, py = dx;   // along the handle, and across it
-    const HANDLE = 17, BUTT = 4, HEAD_L = 13, HEAD_W = 7;
-    P.layer();
-    // the handle: 2 px of oak, lit on its upper side, dark under the head; its last four pixels are the grip, two leather bands
-    for (let s = -BUTT; s <= HANDLE; s++) for (let w = 0; w <= 1; w++) { const x = fx + dx * s + px * (w - 0.5), y = fy + dy * s + py * (w - 0.5); P.put(x, y, s >= HANDLE - 1 || s === -BUTT || s === -BUTT + 2 ? OAK[0] : w === 0 ? OAK[2] : OAK[1]); }
-    // the head: 13 across the handle and 7 along it, iron lit from the top left
-    const hx = fx + dx * (HANDLE + HEAD_W / 2), hy = fy + dy * (HANDLE + HEAD_W / 2);
-    for (let y = Math.floor(hy - 9); y <= hy + 9; y++) for (let x = Math.floor(hx - 9); x <= hx + 9; x++) {
-      const rx = x + 0.5 - hx - 0.5, ry = y + 0.5 - hy - 0.5, along = rx * dx + ry * dy, across = rx * px + ry * py;
-      if (Math.abs(along) > HEAD_W / 2 || Math.abs(across) > HEAD_L / 2) continue;
-      const edge = Math.abs(across) > HEAD_L / 2 - 1.2 ? 1 : 0, lit = (x - hx) + (y - hy) < -3 ? 1 : (x - hx) + (y - hy) > 3 ? -1 : 0;
-      P.put(x, y, edge ? IRON[3] : lit > 0 ? IRON[3] : lit < 0 ? IRON[1] : IRON[2]);
-    }
-    P.put(Math.round(hx - 2), Math.round(hy - 2), IRON[4]);
-    P.outline();
-    // the smear of the down-swing: a dithered arc of light where the head passed
-    if (smear) for (let i = 0; i < 9; i++) { const aa = (deg + 12 + i * 4) * Math.PI / 180, r = HANDLE + 2 + (i % 3) * 3; if (i % 2 === 0) P.put(fx - Math.cos(aa) * r, fy - Math.sin(aa) * r, IRON[4]); }
+  // Grycus at the anvil (design pass 17, revision 1): his swing's frame by name, blitted at its place in the station's pixels (it carries
+  // its own soot outline). ready: the sledge on his shoulder; behind, over, down, impact, back: a blow; rest: leaning on it after the last
+  function smith(P, name) {
+    const G = root.Grycus; if (!G || !G.swing) return;
+    const s = G.swing(name); P.layer();
+    for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) { const c = s.px[y * s.w + x]; if (c) P.put(s.x + x, s.y + y, c); }
   }
-  // the hammer's four frames in a blow: raised, swinging, on the billet, rebounding. The grip point moves a little with the swing.
-  const POSE = [{ deg: 78, f: [123, 70] }, { deg: 45, f: [124, 70], smear: true }, { deg: 0, f: [125, 71] }, { deg: 38, f: [124, 70] }];
 
   // sparks of a strike: a seeded fan up from the billet, 1 px each, falling; drawn as a pure function of the ticks since the strike
   function sparks(P, x, y, since, seed, n, gold) {
@@ -153,9 +139,9 @@
     const [A, B] = plan.things || [];
     const face = FACE;
     if (ph === "still") {
-      // less motion: the billet on the anvil under the hammer's blow, then the result standing on the anvil
-      if (has(plan.answerAt) && t >= plan.answerAt && plan.result) blit(P, plan.result, face.x - 16, face.y - N);
-      else { billet(P, face.x, face.y - 3, 14, 0); hammer(P, POSE[2].f[0], POSE[2].f[1], POSE[2].deg, false); }
+      // less motion: the billet on the anvil under Grycus's blow, then the result standing on the anvil and Grycus leaning on his sledge
+      if (has(plan.answerAt) && t >= plan.answerAt && plan.result) { smith(P, "rest"); blit(P, plan.result, face.x - 16, face.y - N); }
+      else { billet(P, face.x, face.y - 3, 14, 0); smith(P, "impact"); }
       ctx.putImageData(P.img, 0, 0); return ph;
     }
     if (ph === "fly") {
@@ -171,33 +157,35 @@
       if (s === 0) { blit(P, A, MOUTH[0] - 3, MOUTH[1] + 6, hotMap); blit(P, B, MOUTH[0] + 3, MOUTH[1] + 6, hotMap); }
       else billet(P, 100, 76, 12, 0);
       sparks(P, 100, 74, s + 1, 11, 10, false);
+      smith(P, "ready");
     } else if (ph === "hop") {
       const s = Math.floor(t / BEAT) - (1 + T.fly + T.melt);
       billet(P, s === 0 ? 100 : face.x, s === 0 ? 70 : face.y - 3, 12, 0);
+      smith(P, "ready");
     } else if (ph === "done" && has(plan.failAt)) {
       // failed: nothing is left on the anvil (the page puts the two things back in their slots)
     } else if (ph === "blow" || ph === "fail") {
-      const { k, f, b } = blowAt(t), struck = f >= 2 ? k + 1 : k;
+      const { k, f, b } = blowAt(t), struck = f >= 3 ? k + 1 : k;
       if (ph === "fail") {
         billet(P, face.x, face.y - 3, 12 + 2 * Math.min(3, struck), 3, t - Math.max(plan.failAt, FIRST_BLOW) >= 2 * BEAT);
-        hammer(P, POSE[0].f[0], POSE[0].f[1], POSE[0].deg, false);
+        smith(P, "rest");
       } else {
-        const pose = POSE[f];
         billet(P, face.x, face.y - 3, 12 + 2 * Math.min(3, struck), Math.max(0, struck - 1), false);
-        hammer(P, pose.f[0], pose.f[1], pose.deg, !!pose.smear);
-        if (f >= 2) sparks(P, face.x - 2, face.y - 4, Math.floor((b - STRIKE) / BEAT), 101 + k, 14, false);
+        smith(P, SWING_POSES[f]);
+        if (f >= 3) sparks(P, face.x - 2, face.y - 4, Math.floor((b - STRIKE) / BEAT), 101 + k, 14, false);
       }
     } else if (ph === "last") {
-      // the last blow lands: the billet flashes white under the hammer, and the sparks fly
+      // the last blow lands: the billet flashes white under the sledge, Grycus winces, and the sparks fly
       P.layer(); for (let i = -9; i <= 9; i++) for (let j = 0; j < 3; j++) P.put(face.x + i, face.y - 3 + j, "#ffffff"); P.outline();
-      hammer(P, POSE[2].f[0], POSE[2].f[1], POSE[2].deg, false);
+      smith(P, "impact");
       sparks(P, face.x - 2, face.y - 4, 0, 997, 22, plan.gold);
     } else if (ph === "reveal" || ph === "done") {
-      // out of the last blow: the result, white for a tick with rays, then itself in a ring of light, rising a pixel a tick; the
-      // hammer is gone
+      // out of the last blow: the result, white for a tick with rays, then itself in a ring of light, rising a pixel a tick; Grycus
+      // leans on his sledge and looks at it
       const since = Math.floor((Math.min(t, doneAt(plan) - 1) - strikeAt(plan)) / BEAT) - 1;
       const rise = Math.min(T.rise, Math.max(0, since - 1)) * 2;
       const rx = face.x - 16, ry = face.y - N + 1 - rise;
+      smith(P, "rest");
       if (since <= 1) rays(P, face.x, ry + 16, since === 0 ? 30 : 24, since === 0 ? "#ffffff" : "#fee761");
       if (plan.result) { halo(P, plan.result, rx, ry, since === 0 ? "#ffffff" : "#fff6c8"); blit(P, plan.result, rx, ry, since === 0 ? whiteMap : null); }
       sparks(P, face.x - 2, face.y - 4, since + 1, 997, 22, plan.gold);
@@ -259,5 +247,5 @@
     };
   }
 
-  root.ForgeFx = { frame, zoomAt, phaseAt, doneAt, strikeAt, strikesUpTo, blowAt, start, T, STEP, BEAT, POSE_MS, BLOW, STRIKE, FIRST_BLOW, REVEAL, MOUTH, FACE, POSE, W: W0, H, CLEAR, CURTAIN, TICK: BEAT };
+  root.ForgeFx = { frame, zoomAt, phaseAt, doneAt, strikeAt, strikesUpTo, blowAt, start, T, STEP, BEAT, POSE_MS, SWING_POSES, BLOW, STRIKE, FIRST_BLOW, REVEAL, MOUTH, FACE, W: W0, H, CLEAR, CURTAIN, TICK: BEAT };
 })(typeof window !== "undefined" ? window : globalThis);

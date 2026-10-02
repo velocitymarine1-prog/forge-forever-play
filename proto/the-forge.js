@@ -19,6 +19,10 @@
 // bay for every class held, the Legends on a wall of their own; the Roll and the Book of Kinds are gone from the page), reached by
 // its door or ARMORY on the sign and left by the door at its left end or FORGE on the sign; a plaque is a static card that never
 // scrolls (three columns, fitted by fitPlaque); and the forging's hammer floats without an arm (forge-fx.js).
+// Since build 6 (design pass 17 with its revision 1, card t71) the Forge has its smith: Grycus (grycus.js, his words spec/grycus.json)
+// stands by the bellows, drawn into the room by the smithy's figure layer, breathes and twitches, swings the sledge in every forge
+// (forge-fx.js draws him at the anvil in the close-up), and has a word after the forges that matter, when tapped, on a first meeting,
+// on a greeting and on the way up from the cellar, in a parchment bubble over his head. The player is not a smith: he calls them kid.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -92,7 +96,7 @@
     const stock = {}; for (const [id, o] of own) stock[id] = o.n;
     const at = nowIso();
     const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
-    const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players };
+    const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players, grycus: gry.mem };
     const put = d => { localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify(d)); session.savedAt = at; return true; };
     try { return put(data); }
     catch (e) {
@@ -122,6 +126,7 @@
       session.active = d.active | 0;
       session.assistTap = !!d.assist;
       session.savedAt = d.at || null;
+      gry.mem = GRY ? GRY.memory(d.grycus) : null;   // (a save from before build 6 has none: he meets the player)
       return true;
     } catch (e) { return false; }
   }
@@ -153,6 +158,7 @@
   // the door, or Try it in the cellar on a weapon's plaque: the weapon becomes the active hand (equipped, first in first out as always,
   // when it can be wielded; practice only when it can't), and the smith goes down
   function goDown(id) {
+    gryHush();
     let tryId = null;
     const t = id ? world.get(id) : null;
     if (t && F.isWeapon(t) && own.has(id)) {
@@ -173,6 +179,7 @@
   const menuUrl = () => document.body.getAttribute("data-menu") || "main-menu.html";
   function goHome() {
     if (state.forging || state.pouring || session.leaving) return null;
+    gryHush();
     session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
     save();
     writeHandoff(null);
@@ -447,7 +454,7 @@
     const next = profile.level < 50 ? Progress.xpForLevel(profile.level + 1) : profile.xp, prev = Progress.xpForLevel(profile.level);
     $("lvl").textContent = "Lv " + profile.level;
     $("xpbar").style.width = (profile.level >= 50 ? 100 : Math.round(100 * (profile.xp - prev) / Math.max(1, next - prev))) + "%";
-    $("chipLevel").title = profile.level >= 50 ? "Level 50: Master Smith" : `Level ${profile.level} · ${profile.xp} XP · next at ${next}`;
+    $("chipLevel").title = profile.level >= 50 ? "Level 50: Champion of the Forge" : `Level ${profile.level} · ${profile.xp} XP · next at ${next}`;
     $("coins").textContent = profile.coins.toLocaleString();
     const n = profile.firsts.weapons.length;
     $("firsts").textContent = n;
@@ -456,7 +463,7 @@
     const awake = Progress.crucibleAwake(profile, G);
     $("chipEmbers").hidden = !awake;
     $("embers").textContent = profile.embers;
-    $("title").textContent = profile.level >= 50 ? "Master Smith" : "";
+    $("title").textContent = profile.level >= 50 ? "Champion of the Forge" : "";
     $("stCruc").classList.toggle("dim", !awake);
     $("stCrucLv").hidden = awake;
     if (room.crucible !== (awake ? "lit" : "cold")) room.setCrucible(awake ? "lit" : "cold");
@@ -481,7 +488,7 @@
     const mode = room ? room.crucible : "cold", heat = room ? room.heat : 0;
     if (room) room.stop = true;
     room = Smithy.mount($("scene"), { w: W, h: ROOM_H, wide: true, crucible: mode, still: reduce });
-    room.heat = heat; roomW = W;
+    room.heat = heat; roomW = W; room.figure = gryFigure; room.redraw();   // (the new room draws him at once, also when still)
     const fx = $("forgeFx"); if (fx) { fx.width = W; fx.height = ROOM_H; }
     return room;
   }
@@ -490,6 +497,100 @@
     document.documentElement.classList.toggle("still", reduce || params.get("harness") === "1");
     mountRoom(roomW);
   }
+
+  // ------------------------------------------------------------------ Grycus, the smith (design pass 17 with its revision 1, build 6)
+  // He stands by the bellows (Grycus.place, drawn into the room by the smithy's figure layer: gryFigure), breathes and twitches on the
+  // room's clock, leans in at a Strike and, from the cut to the close-up, is drawn at the anvil by forge-fx.js instead. He speaks in
+  // #grySay: his first meeting, a greeting, the way up from the cellar, the Crucible's waking, a tap, and a word after a forge by the
+  // rate rule (Grycus.after). His memory (gry.mem) is saved with the player's save. Without grycus.js nothing here does anything.
+  const GRY = window.Grycus || null;
+  const gry = { mem: GRY ? GRY.memory(null) : null, pose: "idle", since: Date.now(), loops: Infinity, queue: [], timer: 0, openTimer: 0, seq: null, pending: null, spot: null, line: null };
+  const IDLE_MS = GRY ? GRY.MS.idle.reduce((a, b) => a + b, 0) : 2160;
+  // the frame the room draws now: none in the close-up, with the walls open or in the Armory; else his pose, its loops, then idle with a
+  // cane tap every seventh loop, a glint every fourth, a twitch toward the anvil every fifth
+  function gryFigure(ms) {
+    if (!GRY || !gry.spot) return null;
+    if ($("lens").classList.contains("near") || state.wallsOpen || state.room === "armory") return null;
+    const p = gry.spot, at = (pose, i) => ({ px: GRY.frame(pose, i).px, n: GRY.N, x: p.x, y: p.y });
+    if (reduce) return at(gry.pose, 0);
+    if (gry.pose !== "idle") {
+      const a = GRY.at(gry.pose, ms - gry.since, gry.loops);
+      if (!a.done) return at(gry.pose, a.i);
+      gryNext(); if (gry.pose !== "idle") return at(gry.pose, 0);
+    }
+    const t = Math.max(0, ms - gry.since), k = Math.floor(t / IDLE_MS), r = t % IDLE_MS, beat = k % 7 === 6 ? "tap" : k % 4 === 3 ? "glint" : k % 5 === 1 ? "twitch" : null;
+    if (beat) { const b = GRY.at(beat, r, 1); if (!b.done) return at(beat, b.i); }
+    return at("idle", GRY.at("idle", r).i);
+  }
+  function gryPose(name, loops) { gry.pose = name; gry.since = Date.now(); gry.loops = loops === undefined ? 1 : loops; if (reduce && room && room.redraw) room.redraw(); }
+  function gryNext() { const n = gry.queue.shift(); if (n) gryPose(n[0], n[1]); else gryPose("idle", Infinity); }
+  // where he stands (Grycus.place), measured against where the showing station's first slot begins, and his button and bubble over him
+  function gryPlace() {
+    const b = $("grycus"), say = $("grySay"), lens = $("lens"), el = $("room");
+    if (!GRY || !b || !say || !lens.offsetWidth) return;
+    const k = lens.offsetWidth / roomW, cruc = state.station === "crucible";
+    const wrap = ($(cruc ? "moldA" : "slotA") || {}).parentElement, plate = $(cruc ? "plateMA" : "plateA");
+    const from = n0 => { let v = { x: 0, y: 0 }; for (let n = n0; n && n !== el; n = n.offsetParent) { v.x += n.offsetLeft; v.y += n.offsetTop; } return v; };
+    let slotLeft, plateTop = Infinity;
+    if (wrap && wrap.offsetParent) slotLeft = (from(wrap).x - lens.offsetLeft) / k;
+    if (plate && plate.offsetParent) plateTop = from(plate).y - lens.offsetTop;
+    const p = gry.spot = GRY.place(roomW, slotLeft), pct = (v, of) => (100 * v / of).toFixed(3) + "%";
+    b.hidden = false;
+    b.style.left = pct(p.box.x0, roomW); b.style.width = pct(p.box.x1 - p.box.x0 + 1, roomW); b.style.top = pct(p.box.y0, ROOM_H); b.style.height = pct(p.box.y1 - p.box.y0 + 1, ROOM_H);
+    // the bubble's foot over his head, or over the slots' plates if they stand higher (a short room): never over a plate or a slot
+    say.style.left = pct(p.head.x, roomW); say.style.top = Math.min(p.box.y0 * k - 2, plateTop - 4) + "px";
+    say.style.maxWidth = Math.min(240, el.clientWidth * 0.46) + "px";
+    say.classList.toggle("short", el.clientHeight < 260);
+    if (room) { room.figure = gryFigure; if (room.redraw) room.redraw(); }
+  }
+  // something stands over the room, or he is out of sight: he holds his tongue
+  function gryQuiet() { return state.forging || state.pouring || state.wallsOpen || state.room !== "forge" || session.leaving || plaqueOpen() || plankOpen() || !$("setPlank").hidden || !$("firstWeapon").hidden || !$("unlockPlaque").hidden; }
+  function gryShow(text, ms, then) {
+    const say = $("grySay"); $("gryLine").textContent = text; say.hidden = false; gry.line = text;
+    say.classList.remove("pop"); void say.offsetWidth; if (!reduce) say.classList.add("pop");
+    clearTimeout(gry.timer); gry.timer = setTimeout(() => { if (then) then(); else gryHide(); }, ms);
+  }
+  function gryHide() { $("grySay").hidden = true; gry.line = null; clearTimeout(gry.timer); if (gry.pose === "talk") gryPose("idle", Infinity); }
+  function gryHush() { if (!GRY) return; gry.seq = null; gry.queue = []; clearTimeout(gry.openTimer); gryHide(); if (gry.pose !== "idle" && gry.pose !== "watch") gryPose("idle", Infinity); }
+  // the next line of a pool, said in its reaction pose and then talking; then (if given) runs when the line has been held
+  function grySay(pool, then) {
+    if (!GRY || !pool) return false;
+    const r = GRY.line(gry.mem, pool, null, nowIso()); gry.mem = r.mem; save();
+    if (!r.text) return false;
+    const react = GRY.REACT[pool], pre = react ? GRY.MS[react].reduce((a, b) => a + b, 0) : 0;
+    gry.queue = (react ? [[react, 1]] : []).concat([["talk", 2]]); gryNext();
+    gryShow(r.text, pre + GRY.holdFor(r.text), then);
+    return true;
+  }
+  // his first meeting: the three meet lines in a row, each moving on after its time or a tap on him
+  function gryMeet() { gry.seq = 0; gryMeetNext(); }
+  function gryMeetNext() {
+    if (gry.seq === null) return;
+    if (gry.seq >= 3 || gryQuiet()) { gry.seq = null; gryHide(); return; }
+    gry.seq++; grySay("meet", gryMeetNext);
+  }
+  function gryTap() {
+    if (!GRY || state.forging || state.pouring) return;
+    if (gry.seq !== null) gryMeetNext();
+    else if (!$("grySay").hidden) gryHide();
+    else grySay("tap");
+  }
+  // on opening the Forge (and after the first weapon is taken, and back from the cellar by the back gesture): what he says first, when
+  // nothing stands over the room (he waits up to a minute for a plank to close)
+  function gryOpen(fromCellar) {
+    if (!GRY) return;
+    clearTimeout(gry.openTimer);
+    const go = tries => {
+      if (gryQuiet()) { if (tries > 0) gry.openTimer = setTimeout(() => go(tries - 1), 1000); return; }
+      const pool = GRY.opening(gry.mem, { now: Date.now(), fromCellar: !!fromCellar, crucibleAwake: Progress.crucibleAwake(profile, G) });
+      if (pool === "meet") gryMeet(); else if (pool) grySay(pool);
+    };
+    gry.openTimer = setTimeout(() => go(60), 900);
+  }
+  // after a forge or a pour: which pool he will answer from when the plaque is continued (the count moves now)
+  function gryAfter(o) { if (!GRY) return null; const a = GRY.after(gry.mem, o); gry.mem = a.mem; gry.pending = a.trigger; return a.trigger; }
+  function gryRemark(delay) { const pool = gry.pending; gry.pending = null; if (!pool) return; setTimeout(() => { if (!gryQuiet()) grySay(pool); }, delay); }
+  if (GRY) $("grycus").addEventListener("click", e => { e.stopPropagation(); gryTap(); });
   try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
   // the room fills its pane (design pass 14 section 3.3). Walls shut: as tall as the pane leaves after the state and price lines, and as
   // wide as the pane, the smithy mounted at the width that makes it so (re-mounted only when that width changes, never during a forge
@@ -516,6 +617,7 @@
       b.hidden = !d; if (!d) continue;
       b.style.left = pct(d.x0 - 1, roomW); b.style.width = pct(d.x1 - d.x0 + 3, roomW); b.style.top = pct(d.y0, ROOM_H); b.style.height = pct(d.y1 - d.y0 + 1, ROOM_H);
     }
+    gryPlace();
     const view = bw / s;
     window.TheForge.layout = { paneW: pane.clientWidth, paneH: pane.clientHeight, roomW: el.clientWidth, roomH: el.clientHeight, W: roomW, s, view: [roomW / 2 - view / 2, roomW / 2 + view / 2], turned: turn.turned, plate: turn.plate };
     return window.TheForge.layout;
@@ -548,6 +650,7 @@
   function openWalls(why) {
     if (why === "pick") state.picking = true;
     if (state.wallsOpen) return;
+    gryHush();
     state.wallsOpen = true;
     $("app").classList.add("open");
     fitRoom();
@@ -735,7 +838,7 @@
     const k = lens.offsetWidth / roomW;
     return [Math.round((x - lens.offsetLeft) / k - 16), Math.round((y - lens.offsetTop) / k - 16)];
   }
-  function endForging() { if (run) { run.stop(); run = null; } $("room").classList.remove("seq"); }
+  function endForging() { if (run) { run.stop(); run = null; } $("room").classList.remove("seq"); if (gry.pose === "watch") gryPose("idle", Infinity); }
   function hitRoom() { const a = $("app"); a.classList.remove("hit"); void a.offsetWidth; a.classList.add("hit"); setTimeout(() => a.classList.remove("hit"), ForgeFx.BEAT); }
   async function forge() {
     if (!state.a || !state.b || state.forging || state.station !== "anvil") return;
@@ -745,12 +848,13 @@
     const FX = window.ForgeFx;
     const from = FX ? [slotFrom($("slotA")), slotFrom($("slotB"))] : null;
     state.forging = true; renderSlots();
+    gryHush(); gryPose("watch", Infinity);   // he leans in by the bellows; from the cut forge-fx draws him at the anvil
     if (FX) {
       $("room").classList.add("seq");
-      $("state").textContent = reduce ? "The hammer falls…" : "Into the fire…";
+      $("state").textContent = reduce ? "Grycus swings…" : "Into the fire…";
       run = FX.start({ canvas: $("forgeFx"), lens: $("lens"), room, from, things: [A, B], reduce, W: roomW,
-        onPhase: ph => { if (ph === "blow") $("state").textContent = "The hammer falls…"; }, onStrike: hitRoom });
-    } else { room.heat = 1; $("state").textContent = "The hammer falls…"; }
+        onPhase: ph => { if (ph === "blow") $("state").textContent = "Grycus swings…"; }, onStrike: hitRoom });
+    } else { room.heat = 1; $("state").textContent = "Grycus swings…"; }
     const think = setTimeout(() => { if (state.forging) $("state").textContent = "The fire is thinking…"; }, 3000);
     const wait = FX ? null : new Promise(res => setTimeout(res, reduce ? 300 : 1500));
     const claim = await World.forge(A.id, B.id, "anvil");
@@ -758,7 +862,9 @@
     if (!claim || claim.error) {
       if (run) { run.fail(); await run.done; }
       endForging(); state.forging = false;
-      toast(claim ? claim.error : "The forge failed"); renderSlots(); return;
+      toast(claim ? claim.error : "The forge failed"); renderSlots();
+      gryAfter({ failed: true }); gryRemark(600);
+      return;
     }
     if (run) {
       run.answer(claim.thing, claim.status === "first");
@@ -770,6 +876,7 @@
     const [kase, base, added] = F.roles(A, B);
     const key = F.keyText(kase, base.id, added.id);
     session.revealed.add(key);
+    gryAfter({ status: claim.status, tier: claim.thing.tier, weapon: F.isWeapon(claim.thing) });   // (saved with the forge below)
     if (!svc.url) { consume([A.id, B.id]); gain(thing.id); if (!profile.found.includes(thing.id)) profile.found.push(thing.id); save(); }
     else gain(thing.id);
     session.lastClaim = claim;
@@ -817,6 +924,7 @@
     if (Crucible.crucibleCheck(A, B, profile, G, true)) { renderSlots(); return; }
     state.pouring = true; closePlaque(); renderSlots();
     closeWalls();
+    gryHush(); gryPose("watch", Infinity);
     $("pour").disabled = true;
     $("phone").classList.add("pouring"); room.heat = 1;
     sparks(16, ["#fee761", "#f77622", "#ffffff", "#fff6c8"]);
@@ -836,12 +944,14 @@
     claim = await Promise.race([answer, timeout]);
     $("phone").classList.remove("pouring");
     state.pouring = false;
+    gryPose("idle", Infinity);
     if (!claim || claim.error || claim.timeout) {
       toast(claim && claim.error ? claim.error : "The Crucible needs the world: connect to fuse");
       renderSlots(); return;
     }
     const thing = claim.thing;
     session.revealed.add(F.keyText("fuse", A.id, B.id));
+    gryAfter({ pour: true });
     if (!svc.url) { consume([A.id, B.id]); profile.embers = Math.max(0, profile.embers - G.fuse.embers); gain(thing.id); if (!profile.found.includes(thing.id)) profile.found.push(thing.id); save(); }
     else gain(thing.id);
     session.lastClaim = claim;
@@ -985,6 +1095,7 @@
     const mode = plaqueMode, t = mode === "view" ? null : session.lastClaim && session.lastClaim.thing;
     closePlaque();
     if (mode === "view") return true;
+    gryRemark(400);
     if (state.station === "anvil") { state.a = null; state.b = null; } else { state.ma = null; state.mb = null; }
     renderSlots();
     if (t && own.has(t.id)) { const cls = classOf(t); state.glowItem = t.id; state.sort = "newest"; toast(`${t.name} is on the ${cls ? plural(cls).toLowerCase() : storeOf(t).toLowerCase()} shelf`); }
@@ -1321,6 +1432,7 @@
       $("firstWeapon").hidden = true; state.glow = c; save();
       renderSign(); setTab("weapons"); renderInfo();
       toast(`The ${plural(c)} rack goes up`);
+      gryOpen(false);
     });
     $("cfNo").addEventListener("click", () => { $("confirmPlank").hidden = true; });
   }
@@ -1358,7 +1470,7 @@
   function afterLevelChange(before, res) {
     renderSign();
     const woke = res ? res.crucible_woke : (before < G.fuse.level && profile.level >= G.fuse.level);
-    if (profile.level > before) toast(`Level ${profile.level}` + (profile.level >= 50 ? ": Master Smith" : ""));
+    if (profile.level > before) toast(`Level ${profile.level}` + (profile.level >= 50 ? ": Champion of the Forge" : ""));
     const picks = Progress.picksLeft(profile);
     if (picks > 0 && profile.classes.length) openUnlock();
     if (woke) {
@@ -1430,7 +1542,7 @@
   function walkThrough() { if (quiet()) return; const a = $("app"); a.classList.remove("walk"); void a.offsetWidth; a.classList.add("walk"); setTimeout(() => a.classList.remove("walk"), 340); }
   function openArmory(page) {
     if (!hall || state.forging || state.pouring) return false;
-    closePlaque(); closeWalls();
+    closePlaque(); closeWalls(); gryHush();
     const was = state.room;
     state.room = "armory"; if (page === "armory" || page === "legends") state.page = page;
     const at = state.hallX[state.page] || 0;   // (where this wall was walked to the last time; drawing it starts it at the door)
@@ -1477,6 +1589,7 @@
   function fresh() {
     own.clear(); seq = 0; session.revealed.clear(); session.equipped = []; session.pending = [];
     profile = Progress.newProfile(svc.player || "isaac"); profile.coins = 120;
+    gry.mem = GRY ? GRY.memory(null) : null;
     for (const t of window.FORGE_THINGS) if (t.kind !== "weapon" && storeOf(t) !== "Trophies") gain(t.id, 3);
     state.a = null; state.b = null; state.ma = null; state.mb = null;
     closePlaque(); closeArmory(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); save();
@@ -1572,6 +1685,7 @@
       const r = await fetch(url + "/", { method: "GET" });
       const root = await r.json();
       svc.url = url; svc.player = player; svc.smiths = root.smiths || 0;
+      if (GRY) gry.mem = Object.assign(GRY.memory(null), { met: true });   // (no save in service mode: he does not meet the player on every load)
       own.clear(); seq = 0; session.revealed.clear(); session.equipped = [];
       // the world's rows, then the smith
       const wr = await fetch(url + "/world"); const L = await wr.json();
@@ -1601,7 +1715,7 @@
   function openSettings(atBench) {
     if (state.forging || state.pouring) return false;
     if (!settings) { toast("Settings didn't load"); return false; }
-    closePlaque();
+    closePlaque(); gryHush();
     settings.closeErase(); settings.render();
     $("setPlank").hidden = false; $("setBtn").setAttribute("aria-pressed", "true");
     if (atBench) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
@@ -1629,6 +1743,7 @@
   // ------------------------------------------------------------------ boot: a returning smith (or the saved one), sword and fire on the anvil
   function returningSmith() {
     profile = Progress.newProfile("isaac");
+    gry.mem = GRY ? GRY.memory(null) : null;
     profile.xp = Progress.xpForLevel(12); profile.level = 12; profile.coins = 312; profile.embers = 0;
     profile.classes = ["sword", "bow", "axe", "staff", "hammer"];
     own.clear(); seq = 0;
@@ -1643,7 +1758,9 @@
   window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
     save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
     openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
-    showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine };
+    showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine,
+    grycus: { get pose() { return gry.pose; }, get line() { return gry.line; }, get mem() { return gry.mem; }, get pending() { return gry.pending; }, get spot() { return gry.spot; }, get seq() { return gry.seq; },
+      say: grySay, tap: gryTap, hush: gryHush, figure: gryFigure, place: gryPlace, open: gryOpen, meet: gryMeet, quiet: gryQuiet } };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderArmory(); renderInfo(); }
   if (window.Nav) Nav.arrive("forge");
   lockLandscape();
@@ -1655,15 +1772,16 @@
   if (window.visualViewport) window.visualViewport.addEventListener("resize", fitTurn);
   document.addEventListener("fullscreenchange", fitTurn);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTurn);
+  let bootFromCellar = false;
   (async function boot() {
     const w = params.get("world"), p = params.get("player");
     if (w) { $("worldUrl").value = w; $("smithName").value = p || "isaac"; if (await connect(w, p || "isaac")) { takeAssist(); return; } }
     if (!load()) { returningSmith(); state.a = "sword"; state.b = "fire"; }
     takeAssist();
-    takeLoadoutBack();
+    bootFromCellar = takeLoadoutBack();
     renderAll();
     if (!profile.classes.length) openFirstWeapon();
-  })().then(() => { session.booted = true; fitRoom(); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
+  })().then(() => { session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
   // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
   // open says what is equipped now. After an erase, or a change of less motion, elsewhere, the page boots again instead
   window.addEventListener("pageshow", e => {
@@ -1674,6 +1792,7 @@
     lockLandscape(); fitTurn();
     if (!takeLoadoutBack()) return;
     renderAll();
+    gryHush(); gryOpen(true);
     const eq = $("equipBtn"), t = plaqueThing;
     if (eq && t && plaqueOpen()) eq.textContent = equipLabel(t);
   });

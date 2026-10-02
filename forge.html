@@ -106,6 +106,18 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .doorplate{font-family:var(--data);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;padding:2px 7px;background:var(--oak);border:2px solid var(--oak-l);color:var(--hot);transform:translateY(calc(-100% - 3px))}
 .doorplate.pulse{animation:pulse 1.4s steps(3) infinite}
 .app.open .door{visibility:hidden}
+/* Grycus, the smith (design pass 17, build 6): a button over his pixels (above the cellar door's where they meet in the narrowest
+   rooms), and his words in a parchment bubble above his head, its tail on his crown; neither with the walls open, nor while forging or
+   pouring */
+.npc{position:absolute;padding:0;border:0;background:none;cursor:pointer;z-index:2;-webkit-tap-highlight-color:transparent}
+.npc:focus-visible{outline:2px solid var(--ice);outline-offset:1px}
+.say{position:absolute;z-index:3;transform:translate(-22px,-100%);width:max-content;max-width:240px;padding:5px 10px 7px;background:var(--parch);color:var(--soot);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);font-family:var(--text);font-size:14px;line-height:1.25;pointer-events:none}
+.say.short{font-size:13px;line-height:1.2;padding:4px 9px 6px}
+.say b{display:block;font-family:var(--data);font-weight:600;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--oak);margin-bottom:1px}
+.say::after{content:"";position:absolute;left:13px;bottom:-12px;width:9px;height:9px;background:var(--parch);border-right:3px solid var(--soot);border-bottom:3px solid var(--soot);transform:skewY(40deg)}
+.say.pop{animation:say .27s steps(3) 1}
+@keyframes say{from{opacity:0;transform:translate(-22px,calc(-100% + 6px))}to{opacity:1;transform:translate(-22px,-100%)}}
+.app.open .npc,.app.open .say,.room.seq .npc,.room.seq .say,.phone.pouring .say{visibility:hidden}
 .slots{position:absolute;left:0;right:0;bottom:4%;display:flex;justify-content:center;align-items:flex-end;gap:6px;pointer-events:none}
 .slots>*{pointer-events:auto}
 .slotwrap{display:flex;flex-direction:column;align-items:center;gap:2px}
@@ -394,7 +406,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 </head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="cd89fe9" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="b7c6c52" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -415,6 +427,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
           <canvas id="forgeFx" width="232" height="112" aria-hidden="true"></canvas>
           <button class="door" id="cellarDoor" aria-label="Go down to the Training Cellar with your weapons"><span class="doorplate pulse">↓ Cellar</span></button>
           <button class="door" id="armoryDoor" aria-label="Into the Armory: every weapon you have, shelf by shelf"><span class="doorplate">Armory →</span></button>
+          <button class="npc" id="grycus" hidden aria-label="Grycus, the smith. Talk to him"></button>
+          <div class="say" id="grySay" role="status" aria-live="polite" hidden><b>Grycus</b><span id="gryLine"></span></div>
         </div>
         <div class="sparks" id="sparks" aria-hidden="true"></div>
         <div class="stationbar" role="group" aria-label="Station">
@@ -516,6 +530,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="ledger/ledger.js"></script>
 <script src="spec/abilities.js"></script>
 <script src="spec/drops.js"></script>
+<script src="spec/grycus.js"></script>
 <script src="proto/combiner.js"></script>
 <script src="proto/naming.js"></script>
 <script src="proto/progress.js"></script>
@@ -526,6 +541,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="proto/smithy.js"></script>
 <script src="proto/armory.js"></script>
 <script src="proto/forge-fx.js"></script>
+<script src="proto/grycus.js"></script>
 <script src="proto/settings.js"></script>
 <script src="proto/nav.js"></script>
 <script src="proto/the-forge.js"></script>

@@ -9,6 +9,9 @@
 // Since build 4 (design pass 14) Scene(W, H, { wide: true }) draws the room as wide as the screen's shape (232 to 320 world pixels): the
 // station centred, the cellar's bigger arch, tool rack and coal scuttle on the left wall, the door to the Armory under crossed swords
 // (and a grindstone from W 278) on the right. Without `wide` the 200 x 112 smithy is what it always was, pixel for pixel.
+// Since build 6 (design pass 17) a scene can carry one figure, a sprite drawn over the room and lit by the hearth like it: Grycus, the
+// smith, by the bellows (setFigure; mount's state.figure, a function of the time the page sets, and state.redraw). With no figure the
+// room renders as it always has.
 (function (root) {
   "use strict";
   const OUT = "#181425";
@@ -362,6 +365,9 @@
     for (let y = 1; y < h; y++) for (let x = 0; x < w; x++) { const src = y * w + x, v = f[src], rnd = Math.floor(r() * 3), dst = src - w - rnd + 1;
       if (dst >= 0 && dst < w * h) f[dst] = Math.max(0, v - (rnd & 1) - (y < h * 0.5 ? 1 : 0)); }
   };
+  // the figure (design pass 17): one sprite in front of the room, { px: n x n colours or null, n, x, y } with (x, y) its top-left in
+  // world pixels, or null for none
+  Scene.prototype.setFigure = function (f) { this.fig = f || null; };
   Scene.prototype.render = function (ctx, t, heat) {
     const W = this.W, H = this.H, img = ctx.createImageData(W, H), d = img.data;
     const R = 62 + 8 * (heat || 0) + 3 * Math.sin(t * 7.3) + 2 * Math.sin(t * 13.1);
@@ -383,18 +389,30 @@
       }
       const o = i * 4; d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
     }
+    // the figure over the room, each pixel lit by the hearth as a lit room pixel is
+    const F = this.fig;
+    if (F) for (let fy = 0; fy < F.n; fy++) for (let fx = 0; fx < F.n; fx++) {
+      const c = F.px[fy * F.n + fx], x = F.x + fx, y = F.y + fy; if (!c || x < 0 || y < 0 || x >= W || y >= H) continue;
+      let [r, g, b] = hex(c); const i = y * W + x, m = glow(Math.max(0, 1 - this.dist[i] / R), x, y);
+      r += (GLOW[0] - r) * m; g += (GLOW[1] - g) * m * 0.9; b += (GLOW[2] - b) * m * 0.8;
+      const o = i * 4; d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    }
     ctx.putImageData(img, 0, 0);
   };
   function mount(canvas, o) {
     o = o || {}; const W = o.w || 200, H = o.h || 112, sc = new Scene(W, H, { door: o.door, wide: o.wide });
     canvas.width = W; canvas.height = H; const ctx = canvas.getContext("2d");
     const still = o.still || (root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    const state = { heat: 0, scene: sc, stop: false, crucible: o.crucible || "hidden" };
+    const state = { heat: 0, scene: sc, stop: false, crucible: o.crucible || "hidden", figure: null };
+    // the figure: state.figure (set by the page) is asked for it before each render, with the time in ms (Date.now)
+    const fig = () => { sc.setFigure(typeof state.figure === "function" ? state.figure(Date.now()) : null); };
     sc.drawCrucible(state.crucible);
     for (let i = 0; i < 40; i++) sc.stepFire(0);
     sc.render(ctx, 0, 0);
-    if (!still) { let last = 0; const loop = ts => { if (state.stop) return; if (ts - last > 90) { last = ts; sc.stepFire(state.heat); sc.render(ctx, ts / 1000, state.heat); state.heat *= 0.93; } requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
+    if (!still) { let last = 0; const loop = ts => { if (state.stop) return; if (ts - last > 90) { last = ts; sc.stepFire(state.heat); fig(); sc.render(ctx, ts / 1000, state.heat); state.heat *= 0.93; } requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
     state.setCrucible = mode => { state.crucible = mode; sc.drawCrucible(mode); if (still) sc.render(ctx, 0, state.heat); };
+    // render once now with the figure as it is (a pose changed under less motion, or the page laid the room out again)
+    state.redraw = () => { if (state.stop) return; fig(); sc.render(ctx, still ? 0 : (root.performance ? root.performance.now() : Date.now()) / 1000, state.heat); };
     return state;
   }
 

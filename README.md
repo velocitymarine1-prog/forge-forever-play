@@ -4,9 +4,11 @@ One game in three pages, in the browser. It opens on the **main menu** (the titl
 Battlegrounds, General Settings.
 
 **The Forge** (`forge.html`). The smithy fills the screen wall to wall: the arch down to the Training Cellar on the left under the
-tool rack, the open door through to the Armory on the right, the hearth and the anvil between them. Put any two things on the anvil
-and strike: both fly into the fire, the room cuts in close, and a hammer, floating over the anvil, beats the glowing billet in slow,
-heavy blows until the world answers; the result comes out of the last blow onto its plaque, a card that holds everything at once and
+tool rack, the open door through to the Armory on the right, the hearth and the anvil between them. By the bellows stands **Grycus**,
+the hunched old smith of the Forge, sixty years at this anvil hunting the perfect weapon and not done yet; tap him for a word. You
+are no smith: you bring him the things, and he does the forging. Put any two things on the anvil and strike: both fly into the fire,
+the room cuts in close, and Grycus, his back screaming, swings the sledge from behind his back, over his head and down onto the
+glowing billet in slow, heavy blows until the world answers; the result comes out of the last blow onto its plaque, a card that holds everything at once and
 never scrolls (the rarity on its own coloured band, what it does in words, the stats in a column of their own, who forged it first,
 TAP ANYWHERE TO CONTINUE). A weapon and an ingredient, two weapons (the left one is the base and takes one gift), two ingredients.
 From level 25 the Crucible melts two rare weapons and a Legend Ember into a legend, and the first smith to pour one may name it.
@@ -33,4 +35,4 @@ L dodges, U plays a legend's ability, E uses the rack and the stairs, Esc opens 
 This is a **world of one**: the pairs the seed ledger knows reveal the Forge Oracle's real results (the model wrote them once), and
 every other pair is the offline Combiner's provisional draft. Your smithy is saved in this browser. The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `cd89fe9`.
+`tools/deploy.sh` from commit `b7c6c52`.
