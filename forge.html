@@ -19,7 +19,10 @@
    sign across the top, the room the whole screen until a slot asks for the walls, which open on the right. A phone held upright sees
    the turn plate, or, with My screen won't turn, the frame laid out at height x width and turned a quarter (the cellar's rule).
    Since build 4 (design pass 14) the room is drawn as wide as the screen's shape, wall to wall: the cellar's door on the left, the
-   Armory's on the right; with the walls open it keeps its height and is cut to the station. */
+   Armory's on the right; with the walls open it keeps its height and is cut to the station.
+   Since build 5 (design pass 15, card t70) the Armory is a room of its own (.app.in-armory: the hall of shelves in place of the smithy,
+   the door at its left end back to the Forge), a plaque is a static card (three columns, nothing scrolls: the script fits it), and
+   the forging's hammer floats without an arm. */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;--shelf:#241a2a;
   --parch:#ead4aa;--parch-2:#e4a672;--mute:#b3a48c;--dim:#8a7d6e;--ember:#f77622;--brass:#feae34;--hot:#fee761;--blood:#e43b44;--ice:#2ce8f5;--gold:#feae34;--gold-d:#be4a2f;
   --ink:#3e2731;--ink2:#733e39;--ink3:#a22633;--clay:#b86f50;
@@ -49,13 +52,13 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .phone{position:fixed;inset:0;margin:auto;width:100%;height:100%;max-width:1180px;max-height:820px;padding:var(--st) var(--sr) var(--sb) var(--sl);background:var(--soot);overflow:hidden;transform-origin:0 0}
 .phone.forced{margin:0;max-width:none;max-height:none;padding:var(--sr) var(--sb) var(--sl) var(--st)}
 @media (min-width:1200px) and (min-height:840px){.phone{border:3px solid #0d0a14;box-shadow:0 0 0 3px var(--oak-d),0 16px 0 -4px #0d0a14}}
-/* the app inside it: the sign across the top; the room the whole screen, or beside the walls pane when .open (a slot tapped, the
-   Ledger); every overlay is placed against this box */
+/* the app inside it: the sign across the top; the room the whole screen, or beside the walls pane when .open (a slot tapped); in the
+   Armory (.in-armory) the hall takes the room's place; every overlay is placed against this box */
 .app{position:relative;width:100%;height:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign" "room"}
 .app:not(.open) .wallspane{display:none}
 .app.open{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
-/* the sign, one row: the way home, the name, the title, the chips, the Ledger, the cog */
-.sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips ledger cog";align-items:center;column-gap:8px;padding:6px 8px;background:var(--oak-d);border-bottom:3px solid var(--soot)}
+/* the sign, one row: the way home, the room's name, the title, the chips, the way to the other room (ARMORY, or FORGE from the Armory), the cog */
+.sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips armory cog";align-items:center;column-gap:8px;padding:6px 8px;background:var(--oak-d);border-bottom:3px solid var(--soot)}
 .sign .home{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:none;cursor:pointer}
 .sign .home canvas{width:16px;height:16px}
 .sign #homeBtn{grid-area:home}
@@ -63,7 +66,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .sign #setBtn[aria-pressed="true"]{border-image-source:var(--frame-plank)}
 .sign h1{grid-area:name;margin:0;font-family:var(--display);font-weight:800;font-size:26px;line-height:1;color:var(--parch);white-space:nowrap}
 .sign .title{grid-area:title;justify-self:start;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--data);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--brass)}
-.sign #ledgerBtn{grid-area:ledger}
+.sign #armoryBtn{grid-area:armory}
 .sign .chips{grid-area:chips;display:flex;gap:4px;justify-content:flex-end;flex-wrap:nowrap;min-width:0}
 .chip{height:30px;padding:0 6px;background:var(--stone);border:2px solid var(--stone-2);color:var(--parch);font-family:var(--data);font-size:12px;letter-spacing:.03em;display:flex;align-items:center;gap:4px;cursor:pointer}
 .chip b{font-weight:600}
@@ -93,7 +96,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 /* the station's tabs hang from the beam over the hearth (design pass 14: the right corner is the Armory's) */
 .stationbar{position:absolute;left:50%;top:6px;transform:translateX(-50%);display:flex;gap:0;z-index:2}
 .stationbar button{height:30px;padding:0 8px;background:var(--stone);border:2px solid var(--stone-2);font-family:var(--display);font-weight:700;font-size:15px;color:var(--mute);cursor:pointer}
-.stationbar button[aria-pressed="true"]{background:var(--oak);color:var(--hot);border-color:var(--oak-l)}
+.stationbar button[aria-pressed="true"],.stationbar button[aria-selected="true"]{background:var(--oak);color:var(--hot);border-color:var(--oak-l)}
 .stationbar button.dim{color:var(--dim)}
 .stationbar button.dim small{font-family:var(--data);font-size:9px;margin-left:3px}
 /* the two doors (design pass 14): buttons laid over the doors' own pixels (the script places them from the scene, in % of the lens),
@@ -140,48 +143,53 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .state{width:100%;font-family:var(--data);font-size:12px;letter-spacing:.04em;color:var(--mute);text-align:center;padding:6px 10px 0;min-height:24px}
 .state.warn{color:var(--parch-2)}
 .price{width:100%;font-family:var(--data);font-size:11px;letter-spacing:.03em;color:var(--dim);text-align:center;padding:0 10px 2px}
-/* plaques and planks (overlays inside the app): a wide card over the room while the walls are closed; over the walls pane while they
-   are open; a weapon opened from the Armory (.view) is the wide card over the whole app even with the walls open (design pass 14) */
-.plaque,.plank-over,.overlay{position:absolute;left:8%;right:8%;top:52px;bottom:8px;z-index:5;color:var(--soot);animation:rise .35s steps(4,end);overflow:auto}
+/* plaques and planks (overlays inside the app): a wide card over the room; the planks and the first-weapon and unlock overlays stand
+   over the walls pane while it is open, and may scroll. A plaque never scrolls (design pass 15) */
+.plaque,.plank-over,.overlay{position:absolute;left:8%;right:8%;top:52px;bottom:8px;z-index:5;color:var(--soot);animation:rise .35s steps(4,end)}
+.plank-over,.overlay{overflow:auto}
 .plank-over{z-index:7;top:60px;left:22%;right:22%}
 .overlay{z-index:6}
-.app.open .plaque,.app.open .plank-over,.app.open .overlay{left:calc(50% + 6px);right:8px}
-.plaque.view,.app.open .plaque.view{left:8%;right:8%}
+.app.open .plank-over,.app.open .overlay{left:calc(50% + 6px);right:8px}
 @keyframes rise{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
-/* the clean plaque (design pass 10 on amendment 8's three parts): the icon and the rarity band left; the name, the recipe, the traits
-   in words, a legend's Strike and Ability rows and the stats right; the buttons, who forged it and when, and TAP ANYWHERE at the foot */
-.plaque{display:grid;grid-template-columns:minmax(150px,34%) minmax(0,1fr);column-gap:14px;align-content:start}
-.plaque .banner,.plaque .banners,.plaque .foot{grid-column:1/-1}
-/* a legend's banners (First forged, A new kind) share one row, so the card keeps its height for the moves and the stats */
-.plaque .banners{display:flex;gap:8px;margin:-4px -4px 6px}
-.plaque .banners .banner{flex:1;margin:0}
-.plaque .banners .banner.kind{font-size:22px;height:40px;line-height:22px;margin-top:0}
-.plaque .side{grid-column:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;align-self:stretch}
-.plaque .main{grid-column:2;min-width:0;align-self:center}
-.plaque .banner{margin:-4px -4px 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:22px;color:var(--soot);padding:0 4px;height:40px;line-height:22px}
-.plaque .banner.kind{font-size:17px;height:30px;line-height:12px;margin-top:2px}
+/* the plaque, a static card (design pass 15 on pass 10's clean plaque): the same box as before, and nothing in it scrolls. Three
+   columns: the icon over its rarity band; the name, the recipe, the traits in words and a legend's Strike and Ability rows; the stats
+   in a column of their own. Above them a slim row for the banners (First forged, A new kind); below, the buttons, who forged it and
+   when, and TAP ANYWHERE TO CONTINUE. Every size inside is a multiple of --k and the icon is --art screen pixels to a sprite pixel;
+   the script (fitPlaque) keeps the first fit the card holds: full size, then the icon a step smaller, then the letters (a long name
+   takes a smaller letter, --kn, before a second line). The frame's border and the buttons' frames do not scale */
+.plaque{--k:1;--kn:1;--art:4;display:grid;grid-template-columns:minmax(calc(132px*var(--k)),23%) minmax(0,1fr) minmax(calc(128px*var(--k)),22%);grid-template-rows:auto 1fr auto;column-gap:calc(14px*var(--k));overflow:hidden}
+.plaque .banners{grid-column:1/-1;grid-row:1;display:flex;gap:calc(8px*var(--k));margin:0 0 calc(4px*var(--k))}
+.plaque .banner{flex:1;min-width:0;text-align:center;font-family:var(--display);font-weight:800;font-size:calc(19px*var(--k));color:var(--soot);padding:0 4px;height:calc(18px + 13px*var(--k));line-height:calc(13px*var(--k));white-space:nowrap}
+.plaque .side{grid-column:1;grid-row:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(8px*var(--k));min-width:0}
+.plaque .main{grid-column:2;grid-row:2;min-width:0;align-self:center}
+.plaque .stats{grid-column:3;grid-row:2;min-width:0;align-self:center;padding-right:calc(5px*var(--k))}
+.plaque.nostats .main{grid-column:2/-1}
+.plaque .foot{grid-column:1/-1;grid-row:3;display:flex;flex-direction:column;gap:calc(2px*var(--k));text-align:center;margin-top:calc(2px*var(--k))}
 .plaque .art{display:flex;justify-content:center}
-.plaque .art canvas{width:132px;height:132px}
+.plaque .art canvas{width:calc(33px*var(--art));height:calc(33px*var(--art))}
 .plaque.gold .art canvas{filter:drop-shadow(0 0 4px var(--hot))}
-.plaque h2{margin:0;text-align:left;font-family:var(--display);font-weight:800;font-size:31px;line-height:1;color:var(--ink);text-wrap:balance}
+.plaque h2{margin:0;text-align:left;font-family:var(--display);font-weight:800;font-size:calc(31px*var(--k)*var(--kn));line-height:1;color:var(--ink);text-wrap:balance}
 .plaque h2.relit{animation:relit .9s steps(4) 1}
 @keyframes relit{50%{color:var(--gold-d);text-shadow:0 0 6px var(--hot)}}
-.plaque .kindline{text-align:left;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:3px}
-.plaque .traits{text-align:left;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:3px;text-wrap:balance}
-.plaque .line{text-align:left;font-size:13.5px;color:var(--ink);margin:3px 0}
-.plaque .line b{font-family:var(--display);font-weight:700;font-size:16px}
-.plaque .named{text-align:left;font-family:var(--data);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.plaque .kindline,.plaque .traits,.plaque .named{text-align:left;font-family:var(--data);font-size:calc(11px*var(--k));letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:calc(3px*var(--k))}
+.plaque .traits{text-wrap:balance}
+.plaque .named{letter-spacing:.06em;margin-top:0}
+.plaque .named:empty{display:none}
+.plaque .line{text-align:left;font-size:calc(13.5px*var(--k));color:var(--ink);margin:calc(3px*var(--k)) 0}
+.plaque .line b{font-family:var(--display);font-weight:700;font-size:calc(16px*var(--k))}
 /* a legend's two moves (design pass 10 section 3.5.6): Strike, the body's form and first status; Ability, the head's, on its own button */
-.moves{margin:5px 0 2px;display:grid;gap:3px}
-.moves>div{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px;align-items:start;padding:3px 8px;background:rgba(190,74,47,.07);border:2px solid #e4a672}
-.moves b{font-family:var(--data);font-size:10.5px;line-height:14px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:600;padding-top:2px}
-.moves b small{display:block;font-size:9.5px;font-weight:400;letter-spacing:.05em;color:#a0785a}
-.moves span{font-size:13.5px;line-height:1.3;color:var(--ink)}
-.moves em{font-style:normal;font-family:var(--display);font-weight:700;font-size:17px;color:var(--ink)}
-.bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 14px;margin:8px 0 4px}
-.bar{display:grid;grid-template-columns:62px minmax(0,1fr) 16px;gap:4px;align-items:center;font-family:var(--data);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink)}
+.moves{margin:calc(5px*var(--k)) 0 calc(2px*var(--k));display:grid;gap:calc(3px*var(--k))}
+.moves>div{display:grid;grid-template-columns:calc(62px*var(--k)) minmax(0,1fr);gap:calc(8px*var(--k));align-items:start;padding:calc(3px*var(--k)) calc(8px*var(--k));background:rgba(190,74,47,.07);border:2px solid #e4a672}
+.moves b{font-family:var(--data);font-size:calc(10.5px*var(--k));line-height:calc(14px*var(--k));letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);font-weight:600;padding-top:calc(2px*var(--k))}
+.moves b small{display:block;font-size:calc(9.5px*var(--k));font-weight:400;letter-spacing:.05em;color:#a0785a}
+.moves span{font-size:calc(13.5px*var(--k));line-height:1.3;color:var(--ink)}
+.moves em{font-style:normal;font-family:var(--display);font-weight:700;font-size:calc(17px*var(--k));color:var(--ink)}
+/* the stats: eight bars in one column */
+.bars{display:grid;grid-template-columns:minmax(0,1fr);gap:calc(3px*var(--k)) 0}
+.bar{display:grid;grid-template-columns:calc(62px*var(--k)) minmax(0,1fr) calc(15px*var(--k));gap:calc(4px*var(--k));align-items:center;font-family:var(--data);font-size:calc(10.5px*var(--k));line-height:1.25;text-transform:uppercase;letter-spacing:.04em;color:var(--ink)}
+.bar>span:last-child{text-align:right}
 .bar .pips{display:grid;grid-template-columns:repeat(10,1fr);gap:1px}
-.bar .pips i{height:6px;background:#c28569}
+.bar .pips i{height:calc(6px*var(--k));background:#c28569}
 .bar .pips i.on{background:#a22633}
 .bar.off{opacity:.4}
 .pbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
@@ -191,22 +199,20 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .pbtns button:disabled{border-image-source:var(--frame-stone);color:var(--dim);cursor:not-allowed}
 .tryit{display:block;width:100%;min-height:40px;margin-top:6px;padding:2px 6px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05;color:var(--parch)}
 .tryit small{font-family:var(--data);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);margin-left:6px}
-/* the plaque's foot (the buttons; who forged it and when; TAP ANYWHERE TO CONTINUE) stays under the thumb while the plaque scrolls */
-.plaque .foot{position:sticky;bottom:0;background:var(--parch);padding:0 0 1px;margin-top:2px;text-align:center;display:flex;flex-direction:column;gap:2px}
-.plaque.gold .foot{background:#ead4aa}
-.plaque .foot .btnrow{order:1;display:flex;gap:6px;align-items:stretch}
-.plaque .foot .btnrow .pbtns{flex:1;margin-top:6px}
-.plaque .foot .btnrow .tryit{flex:1;width:auto;margin-top:6px}
-.plaque .foot .disc{order:2;margin-top:4px;text-align:center}
+/* the plaque's foot: the buttons in one row, who forged it and when, TAP ANYWHERE TO CONTINUE */
+.plaque .foot .btnrow{display:flex;gap:calc(6px*var(--k));align-items:stretch}
+.plaque .foot .btnrow .pbtns{flex:1;margin-top:0;gap:calc(6px*var(--k));flex-wrap:nowrap}
+.plaque .foot .btnrow .tryit{flex:1;width:auto;margin-top:0}
+.plaque .pbtns button,.plaque .tryit{min-width:0;min-height:calc(40px*var(--k));font-size:calc(17px*var(--k));white-space:nowrap}
+.plaque .tryit small{font-size:calc(10px*var(--k))}
+.plaque .foot .disc{margin:calc(3px*var(--k)) 0 0;text-align:center;line-height:1.25}
 .plaque .disc b{color:var(--ink);font-weight:600}
-.tapon{order:3;display:block;width:100%;margin:4px 0 0;padding:4px 0 2px;background:none;border:0;cursor:pointer;font-family:var(--data);font-weight:600;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);animation:tapblink 1.6s steps(4) infinite}
+.tapon{display:block;width:100%;margin:0;padding:calc(3px*var(--k)) 0 calc(2px*var(--k));background:none;border:0;cursor:pointer;font-family:var(--data);font-weight:600;font-size:calc(15px*var(--k));line-height:1.2;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);animation:tapblink 1.6s steps(4) infinite}
 @keyframes tapblink{50%{opacity:.4}}
 /* the rarity band under the icon (design pass 10 section 3.3.2's colours) */
-.rarity{display:inline-flex;align-items:center;justify-content:center;min-width:112px;padding:3px 10px;border:2px solid var(--soot);box-shadow:inset 0 2px 0 var(--rl),inset 0 -2px 0 var(--rd);font-family:var(--data);font-weight:600;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#fff;text-shadow:1px 1px 0 var(--rd)}
+.rarity{display:inline-flex;align-items:center;justify-content:center;min-width:calc(112px*var(--k,1));padding:calc(3px*var(--k,1)) calc(10px*var(--k,1));border:2px solid var(--soot);box-shadow:inset 0 2px 0 var(--rl),inset 0 -2px 0 var(--rd);font-family:var(--data);font-weight:600;font-size:calc(12px*var(--k,1));line-height:1.3;letter-spacing:.16em;text-transform:uppercase;color:#fff;text-shadow:1px 1px 0 var(--rd)}
 .r1{background:#5a6988;--rl:#8b9bb4;--rd:#3a4466}.r2{background:#3e8948;--rl:#63c74d;--rd:#265c42}.r3{background:#124e89;--rl:#0099db;--rd:#262b44}
 .r4{background:#68386c;--rl:#b55088;--rd:#3e2731}.r5{background:#f77622;--rl:#feae34;--rd:#be4a2f;color:var(--soot);text-shadow:none}.r6{background:#a22633;--rl:#e43b44;--rd:#3e2731;color:#fee761}
-/* the small band (design pass 10 section 3.3.2): in the Armory's rows, and with a count in it on a shelf's head */
-.rarity.sm{min-width:0;padding:0 5px;font-size:8.5px;line-height:13px;letter-spacing:.1em;box-shadow:inset 0 1px 0 var(--rl),inset 0 -1px 0 var(--rd);border-width:1px;vertical-align:1px;margin-right:4px}
 /* the naming and terms planks */
 .plank-over h3{margin:0 0 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:25px;line-height:1;color:var(--ink)}
 .plank-over .row{display:flex;gap:8px;align-items:center}
@@ -237,14 +243,14 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .choice.chained canvas{filter:grayscale(1) brightness(.6)}
 .choice.chained::after{content:"";position:absolute;left:8px;right:8px;top:36%;height:5px;background:repeating-linear-gradient(90deg,#8b9bb4 0 4px,#262b44 4px 8px);transform:rotate(-12deg)}
 .choice[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
-/* the walls pane: tabs, the wall or the cabinet, or the Ledger; the scrolling part takes what the pane leaves */
+/* the walls pane: tabs, then the wall or the cabinet; the scrolling part takes what the pane leaves */
 .wallspane{grid-area:walls;display:flex;flex-direction:column;min-height:0;min-width:0}
 #walls{display:flex;flex-direction:column;min-height:0;flex:1}
 .tabs{display:flex;gap:6px;padding:8px 10px 0}
 .tabs button{flex:1;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:19px;color:var(--parch);position:relative}
 .tabs button[aria-selected="true"]{border-image-source:var(--frame-plank);color:var(--hot)}
 .tabs .badge{position:absolute;right:2px;top:-6px;font-family:var(--data);font-size:9px;letter-spacing:.03em;text-transform:uppercase;background:var(--ember);color:var(--soot);padding:1px 5px}
-#wallsClose,#ledgerClose{display:flex;align-items:center;justify-content:center;flex:0 0 42px;width:42px;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:16px;color:var(--parch)}
+#wallsClose{display:flex;align-items:center;justify-content:center;flex:0 0 42px;width:42px;height:42px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:16px;color:var(--parch)}
 .wallhead{font-family:var(--data);font-size:10.5px;letter-spacing:.04em;color:var(--mute);padding:6px 12px 0;text-align:center}
 .wall{padding:8px 10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;flex:1;min-height:0;overflow:auto;align-content:start}
 .rack{display:flex;flex-direction:column;align-items:center;background:none;cursor:pointer;padding:0 0 2px;min-width:0;color:var(--parch);position:relative}
@@ -300,63 +306,46 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .carthead{display:flex;gap:6px;align-items:center;margin:6px 0;font-family:var(--data);font-size:11px;color:var(--mute)}
 .carthead .bulk{margin-left:auto;height:28px;padding:0 6px;background:none;cursor:pointer;font-family:var(--data);font-size:11px;color:var(--parch)}
 .carthead .bulk[aria-pressed="true"]{color:var(--hot)}
-/* the book behind ARMORY (design pass 10, section 3.4): the Armory, Legends, the Roll, the Book of Kinds, then the ✕; under 700 px of
-   viewport the four tabs and the ✕ tighten so they fit a 320 px pane */
-.ledger{padding:8px 10px 10px;display:flex;flex-direction:column;min-height:0;flex:1}
-#ledgerBody{flex:1;min-height:0;overflow:auto}
-.pages{display:flex;gap:6px;margin-bottom:6px}
-.pages button{flex:1;height:36px;padding:0 4px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:16px;color:var(--parch)}
-#ledgerClose{height:36px;flex:0 0 36px;width:36px}
-.pages button[aria-selected="true"]{border-image-source:var(--frame-plank);color:var(--hot)}
-@media (max-width:700px){.pages{gap:4px}.pages button{font-size:15px;padding:0 1px}}
-.lhead{font-family:var(--data);font-size:10.5px;letter-spacing:.03em;color:var(--mute);margin:4px 0 6px;text-align:center}
-.lrow{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;padding:4px 0;border-bottom:2px solid var(--stone-2);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;width:100%;text-align:left;color:var(--parch)}
-.lrow canvas{width:44px;height:44px}
-.lrow .n{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.05}
-.lrow .s{font-family:var(--data);font-size:10.5px;color:var(--mute);letter-spacing:.03em}
-.lrow.gold .n{color:var(--hot)}
-.lrow .x2{font-family:var(--data);font-size:11px;color:var(--brass);white-space:nowrap}
-.lrow.gone canvas{filter:grayscale(.8) brightness(.6)}
-.lrow.gone .n,.lrow.gone .x2{color:var(--dim)}
-/* the Armory's shelves (design pass 14 section 3.8 on pass 10's class buttons): a shelf per class, its weapons standing on the oak
-   board rarest first, its head with the plural name, the small bands with their counts, the total and ▸ or ▾; open, its rows under it */
-.ashelf{display:block;width:100%;margin:0 0 8px;padding:0;background:var(--shelf);border:3px solid var(--soot);cursor:pointer;color:var(--parch);text-align:left}
-.ashelf .ahead{display:grid;grid-template-columns:minmax(0,1fr) auto auto 14px;gap:8px;align-items:center;padding:5px 8px 0}
-.ashelf b{font-family:var(--display);font-weight:700;font-size:19px;line-height:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ashelf .tiers{display:flex;gap:3px}
-.ashelf .tiers .rarity.sm{margin:0;min-width:18px}
-.ashelf .cnt{font-family:var(--data);font-size:12px;color:var(--brass)}
-.ashelf i{font-style:normal;font-family:var(--data);font-size:12px;color:var(--mute)}
-.ashelf .board{display:flex;gap:2px;align-items:flex-end;height:50px;padding:0 6px 10px;background:var(--board) bottom/32px 16px repeat-x;image-rendering:pixelated;overflow:hidden}
-.ashelf .board canvas{width:33px;height:33px;flex:none}
-.ashelf .board .more{font-family:var(--data);font-size:11px;color:var(--brass);padding:0 0 6px 4px;white-space:nowrap}
-.ashelf .board .none{font-family:var(--data);font-size:10.5px;color:var(--dim);padding:0 0 8px 6px}
-.ashelf.none{opacity:.6}
-.ashelf.none canvas{filter:grayscale(1) brightness(.5)}
-.ashelf[aria-expanded="true"]{border-color:var(--oak-l)}
-.arows{margin:-4px 0 10px 10px;padding-left:8px;border-left:2px solid var(--oak)}
-.roll{width:100%;border-collapse:collapse;font-size:13px}
-.roll th{font-family:var(--data);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--brass);text-align:left;padding:2px 3px;font-weight:600}
-.roll td{padding:3px 3px;border-bottom:2px solid var(--stone-2);vertical-align:middle}
-.roll .rk{font-family:var(--data);font-size:13px;width:34px;text-align:center;color:var(--parch)}
-.roll .rk.one{background:var(--ember);color:var(--soot)}
-.roll .rk.two,.roll .rk.three{background:var(--oak-l);color:var(--soot)}
-.roll .sm{font-family:var(--display);font-weight:700;font-size:16px;line-height:1;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.roll .num{font-family:var(--data);text-align:right}
-.roll .lg{color:var(--gold)}
-.roll .lt{display:flex;align-items:center;gap:4px;font-family:var(--data);font-size:10px;color:var(--mute);max-width:100px;overflow:hidden}
-.roll .lt canvas{width:33px;height:33px;flex:none}
-.roll tr.you td{background:rgba(247,118,34,.12)}
-.kgroup{margin:6px 0}
-.kgroup>button{width:100%;height:36px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:16px;color:var(--parch);text-align:left;padding:0 6px;display:flex;justify-content:space-between;align-items:center}
-.kgroup>button span{font-family:var(--data);font-size:10.5px;color:var(--brass)}
-.kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:6px 0}
-.kind{display:flex;flex-direction:column;align-items:center;padding:4px 0;color:var(--parch);min-width:0}
-.kind canvas{width:66px;height:66px}
-.kind b{font-family:var(--display);font-weight:700;font-size:15px;line-height:1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kind span{font-family:var(--data);font-size:9.5px;color:var(--mute);text-align:center;line-height:1.15;padding:0 3px}
-.kind.unnamed{opacity:.6}
-.kind.unnamed b{color:var(--dim)}
+/* the Armory (design pass 15): a room of its own. In it the hall takes the room's place under the sign: a sideways scroller as long
+   as the collection, painted in the smithy's pixels in chunks (armory.js), with a button and a sprite for every weapon near the
+   screen. Everything in the track is placed in world pixels: left and top from --x and --y, sizes from the track's --s (CSS pixels to
+   a world pixel, the Forge's own scale). The tabs hang under the beam where the Forge's station tabs do; the arrows walk the hall
+   for a mouse; a veil of soot lifts off the room that was walked into */
+.armpane{grid-area:room;grid-column:1/-1;display:flex;flex-direction:column;align-items:center;min-height:0;min-width:0;overflow:hidden}
+.app:not(.in-armory) .armpane,.app.in-armory .roompane,.app.in-armory .wallspane{display:none}
+.armroom{position:relative;width:100%;flex:none;overflow:hidden}
+.hall{position:absolute;inset:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;touch-action:pan-x pan-y;overscroll-behavior:contain;outline:none}
+.hall::-webkit-scrollbar{display:none}
+.phone.forced .hall{touch-action:none}
+.hall:focus-visible{box-shadow:inset 0 0 0 3px var(--ice)}
+.track{position:relative;height:100%;width:calc(var(--s)*var(--w)*1px);--s:2;--w:232}
+.track>*{position:absolute;left:calc(var(--s)*var(--x)*1px);top:calc(var(--s)*var(--y,0)*1px)}
+.hc{width:calc(var(--s)*var(--cw)*1px);height:calc(var(--s)*112px);pointer-events:none}
+.track .door{width:calc(var(--s)*var(--dw)*1px);height:calc(var(--s)*var(--dh)*1px)}
+/* a weapon on its shelf: a button the size of its cell holding the sprite at the room's scale; ★ for a first of the smith's own, ×n
+   when more than one is held; one no longer held stands greyed */
+.aw{width:calc(var(--s)*36px);height:calc(var(--s)*36px);padding:0;border:0;background:none;cursor:pointer;color:var(--parch)}
+.aw canvas{position:absolute;left:calc(var(--s)*2px);top:0;width:calc(var(--s)*33px);height:calc(var(--s)*33px)}
+.aw:focus-visible{outline-offset:-3px}
+@media (hover:hover){.aw:hover canvas{filter:brightness(1.3) drop-shadow(0 0 3px var(--hot))}}
+.aw.gone canvas{filter:grayscale(.85) brightness(.55)}
+.aw .st{position:absolute;left:calc(var(--s)*2px);top:0;font-family:var(--data);font-size:11px;line-height:1;color:var(--hot);text-shadow:1px 1px 0 var(--soot),-1px 0 0 var(--soot),0 -1px 0 var(--soot)}
+.aw .x{position:absolute;right:calc(var(--s)*2px);top:0;font-family:var(--data);font-size:10px;line-height:1.2;color:var(--soot);background:var(--brass);padding:0 3px}
+/* the plates: a class and its count on the floor before its bay; a legend's name and lines under its case; a note on the bare wall */
+.bayfoot{width:calc(var(--s)*var(--bw)*1px);display:flex;justify-content:center;pointer-events:none}
+.bayplate{position:sticky;left:46px;right:46px;display:flex;gap:6px;align-items:baseline;white-space:nowrap;padding:2px 7px;background:var(--oak);border:2px solid var(--oak-l);font-family:var(--data);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--hot)}
+.bayplate span{color:var(--parch)}
+.legcap{transform:translateX(-50%);width:calc(var(--s)*68px);display:flex;flex-direction:column;align-items:center;text-align:center;pointer-events:none}
+.legcap b{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--display);font-weight:700;font-size:16px;line-height:1.1;color:var(--hot);text-shadow:0 2px 0 var(--soot)}
+.legcap span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--data);font-size:9.5px;letter-spacing:.04em;line-height:1.3;color:var(--parch);text-shadow:1px 1px 0 var(--soot)}
+.legcap.gone b{color:var(--dim)}
+.wallnote{white-space:nowrap;padding:3px 9px;background:var(--stone);border:2px solid var(--stone-2);font-family:var(--data);font-size:11px;letter-spacing:.04em;color:var(--mute);pointer-events:none}
+.armnav{position:absolute;bottom:5px;z-index:2;width:38px;height:44px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:20px;line-height:1;color:var(--parch)}
+.armnav.prev{left:4px}
+.armnav.next{right:4px}
+.app>.veil{grid-area:room;grid-column:1/-1;z-index:3;background:var(--soot);opacity:0;pointer-events:none}
+.app.walk>.veil{animation:walk .32s steps(4,end) 1}
+@keyframes walk{0%{opacity:1}100%{opacity:0}}
 /* Settings: the four switches (settings.js), Erase, and under Developer the bench that used to sit beside the phone */
 .setplank{left:8px;right:8px;top:52px;bottom:8px;overflow:auto;color:var(--parch)}
 .setplank h3{color:var(--parch)}
@@ -402,18 +391,18 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 </head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="679fcd4" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="4218593" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
-      <h1>The Forge</h1><span class="title" id="title"></span>
+      <h1 id="signName">The Forge</h1><span class="title" id="title"></span>
       <div class="chips">
         <button class="chip" id="chipLevel" title="Your level and XP"><b id="lvl">Lv 1</b><span class="xp"><i id="xpbar" style="width:0"></i></span></button>
         <button class="chip coin" id="chipCoins" title="Coins"><i class="c"></i><span id="coins">0</span></button>
         <button class="chip first" id="chipFirsts" aria-label="0 weapons you forged first in the world"><i class="s">★</i><span id="firsts">0</span></button>
         <button class="chip ember" id="chipEmbers" hidden title="Legend Embers"><i class="e">✦</i><span id="embers">0</span></button>
       </div>
-      <button class="f-iron" id="ledgerBtn" aria-pressed="false">ARMORY</button>
+      <button class="f-iron" id="armoryBtn" aria-pressed="false" aria-label="Into the Armory">ARMORY</button>
       <button class="f-iron home" id="setBtn" aria-label="Settings" title="Settings" aria-pressed="false"><canvas data-glyph="cog" aria-hidden="true"></canvas></button>
     </div>
     <div class="roompane" id="roompane">
@@ -462,17 +451,20 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
           <div class="cart" id="cart" hidden></div>
         </div>
       </div>
-      <div class="ledger" id="ledger" hidden>
-        <div class="pages" role="tablist">
-          <button role="tab" class="f-iron" id="pgLedger" aria-selected="true">Armory</button>
-          <button role="tab" class="f-iron" id="pgLegends" aria-selected="false">Legends</button>
-          <button role="tab" class="f-iron" id="pgRoll" aria-selected="false">The Roll</button>
-          <button role="tab" class="f-iron" id="pgKinds" aria-selected="false">Kinds</button>
-          <button class="f-iron" id="ledgerClose" aria-label="Back to the anvil" title="Back to the anvil">✕</button>
-        </div>
-        <div id="ledgerBody"></div>
-      </div>
     </div>
+    <div class="armpane" id="armpane">
+      <div class="armroom" id="armRoom">
+        <div class="hall" id="hall" tabindex="0" role="region" aria-label="The Armory: your weapons on their shelves, class by class"><div class="track" id="track"></div></div>
+        <div class="stationbar" role="tablist" aria-label="The Armory's walls">
+          <button role="tab" id="pgArmory" aria-selected="true">Armory</button>
+          <button role="tab" id="pgLegends" aria-selected="false">Legends</button>
+        </div>
+        <button class="f-iron armnav prev" id="armPrev" hidden aria-label="Back along the shelves">‹</button>
+        <button class="f-iron armnav next" id="armNext" hidden aria-label="Further along the shelves">›</button>
+      </div>
+      <div class="state" id="armState" role="status"></div>
+    </div>
+    <div class="veil" aria-hidden="true"></div>
     <div class="flash"></div>
     <div class="plaque f-parch" id="plaque" hidden></div>
     <div class="plaque gold f-gold" id="legendPlaque" hidden></div>
@@ -529,6 +521,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="proto/discovery.js"></script>
 <script src="proto/pixel-forge.js"></script>
 <script src="proto/smithy.js"></script>
+<script src="proto/armory.js"></script>
 <script src="proto/forge-fx.js"></script>
 <script src="proto/settings.js"></script>
 <script src="proto/nav.js"></script>

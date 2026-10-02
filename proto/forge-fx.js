@@ -1,11 +1,12 @@
-// FORGE FOREVER: the forging (design pass 10, card t67; widened by design pass 14 for the wide smithy: this is pass 14's sketch).
-// When the smith strikes, the two things lift out of the anvil's slots and fly into the hearth, melt into one glowing billet, and the
-// smith's hammer beats it on the anvil until the world answers (the forge's loading screen); then the result comes out of the last
-// blow. Everything is drawn in world pixels on an overlay canvas the size of the smithy (W x 112: 200 in pass 10, the room's own width
+// FORGE FOREVER: the forging (design pass 10, card t67; widened by design pass 14 for the wide smithy; the hammer alone since design
+// pass 15, card t70: no arm, no hand).
+// When the smith strikes, the two things lift out of the anvil's slots and fly into the hearth, melt into one glowing billet, and a
+// hammer, floating over the anvil, beats it until the world answers (the forge's loading screen); then the result comes out of the
+// last blow. Everything is drawn in world pixels on an overlay canvas the size of the smithy (W x 112: 200 in pass 10, the room's own width
 // since pass 14) stacked on the room's canvas, by the pixel rules: a soot outline, ramps lit from the top left, motion on four frames,
 // nothing turned or resampled. The station's numbers below are pass 10's, for a room 200 wide; a wider room is drawn shifted by
 // ox = W / 2 - 100, so the hearth and the anvil stay where the room has them. From the cut on, a dithered curtain of soot closes in at
-// the sides beyond the station (pass 14): the 2x lens of a wide room shows more than the station, and the smith's arm runs into it.
+// the sides beyond the station (pass 14): the 2x lens of a wide room shows more than the station, and the curtain frames the close-up.
 //
 // Time is in milliseconds from the Strike. Most of the sequence moves in beats of 90 ms (the fire's own pace); a hammer blow is 960 ms
 // (revision 1: Isaac slowed the strikes by 0.6 s): raised 360, swinging 90, on the billet 360, rebounding 150.
@@ -30,7 +31,7 @@
   const FACE = { x: 101, y: 80 };                                          // the anvil's face (Smithy's anvilTop is (100, 80))
   const HEAT = [["#fff6c8", "#fee761", "#feae34"], ["#fee761", "#feae34", "#f77622"], ["#feae34", "#f77622", "#e43b44"], ["#f77622", "#e43b44", "#a22633"]];
   const HOT = ["#be4a2f", "#f77622", "#feae34", "#fee761", "#fff6c8"];
-  const IRON = ["#262b44", "#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"], OAK = ["#3e2731", "#733e39", "#b86f50", "#e4a672"], SKIN = ["#733e39", "#c28569", "#e8b796"];
+  const IRON = ["#262b44", "#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"], OAK = ["#3e2731", "#733e39", "#b86f50", "#e4a672"];
   const COLD = ["#5a6988", "#3a4466", "#262b44"];
   const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + 0.5) / 16);
 
@@ -109,16 +110,15 @@
     for (let j = 0; j < 3; j++) for (let i = 0; i < len; i++) P.put(x0 + i, y + j, (i === 0 || i === len - 1) && j !== 1 ? ramp[1] : ramp[j]);
     P.outline();
   }
-  // the hammer and the smith's forearm: the fist at (fx, fy), the handle along the angle (degrees: 90 up, 45 up and left, 0 left)
+  // the hammer, floating over the anvil (design pass 15: no arm, no hand): the grip point at (fx, fy), the handle along the angle
+  // (degrees: 90 up, 45 up and left, 0 left). It swings about its grip as it did in the smith's fist; the handle runs on through where
+  // the fist was, to a butt wrapped in leather
   function hammer(P, fx, fy, deg, smear) {
     const a = deg * Math.PI / 180, dx = -Math.cos(a), dy = -Math.sin(a), px = -dy, py = dx;   // along the handle, and across it
-    const HANDLE = 17, HEAD_L = 13, HEAD_W = 7;
+    const HANDLE = 17, BUTT = 4, HEAD_L = 13, HEAD_W = 7;
     P.layer();
-    // the forearm: from the fist down and to the right, off the lens (the smith stands out of sight, right of the anvil)
-    for (let s = 0; s < 44; s++) { const half = 2 + Math.min(2, Math.floor(s / 8)); for (let w = -half; w <= half; w++) { const x = fx + 3 + s, y = fy + 1 + s * 0.4 + w; P.put(x, y, w === -half ? SKIN[2] : w >= half - 1 ? SKIN[0] : SKIN[1]); } }
-    for (let s = 24; s < 44; s++) for (let w = -5; w <= 5; w++) P.put(fx + 3 + s, fy + 1 + s * 0.4 + w, w <= -4 ? OAK[2] : w >= 4 ? OAK[0] : OAK[1]);   // a rolled leather sleeve
-    // the handle: 2 px of oak, lit on its upper side
-    for (let s = 1; s <= HANDLE; s++) for (let w = 0; w <= 1; w++) { const x = fx + dx * s + px * (w - 0.5), y = fy + dy * s + py * (w - 0.5); P.put(x, y, s >= HANDLE - 1 ? OAK[0] : w === 0 ? OAK[2] : OAK[1]); }
+    // the handle: 2 px of oak, lit on its upper side, dark under the head; its last four pixels are the grip, two leather bands
+    for (let s = -BUTT; s <= HANDLE; s++) for (let w = 0; w <= 1; w++) { const x = fx + dx * s + px * (w - 0.5), y = fy + dy * s + py * (w - 0.5); P.put(x, y, s >= HANDLE - 1 || s === -BUTT || s === -BUTT + 2 ? OAK[0] : w === 0 ? OAK[2] : OAK[1]); }
     // the head: 13 across the handle and 7 along it, iron lit from the top left
     const hx = fx + dx * (HANDLE + HEAD_W / 2), hy = fy + dy * (HANDLE + HEAD_W / 2);
     for (let y = Math.floor(hy - 9); y <= hy + 9; y++) for (let x = Math.floor(hx - 9); x <= hx + 9; x++) {
@@ -128,13 +128,11 @@
       P.put(x, y, edge ? IRON[3] : lit > 0 ? IRON[3] : lit < 0 ? IRON[1] : IRON[2]);
     }
     P.put(Math.round(hx - 2), Math.round(hy - 2), IRON[4]);
-    // the fist, a leather glove
-    for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) P.put(fx + x, fy + y, y === -2 || x === -2 ? OAK[2] : y === 2 || x === 2 ? OAK[0] : OAK[1]);
     P.outline();
     // the smear of the down-swing: a dithered arc of light where the head passed
     if (smear) for (let i = 0; i < 9; i++) { const aa = (deg + 12 + i * 4) * Math.PI / 180, r = HANDLE + 2 + (i % 3) * 3; if (i % 2 === 0) P.put(fx - Math.cos(aa) * r, fy - Math.sin(aa) * r, IRON[4]); }
   }
-  // the hammer's four frames in a blow: raised, swinging, on the billet, rebounding. The fist moves a little with the arm.
+  // the hammer's four frames in a blow: raised, swinging, on the billet, rebounding. The grip point moves a little with the swing.
   const POSE = [{ deg: 78, f: [123, 70] }, { deg: 45, f: [124, 70], smear: true }, { deg: 0, f: [125, 71] }, { deg: 38, f: [124, 70] }];
 
   // sparks of a strike: a seeded fan up from the billet, 1 px each, falling; drawn as a pure function of the ticks since the strike
@@ -195,8 +193,8 @@
       hammer(P, POSE[2].f[0], POSE[2].f[1], POSE[2].deg, false);
       sparks(P, face.x - 2, face.y - 4, 0, 997, 22, plan.gold);
     } else if (ph === "reveal" || ph === "done") {
-      // out of the last blow: the result, white for a tick with rays, then itself in a ring of light, rising a pixel a tick; the smith
-      // has stepped back with the hammer
+      // out of the last blow: the result, white for a tick with rays, then itself in a ring of light, rising a pixel a tick; the
+      // hammer is gone
       const since = Math.floor((Math.min(t, doneAt(plan) - 1) - strikeAt(plan)) / BEAT) - 1;
       const rise = Math.min(T.rise, Math.max(0, since - 1)) * 2;
       const rx = face.x - 16, ry = face.y - N + 1 - rise;
@@ -210,7 +208,7 @@
     return ph;
   }
   // the curtain (pass 14): soot closing in from the sides, clear within CLEAR px of the anvil, dithered over the next CURTAIN px, then
-  // solid; drawn straight into the image so it covers the arm and nothing outlines it
+  // solid; drawn straight into the image so nothing outlines it
   function curtain(P, W, ox) {
     const cx = 100 + ox, d = P.img.data;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {

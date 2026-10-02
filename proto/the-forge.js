@@ -10,11 +10,15 @@
 // frame turned a quarter; the house on the sign goes to the main menu through nav.js; the bench lives in Settings (settings.js)
 // under Developer; the handoff is written whenever the page is left.
 // Since build 4 (design pass 14) the room is the wide smithy (Smithy.mount with wide: true, 232 to 320 world pixels, the width the
-// pane's shape asks for): wall to wall sideways, the cellar's door on the left and the Armory's door on the right (it opens the book);
+// pane's shape asks for): wall to wall sideways, the cellar's door on the left and the Armory's door on the right (it opened the book until build 5);
 // with the walls open the room keeps its height and is cut to the station. No "Wakes at level 25" plate: the Crucible's tab says it.
 // Build 4 also brings design pass 10 (card t67): the clean plaque (the rarity band, the traits in words, a legend's Strike and Ability
 // rows, no flavour and no placeholders), the Armory in place of the Ledger (a shelf per class, Legends by the date acquired, any
 // weapon's plaque again in view mode), and the Legend Ember found in the Battlegrounds only (spec/drops.json), never sold or given.
+// Since build 5 (design pass 15, card t70) the Armory is a room of its own (armory.js: a hall of shelves the smith walks sideways, a
+// bay for every class held, the Legends on a wall of their own; the Roll and the Book of Kinds are gone from the page), reached by
+// its door or ARMORY on the sign and left by the door at its left end or FORGE on the sign; a plaque is a static card that never
+// scrolls (three columns, fitted by fitPlaque); and the forging's hammer floats without an arm (forge-fx.js).
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -70,7 +74,7 @@
   let profile = Progress.newProfile("isaac");
   const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false };
   const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
-    ledgerOpen: false, page: "ledger", armoryOpen: null, rollWindow: "all", rollCache: null, kindsOpen: new Set(), lastCabKind: null, hold: null, wallsOpen: false, picking: false };
+    room: "forge", page: "armory", hallX: { armory: 0, legends: 0 }, lastCabKind: null, hold: null, wallsOpen: false, picking: false };
   const svc = { url: null, player: null, smiths: 0, spare: null };
   const turn = { forced: window.Settings ? Settings.isOn("forced") : false, turned: false, plate: false };   // landscape only (amendment 9)
   const isForged = t => !!(t.parents && t.parents.length);
@@ -203,14 +207,6 @@
   function animated(t) { return (t.weapon && (t.weapon.element !== "physical" || t.hybrid)) || (t.hints && t.hints.element && t.kind !== "weapon"); }
   function sprite(t, scale) { const cv = PF.canvasFor(t, { scale }); if (animated(t)) live.add([cv, t, scale]); return cv; }
   { let fr = 0; setInterval(() => { if (reduce) return; fr = (fr + 1) % 4; for (const e of live) { if (!e[0].isConnected) { live.delete(e); continue; } PF.draw(e[0], e[1], { scale: e[2], frame: fr }); } }, 130); }
-  function silhouette(body, head) {
-    const rec = { id: "sil-" + body + "-" + head, kind: "weapon", parents: ["a", "b"], weapon: { form: "slash", element: "physical", status: [], modifiers: [], numbers: {}, visual: { base: body, fuse: head, material: "steel", attachments: [], size: "M" } } };
-    const sp = PF.spriteFor(rec, 0), N = PF.N, scale = 2, cv = document.createElement("canvas");
-    cv.width = N * scale; cv.height = N * scale; const ctx = cv.getContext("2d");
-    for (let i = 0; i < N * N; i++) if (sp.px[i]) { ctx.fillStyle = sp.px[i] === PF.OUT ? "#120e1a" : "#2c2540"; ctx.fillRect((i % N) * scale, ((i / N) | 0) * scale, scale, scale); }
-    cv.className = "px"; cv.setAttribute("role", "img"); cv.setAttribute("aria-label", "not yet named");
-    return cv;
-  }
 
   // ------------------------------------------------------------------ the service adapter (or the world of one)
   async function api(method, path, body) {
@@ -329,18 +325,6 @@
       profile.picks = Progress.picksLeft(profile);
       save();
       return { ok: true };
-    },
-    async leaderboard(win) {
-      if (svc.url) {
-        try {
-          const { code, body } = await api("GET", "/leaderboard?window=" + win + "&limit=50&player=" + encodeURIComponent(svc.player));
-          if (code === 200) { state.rollCache = { at: new Date(), win, body }; return body; }
-        } catch (e) { /* fall through to the cache */ }
-        return state.rollCache ? Object.assign({ stale: true, at: state.rollCache.at }, state.rollCache.body) : null;
-      }
-      const rs = Discovery.roll([...world.values()], kinds, players.concat([{ id: profile.id, name: profile.name }]), win);
-      const mine = rs.find(r => r.player === profile.id);
-      return { window: win, rows: rs.slice(0, 50), you: mine ? { rank: mine.rank, weapons: mine.weapons, legends: mine.legends, kinds: mine.kinds } : { rank: null, weapons: 0, legends: 0, kinds: 0 } };
     },
     async kinds() {
       if (svc.url) {
@@ -468,7 +452,7 @@
     const n = profile.firsts.weapons.length;
     $("firsts").textContent = n;
     $("chipFirsts").setAttribute("aria-label", `${n} weapon${n === 1 ? "" : "s"} you forged first in the world`);
-    $("chipFirsts").title = svc.url ? "World firsts: the Roll counts them" : "Firsts in this page's world";
+    $("chipFirsts").title = svc.url ? "Weapons you forged first in the world" : "Firsts in this page's world";
     const awake = Progress.crucibleAwake(profile, G);
     $("chipEmbers").hidden = !awake;
     $("embers").textContent = profile.embers;
@@ -549,7 +533,9 @@
     turn.plate = portrait && coarse && !turn.forced;
     $("turnPlate").hidden = !turn.plate;
     $("tFull").hidden = !(document.documentElement.requestFullscreen && screen.orientation && screen.orientation.lock);
-    return fitRoom();
+    const fitted = fitRoom();
+    fitArmory(); fitPlaque();   // (function declarations below: the Armory's hall at the room's scale, and an open plaque refitted to its card)
+    return fitted;
   }
   function lockLandscape() { try { const o = screen.orientation; if (o && o.lock) { const p = o.lock("landscape"); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* this browser doesn't lock */ } }
   function setForced(on) { turn.forced = !!on; if (window.Settings && Settings.isOn("forced") !== turn.forced) Settings.setOn("forced", turn.forced); fitTurn(); if (settings) settings.render(); }
@@ -557,8 +543,8 @@
   $("tFull").addEventListener("click", () => { try { const p = document.documentElement.requestFullscreen(); if (p && p.then) p.then(lockLandscape).catch(() => {}); } catch (e) { /* this browser doesn't go full screen */ } });
   $("tHome").addEventListener("click", () => goHome());
   (function () { const cv = $("turnPhone"); try { Smithy.drawTurnPhone(cv, false); } catch (e) { return; } let sw = false; setInterval(() => { if ($("turnPlate").hidden || reduce) return; sw = !sw; Smithy.drawTurnPhone(cv, sw); }, 1000); })();
-  // sideways, the anvil is the whole screen: the walls pane opens on the right when a slot asks to be filled, or for the Ledger, and
-  // closes when the second slot is filled, when Strike or Pour falls, or by its ✕ (design pass 11, amendment 8)
+  // sideways, the anvil is the whole screen: the walls pane opens on the right when a slot asks to be filled, and closes when the
+  // second slot is filled, when Strike or Pour falls, or by its ✕ (design pass 11, amendment 8)
   function openWalls(why) {
     if (why === "pick") state.picking = true;
     if (state.wallsOpen) return;
@@ -593,10 +579,10 @@
   }
   $("stAnvil").addEventListener("click", () => setStation("anvil"));
   $("stCruc").addEventListener("click", () => setStation("crucible"));
-  // the two doors (design pass 14 section 3.4): the cellar's goes down, the Armory's opens the book in the walls pane; neither while
-  // forging or pouring
+  // the two doors (design pass 14 section 3.4): the cellar's goes down, the Armory's goes through into the Armory's own room (design
+  // pass 15); neither while forging or pouring
   $("cellarDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; goDown(null); });
-  $("armoryDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; openLedger("ledger"); });
+  $("armoryDoor").addEventListener("click", () => openArmory("armory"));
 
   function forecast() {
     const st = $("state");
@@ -754,7 +740,7 @@
   async function forge() {
     if (!state.a || !state.b || state.forging || state.station !== "anvil") return;
     const A = world.get(state.a), B = world.get(state.b);
-    closePlaque(); if (state.ledgerOpen) closeLedger(); closeWalls();   // (the walls close first, and the room re-lays out at once, so the slots are measured where the player saw them)
+    closePlaque(); if (state.room === "armory") closeArmory(); closeWalls();   // (the walls close first, and the room re-lays out at once, so the slots are measured where the player saw them)
     const hadClass = new Set(racks().map(r => r.c));
     const FX = window.ForgeFx;
     const from = FX ? [slotFrom($("slotA")), slotFrom($("slotB"))] : null;
@@ -794,7 +780,7 @@
     $("state").textContent = claim.status === "pending" ? "Pending: the world will settle it" : claim.status === "first" ? "First forged" : claim.status === "rediscovered" ? "Already in the world" : "A known recipe";
     renderSign();
     if (state.view === "wall") renderWall(); else renderCabinet();
-    renderLedger(); renderInfo();
+    renderArmory(); renderInfo();
     return claim;
   }
   $("room").addEventListener("pointerdown", () => { if (run) run.skip(); });   // a tap on the room cuts to the result once the world has answered
@@ -867,14 +853,16 @@
     $("state").textContent = claim.status === "pending" ? "Pending: the world will settle it" : claim.status === "first" ? "First forged" : "A known legend";
     renderSign(); renderSlots();
     if (state.view === "wall") renderWall(); else renderCabinet();
-    renderLedger(); renderInfo();
+    renderArmory(); renderInfo();
     return claim;
   }
 
-  // ------------------------------------------------------------------ the plaques (design pass 10 section 3.3, in amendment 8's three parts)
+  // ------------------------------------------------------------------ the plaques (design pass 10 section 3.3, a static card since pass 15)
   // What is left says what the weapon is, how rare it is (the band), what it's made of (the recipe), what it does (the traits in words;
   // a legend's Strike and Ability rows), how strong it is (the stats), who made it first (the discovery line) and what to do next (TAP
   // ANYWHERE TO CONTINUE). No flavour, no meta line, no gift or base line, no PROVISIONAL stamp, no "Why the Oracle chose this".
+  // The card never scrolls (design pass 15): the icon and its band, the words, and the stats stand in three columns over the buttons,
+  // the discovery line and TAP ANYWHERE, and fitPlaque makes the card hold them at any size of screen.
   function fmtDate(iso) { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); }
   function recipeLine(t) {
     const p = t.parents || [];
@@ -924,18 +912,20 @@
     const t = claim.thing, p = $("plaque"), isIng = t.kind !== "weapon", view = !!(o && o.view), held = own.has(t.id);
     plaqueMode = view ? "view" : "forge"; plaqueThing = t;
     $("legendPlaque").hidden = true; $("legendPlaque").innerHTML = "";   // (one plaque holds the ids at a time: a hidden one would answer getElementById first)
-    p.classList.toggle("view", view);
+    p.classList.toggle("view", view); p.classList.toggle("nostats", isIng);
     const btns = view
       ? (held ? `<div class="pbtns"><button class="f-ember primary" id="toAnvil">To the anvil</button>${equipBtnHTML(t)}<button class="f-iron" id="share">Share</button></div>${tryRow(t)}` : '<div class="pbtns"><button class="f-iron" id="share">Share</button></div>')
       : `<div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button>' : equipBtnHTML(t)}<button class="f-iron" id="share">Share</button></div>${isIng ? "" : tryRow(t)}`;
-    p.innerHTML = `${claim.status === "first" && !view ? '<div class="banner f-ember">First forged</div>' : ""}
+    p.innerHTML = `${claim.status === "first" && !view ? '<div class="banners"><div class="banner f-ember">First forged</div></div>' : ""}
       <div class="side"><div class="art"></div>${rarityHTML(t)}</div>
       <div class="main"><h2></h2><div class="kindline">${esc(recipeLine(t) || (isIng ? "" : "A class weapon"))}</div><div class="traits">${esc(traitLine(t))}</div>
-      ${isIng ? '<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div>' : bars(t)}</div>
-      <div class="foot"><div class="line disc">${discHTML(claim, t, view)}</div><div class="btnrow">${btns}</div>${TAP_ON}</div>`;
+      ${isIng ? '<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div>' : ""}</div>
+      ${isIng ? "" : `<div class="stats">${bars(t)}</div>`}
+      <div class="foot"><div class="btnrow">${btns}</div><div class="line disc">${discHTML(claim, t, view)}</div>${TAP_ON}</div>`;
     p.querySelector(".art").appendChild(sprite(t, 4));
     p.querySelector("h2").textContent = t.name;
     p.hidden = false;
+    fitPlaque(p);
     $("tapOn").addEventListener("click", continueOn);
     const ta = $("toAnvil"); if (ta) ta.addEventListener("click", () => toAnvil(t));
     const eq = $("equipBtn"); if (eq) eq.addEventListener("click", () => equip(t, eq));
@@ -945,9 +935,9 @@
   }
   function tryRow(t) { return `<button class="f-iron tryit" id="tryBtn">↓ Try it in the cellar${Progress.canEquip(t, profile, G) ? "" : "<small>practice only</small>"}</button>`; }
   function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.forms || []), ...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
-  // To the anvil (a weapon opened from the Armory, pass 10 section 3.4.2): the book closes, the station is the anvil, the anvil is
-  // emptied and this weapon goes on it as the base
-  function toAnvil(t) { closePlaque(); closeLedger(); if (state.station !== "anvil") setStation("anvil"); state.a = null; state.b = null; pick(t.id); }
+  // To the anvil (a weapon opened from the Armory, pass 10 section 3.4.2): back through the door to the Forge, the station is the
+  // anvil, the anvil is emptied and this weapon goes on it as the base
+  function toAnvil(t) { closePlaque(); closeArmory(); if (state.station !== "anvil") setStation("anvil"); state.a = null; state.b = null; pick(t.id); }
   function equip(t, btn) {
     if (!Progress.canEquip(t, profile, G)) { toast(classOf(t) === "legendary" ? "Legends can be wielded from level 25" : `The ${plural(classOf(t))} rack is chained: open the class to wield it`); return; }
     if (!session.equipped.includes(t.id)) { session.equipped.push(t.id); if (session.equipped.length > 2) session.equipped.shift(); }
@@ -959,6 +949,29 @@
     const named = t.naming && t.naming.status === "named" ? ` Named by ${t.naming.by}.` : "";
     const txt = `${t.name} (${TIER[t.tier]} ${cls || "ingredient"}): ${traitLine(t, false).toLowerCase()}. ${recipeLine(t) ? "Forged from " + recipeLine(t) + "." : ""}${t.discovery && t.discovery.first ? " First forged by " + t.discovery.first + "." : ""}${named} Forge Forever`;
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => toast("Copied: " + txt), () => toast(txt)); else toast(txt);
+  }
+  // the static card (design pass 15): nothing in a plaque scrolls. Its sizes are multiples of --k, and its icon is --art screen pixels
+  // to a sprite pixel. This tries the fits in order and keeps the first the card holds: everything full size with the icon at 4; the
+  // icon at 3 with the letters stepping down to 0.8; then the icon at 2 with the letters from 0.95 down. A name too long for its line
+  // takes a smaller letter (--kn) before it takes a second line. Called when a plaque opens, when a legend is renamed and whenever the
+  // frame is laid out again; returns the k it settled on (null with no plaque open)
+  const PLAQUE_FITS = [[1, 4], [1, 3], [0.95, 3], [0.9, 3], [0.85, 3], [0.8, 3]].concat([0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4].map(k => [k, 2]));
+  function fitPlaque(p) {
+    p = p || (!$("plaque").hidden ? $("plaque") : !$("legendPlaque").hidden ? $("legendPlaque") : null);
+    if (!p || p.hidden || !p.clientHeight) return null;
+    const h2 = p.querySelector("h2"), over = el => el.scrollWidth > el.clientWidth + 0.5;
+    let fit = PLAQUE_FITS[PLAQUE_FITS.length - 1];
+    for (const f of PLAQUE_FITS) {
+      p.style.setProperty("--k", f[0]); p.style.setProperty("--art", f[1]);
+      if (h2) {
+        h2.style.whiteSpace = "nowrap";
+        for (const kn of [1, 0.92, 0.84, 0.76]) { p.style.setProperty("--kn", kn); if (!over(h2)) break; }
+        if (over(h2)) { h2.style.whiteSpace = ""; p.style.setProperty("--kn", 0.84); }
+      }
+      if (p.scrollHeight <= p.clientHeight + 0.5 && p.scrollWidth <= p.clientWidth + 0.5) { fit = f; break; }
+    }
+    p.dataset.k = String(fit[0]); p.dataset.art = String(fit[1]);
+    return fit[0];
   }
   // closing the plaque (a tap anywhere, Apply, the station, the Armory, Settings) also ends the forging's overlay, unless a forge is running
   function closePlaque() { $("plaque").hidden = true; $("legendPlaque").hidden = true; plaqueMode = null; plaqueThing = null; if (!state.forging) endForging(); }
@@ -1002,7 +1015,7 @@
     const canName = !!(t.naming && t.naming.status === "open" && (t.discovery || {}).first === profile.id && (view || claim.status === "first") && (!claim.provisional || !svc.url));
     plaqueMode = view ? "view" : "pour"; plaqueThing = t;
     $("plaque").hidden = true; $("plaque").innerHTML = "";
-    p.classList.toggle("view", view);
+    p.classList.toggle("view", view); p.classList.remove("nostats");
     const [body, head] = t.hybrid.classes, ab = abilityOf(t);
     const abWords = ab ? abilityStatuses(t, ab).filter(x => x !== ab.status).map(x => (STATUS_WORD[x] || x).toLowerCase()) : [];
     const traits = traitLine(t, true);
@@ -1015,13 +1028,14 @@
       <div class="kindline">${kind ? "A " + esc(kind.name) : "A new kind"} · ${esc(cap(body))} ✦ ${esc(cap(head))}</div>
       <div class="moves"><div><b>Strike<small>${esc(body)}</small></b> <span>${esc(FORM_VERB[w.form] || cap(w.form))}${(w.status || [])[0] ? " · " + esc((STATUS_WORD[w.status[0]] || w.status[0]).toLowerCase()) : ""}</span></div>
         ${ab ? `<div><b>Ability<small>${esc(head)}</small></b> <span><em>✦ ${esc(ab.name)}</em> ${esc(ab.line)}${abWords.length ? " · " + esc(abWords.join(", ")) : ""}</span></div>` : ""}</div>
-      ${traits ? `<div class="traits">${esc(traits)}</div>` : ""}
-      ${bars(t)}</div>
-      <div class="foot"><div class="line disc">${discHTML(claim, t, view)}</div><div class="btnrow">${btns}</div>${TAP_ON}</div>`;
+      ${traits ? `<div class="traits">${esc(traits)}</div>` : ""}</div>
+      <div class="stats">${bars(t)}</div>
+      <div class="foot"><div class="btnrow">${btns}</div><div class="line disc">${discHTML(claim, t, view)}</div>${TAP_ON}</div>`;
     p.querySelector(".art").appendChild(sprite(t, 4));
     $("legendName").textContent = t.name;
     renderNamedBy(t);
     p.hidden = false;
+    fitPlaque(p);
     $("tapOn").addEventListener("click", continueOn);
     const ta = $("toAnvil"); if (ta) ta.addEventListener("click", () => toAnvil(t));
     const eb = $("equipBtn"); if (eb) eb.addEventListener("click", () => equip(t, eb));
@@ -1049,7 +1063,7 @@
       <div class="pbtns"><button class="f-ember primary" id="termsAccept" disabled>Accept</button><button class="f-iron" id="termsNo">Not now</button></div>`);
     $("termsTick").addEventListener("change", e => { $("termsAccept").disabled = !e.target.checked; });
     $("termsAccept").addEventListener("click", async () => { if (!$("termsTick").checked) return; const ok = await World.acceptTerms(); if (!ok) { toast("The world can't record the terms right now"); return; } el.hidden = true; then(); });
-    $("termsNo").addEventListener("click", () => { el.hidden = true; toast("The offer stays open: Name it from the Armory when you're ready"); renderLedger(); });
+    $("termsNo").addEventListener("click", () => { el.hidden = true; toast("The offer stays open: Name it from the Armory when you're ready"); renderArmory(); });
   }
   function openNamePlank(t) {
     const el = $("namePlank");
@@ -1076,7 +1090,7 @@
     live();
     field.focus(); field.select();
     stamp.addEventListener("click", () => submitName(t, field.value));
-    $("keepBtn").addEventListener("click", async () => { const r = await World.keep(t.id); if (r.code === 200) { el.hidden = true; toast("The Oracle's name stands: " + t.name); renderNamedBy(t); renderLedger(); renderSign(); } else toast(r.body.reason || "The world refused"); });
+    $("keepBtn").addEventListener("click", async () => { const r = await World.keep(t.id); if (r.code === 200) { el.hidden = true; toast("The Oracle's name stands: " + t.name); renderNamedBy(t); renderArmory(); renderSign(); } else toast(r.body.reason || "The world refused"); });
   }
   async function submitName(t, value) {
     const el = $("namePlank"), field = $("nameField"), line = $("nameLine"), stamp = $("stamp");
@@ -1091,10 +1105,10 @@
       if (r.body.naming && r.body.naming.status === "kept") { toast("The Oracle's name stands: " + t.name); }
       else {
         toast(`Named: ${t.name}. It carries your name for ever`);
-        const h = $("legendName"); if (h) { h.textContent = t.name; h.classList.remove("relit"); void h.offsetWidth; h.classList.add("relit"); }
+        const h = $("legendName"); if (h) { h.textContent = t.name; fitPlaque(); h.classList.remove("relit"); void h.offsetWidth; h.classList.add("relit"); }
         $("phone").classList.add("burst"); sparks(18, ["#feae34", "#fee761", "#ffffff"]); setTimeout(() => $("phone").classList.remove("burst"), 1600);
       }
-      renderNamedBy(t); renderSign(); renderLedger(); renderInfo();
+      renderNamedBy(t); fitPlaque(); renderSign(); renderArmory(); renderInfo();
       if (state.view === "cabinet") renderCabinet(); else renderWall();
       return r;
     }
@@ -1356,134 +1370,101 @@
     }
   }
 
-  // ------------------------------------------------------------------ the book behind ARMORY (design pass 10 section 3.4, pass 14 section 3.8):
-  // the Armory (a shelf per class), Legends (newest first), the Roll of First Smiths, the Book of Kinds. The element ids and
-  // state.ledgerOpen keep the old name: the world's data is still the ledger; the player's word is the Armory
-  function openLedger(page) {
-    closePlaque();
-    state.ledgerOpen = true; if (page) state.page = page;
-    $("ledger").hidden = false; $("walls").hidden = true; $("ledgerBtn").setAttribute("aria-pressed", "true");
-    openWalls("ledger");
-    renderLedger();
-  }
-  function closeLedger() { if (plaqueMode === "view") closePlaque(); state.ledgerOpen = false; $("ledger").hidden = true; $("walls").hidden = false; $("ledgerBtn").setAttribute("aria-pressed", "false"); if (!state.picking) closeWalls(); }
-  $("ledgerBtn").addEventListener("click", () => { if (state.ledgerOpen) closeLedger(); else openLedger("ledger"); });
-  $("ledgerClose").addEventListener("click", closeLedger);   // the book's own ✕ (design pass 14 section 3.8): the pane closes too unless a slot is waiting
-  $("chipFirsts").addEventListener("click", () => openLedger("roll"));   // the ★ chip opens the Roll: its page is about firsts
-  const PAGES = [["pgLedger", "ledger"], ["pgLegends", "legends"], ["pgRoll", "roll"], ["pgKinds", "kinds"]];
-  for (const [id, pg] of PAGES) $(id).addEventListener("click", () => { state.page = pg; renderLedger(); });
-  function renderLedger() {
-    $("ledgerBtn").textContent = "ARMORY";
-    if (!state.ledgerOpen) return;
-    for (const [id, pg] of PAGES) $(id).setAttribute("aria-selected", String(state.page === pg));
-    const el = $("ledgerBody");
-    if (state.page === "roll") return renderRoll(el);
-    if (state.page === "kinds") return renderKinds(el);
-    if (state.page === "legends") return renderLegends(el);
-    return renderArmory(el);
-  }
+  // ------------------------------------------------------------------ the Armory (design pass 15): a room of its own
+  // The door on the smithy's right wall, or ARMORY on the sign, goes through into the Armory: the hall takes the room's place under
+  // the sign (armory.js paints it and walks it), the sign says The Armory and its button says FORGE. Nothing is played there. Two
+  // walls: the Armory (a bay of two shelves for every class the smith holds a weapon of, the rarest nearest the door) and the Legends
+  // (each in a gilt case, the newest first). A weapon opens its plaque in view mode; the door at the hall's left end, FORGE on the
+  // sign, Esc and To the anvil go back. Neither way while forging or pouring. The Roll and the Book of Kinds are gone from the page.
+  const PAGES = [["pgArmory", "armory"], ["pgLegends", "legends"]];
+  const hall = window.Armory ? Armory.mount({ hall: $("hall"), track: $("track") }, {
+    sprite, tierWord: t => TIER[t.tier] || "", onOpen: t => viewWeapon(t), onDoor: () => closeArmory(), turned: () => turn.turned,
+    onScroll(x, max) { $("armPrev").hidden = x < 4; $("armNext").hidden = x > max - 4; if (state.room === "armory" && hall) state.hallX[state.page] = hall.x; }
+  }) : null;
   // the smith's weapons: everything held now or ever found (a weapon melted into another, or poured into a legend, stays, marked gone).
   // Class weapons are in (the plain Sword is a common sword); ingredients are not (they live on the Materials wall)
   function armoryWeapons() { const out = [], seen = new Set(); for (const id of [...own.keys(), ...(profile.found || [])]) { if (seen.has(id)) continue; seen.add(id); const t = world.get(id); if (t && F.isWeapon(t)) out.push(t); } return out; }
-  const tierCount = list => { const n = {}; for (const t of list) n[t.tier] = (n[t.tier] || 0) + 1; return n; };
-  const smallBand = t => `<span class="rarity sm ${tierClass(t)}">${esc(TIER[t.tier] || "")}</span>`;
-  // a row (pass 10 section 3.4.2): the sprite, the name (★ when the smith forged it first in the world), the small band and the recipe
-  // (or the kind, the ability and the date acquired on Legends), ×n when more than one is held or "gone"; a tap opens its plaque in view mode
-  function weaponRow(t, sub) {
-    const held = own.get(t.id), b = document.createElement("button"), gold = (t.discovery || {}).first === profile.id;
-    b.className = "lrow" + (gold ? " gold" : "") + (held ? "" : " gone"); b.appendChild(sprite(t, 1));
-    const d = document.createElement("div"); d.innerHTML = `<div class="n"></div><div class="s">${sub}</div>`; d.firstChild.textContent = t.name + (gold ? " ★" : "");
-    b.appendChild(d);
-    const r = document.createElement("span"); r.className = "x2"; r.textContent = held ? (held.n > 1 ? "×" + held.n : "") : "gone"; b.appendChild(r);
-    b.setAttribute("aria-label", `${t.name}: ${TIER[t.tier] || ""}${held ? "" : ", no longer held"}`);
-    b.addEventListener("click", () => viewWeapon(t));
-    return b;
+  // what the hall shows. The Armory: the classes with weapons in the grammar's order, which never moves; in a bay the weapons held
+  // come first, the rarest first and by name within a tier, then those no longer held. The Legends: newest first by the date
+  // acquired; legends with no date (a save from before build 4) after the dated ones, newest first by the order they were gained
+  function armoryModel() {
+    const item = t => { const o = own.get(t.id); return { t, n: o ? o.n : 0, gone: !o, mine: (t.discovery || {}).first === profile.id }; };
+    const all = armoryWeapons();
+    if (state.page === "legends") {
+      const when = t => got[t.id] || "";
+      const list = all.filter(t => classOf(t) === "legendary").sort((a, b) => String(when(b)).localeCompare(String(when(a))) || ((own.get(b.id) || { seq: 0 }).seq - (own.get(a.id) || { seq: 0 }).seq));
+      return { page: "legends", empty: "No legends yet. The Crucible wakes at level 25.", legends: list.map(t => {
+        const k = t.hybrid && kinds.find(x => x.id === t.hybrid.kind), ab = abilityOf(t);
+        return Object.assign(item(t), { sub: [(k ? "A " + k.name : cap(t.hybrid.classes[0]) + " ✦ " + cap(t.hybrid.classes[1])) + (ab ? " · ✦ " + ab.name : ""), when(t) ? "acquired " + fmtDate(when(t)) : ""].filter(Boolean) });
+      }) };
+    }
+    const by = new Map(G.visual.bases.map(c => [c, []]));
+    for (const t of all) { const c = classOf(t); if (by.has(c)) by.get(c).push(item(t)); }
+    const classes = G.visual.bases.filter(c => by.get(c).length).map(c => ({ cls: c, label: plural(c), items: by.get(c).sort((a, b) => (a.gone - b.gone) || (b.t.tier - a.t.tier) || a.t.name.localeCompare(b.t.name)) }));
+    return { page: "armory", classes, missing: G.visual.bases.length - classes.length, empty: "No weapons yet." };
   }
+  // the hall at the Forge's own scale: as tall as the pane leaves after its line of words, 112 world pixels high
+  function fitArmory() {
+    if (!hall || state.room !== "armory") return null;
+    const pane = $("armpane"), el = $("armRoom");
+    if (!pane.clientWidth || !pane.clientHeight) return null;
+    const boxW = pane.clientWidth, boxH = Math.max(60, pane.clientHeight - $("armState").offsetHeight);
+    const sc = Math.min(boxH / ROOM_H, boxW / W_MIN);
+    el.style.height = ROOM_H * sc + "px";
+    hall.fit(sc, boxW / sc);
+    return { s: sc, viewW: boxW / sc };
+  }
+  // draw the wall the tabs name (nothing unless the smith is in the Armory); keep leaves the hall where it was walked to
+  function renderArmory(keep) {
+    $("armoryBtn").textContent = state.room === "armory" ? "FORGE" : "ARMORY";
+    if (!hall || state.room !== "armory") return null;
+    for (const [id, pg] of PAGES) $(id).setAttribute("aria-selected", String(state.page === pg));
+    const m = armoryModel(), L = hall.render(m, keep !== false);
+    if (m.page === "legends") { const n = m.legends.length; $("armState").textContent = n ? `${n} legend${n === 1 ? "" : "s"}, the newest first` : "No legends yet"; }
+    else { const n = m.classes.reduce((a, c) => a + c.items.length, 0), gone = m.classes.reduce((a, c) => a + c.items.filter(it => it.gone).length, 0);
+      $("armState").textContent = `${n} weapon${n === 1 ? "" : "s"} in ${m.classes.length} class${m.classes.length === 1 ? "" : "es"}` + (gone ? ` · ${gone} no longer held` : "") + " · tap one to read its plaque"; }
+    return L;
+  }
+  // through the door: the room walked into comes out of soot (nothing under less motion, or under the harness)
+  const quiet = () => reduce || params.get("harness") === "1";
+  function walkThrough() { if (quiet()) return; const a = $("app"); a.classList.remove("walk"); void a.offsetWidth; a.classList.add("walk"); setTimeout(() => a.classList.remove("walk"), 340); }
+  function openArmory(page) {
+    if (!hall || state.forging || state.pouring) return false;
+    closePlaque(); closeWalls();
+    const was = state.room;
+    state.room = "armory"; if (page === "armory" || page === "legends") state.page = page;
+    const at = state.hallX[state.page] || 0;   // (where this wall was walked to the last time; drawing it starts it at the door)
+    $("app").classList.add("in-armory");
+    $("signName").textContent = "The Armory";
+    $("armoryBtn").setAttribute("aria-pressed", "true"); $("armoryBtn").setAttribute("aria-label", "Back to the Forge");
+    fitArmory();
+    renderArmory(false);
+    hall.x = at;
+    if (was !== "armory") walkThrough();
+    return true;
+  }
+  function closeArmory() {
+    if (state.room !== "armory") return false;
+    if (plaqueMode === "view") closePlaque();
+    state.room = "forge";
+    $("app").classList.remove("in-armory");
+    $("signName").textContent = "The Forge";
+    $("armoryBtn").setAttribute("aria-pressed", "false"); $("armoryBtn").setAttribute("aria-label", "Into the Armory");
+    renderArmory();
+    fitRoom(); walkThrough();
+    return true;
+  }
+  $("armoryBtn").addEventListener("click", () => { if (state.room === "armory") closeArmory(); else openArmory("armory"); });
+  for (const [id, pg] of PAGES) $(id).addEventListener("click", () => { if (state.page === pg) return; state.page = pg; const at = state.hallX[pg] || 0; renderArmory(false); if (hall) hall.x = at; });
+  $("armPrev").addEventListener("click", () => hall && hall.walk(-1, quiet()));
+  $("armNext").addEventListener("click", () => hall && hall.walk(1, quiet()));
+  // Esc leaves the Armory when nothing stands over it (a plaque, a plank and Settings take the key first)
+  window.addEventListener("keydown", e => { if (e.key !== "Escape" || e.defaultPrevented || state.room !== "armory" || plaqueOpen() || plankOpen() || !$("setPlank").hidden) return; if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return; e.preventDefault(); closeArmory(); });
+  // the ★ chip counts the smith's firsts; in the Armory they carry the star
+  $("chipFirsts").addEventListener("click", () => { const n = profile.firsts.weapons.length; toast(n ? `${n} weapon${n === 1 ? "" : "s"} you forged first in the world: ${n === 1 ? "it carries" : "they carry"} a ★ in the Armory` : "No weapon forged first in the world yet: a first carries a ★ in the Armory"); });
   function viewWeapon(t) {
     const claim = { thing: t, status: t.oracle && t.oracle.provisional && svc.url ? "pending" : "known", kind: t.hybrid ? kinds.find(k => k.id === t.hybrid.kind) || null : null };
     if (classOf(t) === "legendary") showLegend(claim, null, null, { view: true }); else showPlaque(claim, null, null, { view: true });
-  }
-  // page 1, the Armory: twenty shelves (pass 14 section 3.8), the classes with weapons first, then the rest, each group in the grammar's
-  // order, which never moves. A shelf's head: the plural name, a small band per tier present with its count, the total, ▸ or ▾. Its
-  // board: the class's weapons at 1x, rarest first, as many as fit, then "+N"; with none, the class weapon greyed and "none yet". A tap
-  // opens the class's rows under it, from the most common to the rarest and by name within a tier; one class open at a time
-  function renderArmory(el) {
-    const all = armoryWeapons().filter(t => classOf(t) !== "legendary");
-    const by = new Map(G.visual.bases.map(c => [c, []])); for (const t of all) { const c = classOf(t); if (by.has(c)) by.get(c).push(t); }
-    const order = G.visual.bases.filter(c => by.get(c).length).concat(G.visual.bases.filter(c => !by.get(c).length));
-    el.innerHTML = `<div class="cabhead"><b>The Armory</b><span class="n">${all.length} weapon${all.length === 1 ? "" : "s"}</span></div><div class="lhead">A shelf for every class. Open one to see its weapons from the most common to the rarest. Legends have their own tab.</div><div id="aclasses"></div>`;
-    const box = el.querySelector("#aclasses"), fit = Math.max(3, Math.floor(((el.clientWidth || 380) - 30) / 35));
-    for (const c of order) {
-      const list = by.get(c).sort((a, b) => (a.tier - b.tier) || a.name.localeCompare(b.name)), open = state.armoryOpen === c;
-      const b = document.createElement("button"); b.className = "ashelf" + (list.length ? "" : " none"); b.setAttribute("aria-expanded", String(open)); b.dataset.cls = c;
-      const counts = tierCount(list);
-      b.innerHTML = `<span class="ahead"><b>${esc(plural(c))}</b><span class="tiers">${list.length ? Object.keys(counts).sort().map(k => `<span class="rarity sm r${Math.max(1, Math.min(6, k | 0))}">${counts[k]}</span>`).join("") : ""}</span><span class="cnt">${list.length || ""}</span><i>${open ? "▾" : "▸"}</i></span><span class="board"></span>`;
-      b.setAttribute("aria-label", `${plural(c)}: ${list.length ? list.length + " weapon" + (list.length === 1 ? "" : "s") : "none yet"}`);
-      const board = b.querySelector(".board"), show = list.slice().reverse();   // rarest first on the shelf
-      if (!list.length) { const t = classWeapon(c); if (t) board.appendChild(sprite(t, 1)); board.insertAdjacentHTML("beforeend", '<span class="none">none yet</span>'); }
-      else { for (const t of show.slice(0, show.length > fit ? fit - 1 : fit)) board.appendChild(sprite(t, 1)); if (show.length > fit) board.insertAdjacentHTML("beforeend", `<span class="more">+${show.length - fit + 1}</span>`); }
-      b.addEventListener("click", () => { if (!list.length) { toast(`No ${plural(c).toLowerCase()} yet`); return; } state.armoryOpen = open ? null : c; renderLedger(); });
-      box.appendChild(b);
-      if (open) { const rows = document.createElement("div"); rows.className = "arows"; for (const t of list) rows.appendChild(weaponRow(t, `${smallBand(t)} ${esc(recipeLine(t) || "a class weapon")}`)); box.appendChild(rows); }
-    }
-  }
-  // page 2, Legends: every legend held or held before, newest first by the date acquired; legends with no date (a save from before this
-  // build) after the dated ones, newest first by the order they were gained
-  function renderLegends(el) {
-    const list = armoryWeapons().filter(t => classOf(t) === "legendary");
-    const when = t => got[t.id] || "";
-    list.sort((a, b) => String(when(b)).localeCompare(String(when(a))) || ((own.get(b.id) || { seq: 0 }).seq - (own.get(a.id) || { seq: 0 }).seq));
-    el.innerHTML = `<div class="cabhead"><b>Legends</b><span class="n">${list.length}</span></div><div class="lhead">Every legend you have poured or found, the newest first.</div><div id="lrows"></div>`;
-    const box = el.querySelector("#lrows");
-    for (const t of list) {
-      const k = t.hybrid && kinds.find(x => x.id === t.hybrid.kind), ab = abilityOf(t);
-      box.appendChild(weaponRow(t, `${smallBand(t)} ${esc(k ? "A " + k.name : cap(t.hybrid.classes[0]) + " ✦ " + cap(t.hybrid.classes[1]))}${ab ? " · ✦ " + esc(ab.name) : ""}${when(t) ? " · acquired " + esc(fmtDate(when(t))) : ""}`));
-    }
-    if (!list.length) box.innerHTML = '<div class="empty">No legends yet. The Crucible wakes at level 25.</div>';
-  }
-
-  async function renderRoll(el) {
-    el.innerHTML = `<div class="cabhead"><b>The Roll of First Smiths</b></div><div class="lhead">Weapons no smith had made before, by the smith who made them first.</div>
-      <div class="chips2">${["week", "all"].map(w => `<button data-w="${w}" aria-pressed="${String(state.rollWindow === w)}">${w === "week" ? "This week" : "All time"}</button>`).join("")}</div><div id="rollBody" class="lhead">Reading the Roll…</div>`;
-    for (const b of el.querySelectorAll(".chips2 button")) b.addEventListener("click", () => { state.rollWindow = b.dataset.w; renderLedger(); });
-    const data = await World.leaderboard(state.rollWindow);
-    const box = el.querySelector("#rollBody"); if (!box) return;
-    if (!data) { box.textContent = "The Roll cannot be read right now."; return; }
-    box.className = "";
-    const row = r => `<tr class="${r.player === profile.id ? "you" : ""}"><td><span class="rk ${["", "one", "two", "three"][r.rank] || ""}">${r.rank}</span></td><td class="sm">${esc(r.name || r.player)}</td><td class="num">${r.weapons}</td><td class="num lg">${r.legends ? "◆ " + r.legends : ""}</td><td class="num">${r.kinds ? "♛ " + r.kinds : ""}</td><td><div class="lt" data-id="${esc(r.latest ? r.latest.id : "")}"><span>${esc(r.latest ? r.latest.name : "")}</span></div></td></tr>`;
-    box.innerHTML = `<table class="roll"><thead><tr><th>Rank</th><th>Smith</th><th>Weapons</th><th>Legends</th><th>Kinds</th><th>Latest</th></tr></thead><tbody>${data.rows.map(row).join("")}</tbody></table>
-      ${data.you && data.you.rank && !data.rows.some(r => r.player === profile.id) ? `<div class="lhead">You: ${data.you.rank}${ordinal(data.you.rank)} · ${data.you.weapons} weapon${data.you.weapons === 1 ? "" : "s"}</div>` : ""}
-      ${!data.rows.length ? '<div class="empty">No firsts yet in this window.</div>' : ""}${data.stale ? `<div class="lhead">As of ${data.at.toLocaleTimeString()}: the world cannot be reached.</div>` : ""}`;
-    for (const lt of box.querySelectorAll(".lt")) { const t = world.get(lt.dataset.id); if (t) lt.prepend(sprite(t, 1)); }
-  }
-  function ordinal(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return s[(v - 20) % 10] || s[v] || s[0]; }
-  async function renderKinds(el) {
-    await World.kinds();
-    const bases = G.visual.bases;
-    el.innerHTML = `<div class="cabhead"><b>The Book of Kinds</b><span class="n">Kinds named: ${kinds.length} of ${bases.length * (bases.length - 1)}</span></div><div class="lhead">What a pair of classes becomes in the Crucible, in order: the left's body, the right's head. The first smith to pour one founds the kind.</div><div id="kgroups"></div>`;
-    const box = el.querySelector("#kgroups");
-    for (const body of bases) {
-      const g = document.createElement("div"); g.className = "kgroup";
-      const named = kinds.filter(k => k.classes[0] === body).length;
-      const btn = document.createElement("button"); btn.className = "f-plank"; btn.innerHTML = `${esc(cap(body))} ✦ … <span>${named} of ${bases.length - 1} named</span>`;
-      btn.setAttribute("aria-expanded", String(state.kindsOpen.has(body)));
-      btn.addEventListener("click", () => { if (state.kindsOpen.has(body)) state.kindsOpen.delete(body); else state.kindsOpen.add(body); renderLedger(); });
-      g.appendChild(btn);
-      if (state.kindsOpen.has(body)) {
-        const grid = document.createElement("div"); grid.className = "kinds";
-        for (const head of bases) { if (head === body) continue;
-          const k = kinds.find(x => x.key === body + "*" + head);
-          const d = document.createElement("div"); d.className = "kind" + (k ? "" : " unnamed");
-          const founding = k ? world.get(k.thing) : null;
-          d.appendChild(founding ? sprite(founding, 2) : silhouette(body, head));
-          const abn = AB[head] ? "✦ " + AB[head].name : "";   // every tile names its ability, named or not (pass 10 section 3.5.6): a smith can plan a fusion by it
-          d.insertAdjacentHTML("beforeend", k ? `<b>${esc(k.name)}</b><span>${esc(k.line)}</span>${abn ? `<span>${esc(abn)}</span>` : ""}<span>founded by ${esc(k.first === profile.id ? "you" : k.first)}${founding ? " · " + esc(founding.name) : ""}</span>` : `<b>not yet named</b><span>${esc(cap(body))} ✦ ${esc(cap(head))}</span>${abn ? `<span>${esc(abn)}</span>` : ""}`);
-          grid.appendChild(d);
-        }
-        g.appendChild(grid);
-      }
-      box.appendChild(g);
-    }
   }
 
   // ------------------------------------------------------------------ the bench
@@ -1498,7 +1479,7 @@
     profile = Progress.newProfile(svc.player || "isaac"); profile.coins = 120;
     for (const t of window.FORGE_THINGS) if (t.kind !== "weapon" && storeOf(t) !== "Trophies") gain(t.id, 3);
     state.a = null; state.b = null; state.ma = null; state.mb = null;
-    closePlaque(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); renderLedger(); save();
+    closePlaque(); closeArmory(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); save();
     openFirstWeapon();
   }
   async function grant(levels, embers) {
@@ -1556,7 +1537,7 @@
       if (F.isWeapon(c.thing) && r() < 0.3) weps.push(c.thing);
     }
     const ms = Math.round(performance.now() - t0);
-    renderSign(); renderLedger(); renderInfo(); setTab("weapons");
+    renderSign(); renderArmory(); renderInfo(); setTab("weapons");
     toast(`Forged 1,000 (${made} new kinds, ${gifts} gifts) in ${ms} ms. Open the Swords rack.`);
   });
   $("week").addEventListener("click", () => {
@@ -1581,9 +1562,8 @@
       if (c && c.status === "first") { firsts++; c.thing.discovery.at = daysAgo(Math.floor(r() * 12)); c.thing.oracle.provisional = false; c.thing.oracle.notes = ["settled by the bench's week of other smiths"]; if (c.kind_founded) c.kind.at = c.thing.discovery.at; }
     }
     profile = me;
-    renderLedger(); renderInfo();
-    openLedger("roll");
-    toast(`A week passes: six smiths made ${firsts} firsts and ${legends} legends. The Roll and the Book of Kinds have rows.`);
+    renderArmory(); renderInfo();
+    toast(`A week passes: six smiths made ${firsts} firsts and ${legends} legends. Forge a pair one of them made and its plaque names them.`);
   });
   async function connect(url, player) {
     url = (url || $("worldUrl").value).trim().replace(/\/$/, "");
@@ -1603,7 +1583,7 @@
       for (const t of world.values()) if ((t.discovery || {}).first === player && !own.has(t.id)) gain(t.id);   // your own firsts are yours
       for (const c of profile.classes) { const t = classWeapon(c); if (t && !own.has(t.id)) gain(t.id); }
       state.a = null; state.b = null; state.ma = null; state.mb = null;
-      closePlaque(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); renderLedger();
+      closePlaque(); closeArmory(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo();
       if (!profile.classes.length) openFirstWeapon();
       takeLoadoutBack();
       toast(`Connected: ${svc.smiths} smith${svc.smiths === 1 ? "" : "s"} in the world · you are ${player}`);
@@ -1660,11 +1640,11 @@
     profile.found = Array.from(own.keys());
     profile.picks = Progress.picksLeft(profile);
   }
-  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openLedger, closeLedger, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
+  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
     save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
-    openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderLedger, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
+    openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
     showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine };
-  function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderLedger(); renderInfo(); }
+  function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderArmory(); renderInfo(); }
   if (window.Nav) Nav.arrive("forge");
   lockLandscape();
   // the pour assist follows the shared Tap to pour switch; a save from before it (assist: true) sets the switch once
@@ -1683,7 +1663,7 @@
     takeLoadoutBack();
     renderAll();
     if (!profile.classes.length) openFirstWeapon();
-  })().then(() => { session.booted = true; fitRoom(); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
+  })().then(() => { session.booted = true; fitRoom(); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
   // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
   // open says what is equipped now. After an erase, or a change of less motion, elsewhere, the page boots again instead
   window.addEventListener("pageshow", e => {
