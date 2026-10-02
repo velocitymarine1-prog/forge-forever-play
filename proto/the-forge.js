@@ -550,7 +550,8 @@
     say.classList.remove("pop"); void say.offsetWidth; if (!reduce) say.classList.add("pop");
     clearTimeout(gry.timer); gry.timer = setTimeout(() => { if (then) then(); else gryHide(); }, ms);
   }
-  function gryHide() { $("grySay").hidden = true; gry.line = null; clearTimeout(gry.timer); if (gry.pose === "talk") gryPose("idle", Infinity); }
+  // (the bubble gone, he goes back to idle from the line's poses; under less motion the figure never walks the queue, so this ends them)
+  function gryHide() { $("grySay").hidden = true; gry.line = null; clearTimeout(gry.timer); if (gry.pose !== "idle" && gry.pose !== "watch") { gry.queue = []; gryPose("idle", Infinity); } }
   function gryHush() { if (!GRY) return; gry.seq = null; gry.queue = []; clearTimeout(gry.openTimer); gryHide(); if (gry.pose !== "idle" && gry.pose !== "watch") gryPose("idle", Infinity); }
   // the next line of a pool, said in its reaction pose and then talking; then (if given) runs when the line has been held
   function grySay(pool, then) {
