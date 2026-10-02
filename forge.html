@@ -143,6 +143,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .state{width:100%;font-family:var(--data);font-size:12px;letter-spacing:.04em;color:var(--mute);text-align:center;padding:6px 10px 0;min-height:24px}
 .state.warn{color:var(--parch-2)}
 .price{width:100%;font-family:var(--data);font-size:11px;letter-spacing:.03em;color:var(--dim);text-align:center;padding:0 10px 2px}
+/* no footer: the status, cost and Armory lines under the room are hidden so the room takes the whole height (fitRoom reads their
+   heights as 0); the script still writes them, so they stay in the page for the tests */
+#state,#price,#armState{display:none!important}
 /* plaques and planks (overlays inside the app): a wide card over the room; the planks and the first-weapon and unlock overlays stand
    over the walls pane while it is open, and may scroll. A plaque never scrolls (design pass 15) */
 .plaque,.plank-over,.overlay{position:absolute;left:8%;right:8%;top:52px;bottom:8px;z-index:5;color:var(--soot);animation:rise .35s steps(4,end)}
@@ -391,7 +394,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 </head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="4218593" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="cd89fe9" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
