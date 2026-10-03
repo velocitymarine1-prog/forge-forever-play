@@ -35,7 +35,22 @@
     if (profile.coins < cost) return [false, cost, "Earn coins in the Battlegrounds"];
     return [true, cost, null];
   }
-  const api = { runPay, price, buy, EMBER_NOT_SOLD };
+  // the Battlegrounds' drops (design pass 12 section 3.11): a table by kind (a troll's, else a hut's, else a chest's; null for what
+  // drops nothing), fair share's multiplier on one knight's chance (a source that grows with the party is divided by its total's
+  // count ratio, scaled / solo, and times fairShare.bonus in a party of humans; the undivided sources pay as solo), and one knight's
+  // roll: each roll in order takes one number from `rand` (the caller's seeded stream, [0, 1)) for its chance and, when it drops,
+  // one for its weighted pick
+  function dropEntry(kind, drops) { const D = drops || root.FORGE_DROPS || {}; for (const g of ["trolls", "huts", "chests"]) { const e = (D[g] || {})[kind]; if (e) return e; } return null; }
+  function dropRolls(entry) { if (!entry) return []; return entry.rolls ? entry.rolls.slice() : [entry]; }
+  function dropFactor(source, humans, solo, scaled, drops) {
+    const fs = (drops || root.FORGE_DROPS || {}).fairShare || {};
+    if ((fs.undivided || []).includes(source)) return 1;
+    const bonus = (humans === undefined ? 1 : humans) >= (fs.bonusFrom === undefined ? 2 : fs.bonusFrom) ? (fs.bonus === undefined ? 1 : fs.bonus) : 1;
+    return solo > 0 && scaled > 0 ? bonus * solo / scaled : bonus;
+  }
+  function pickDrop(pick, u) { const items = Object.entries(pick); let x = u * items.reduce((s, [, w]) => s + w, 0); for (const [id, w] of items) { if (x < w) return id; x -= w; } return items[items.length - 1][0]; }
+  function rollDrop(entry, rand, factor) { const f = factor === undefined ? 1 : factor, out = []; for (const r of dropRolls(entry)) if (rand() < Math.min(1, r.chance * f)) out.push(pickDrop(r.pick, rand())); return out; }
+  const api = { runPay, price, buy, EMBER_NOT_SOLD, dropEntry, dropRolls, dropFactor, pickDrop, rollDrop };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Coin = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -554,6 +554,15 @@
     tongue: sp => paint(sp, stroke(t => [7 + t * 18, 24 - 16 * Math.sin(t * 2.2)], t => 3 - t * 1.6, 60), auto(RAMP.pink, (x, y) => (x + y) % 7 === 0)),
     eye: (sp, t, el) => { paint(sp, maskSet(ell(16, 16, 11, 7)), auto(RAMP.bone)); paint(sp, maskSet(disc(16, 16, 4.5)), auto(el || ["#265c42", "#3e8948", "#63c74d", "#d6f264"])); paint(sp, maskSet(rect(15, 12, 16, 20)), flat(OUT)); sp.set(14, 13, "#ffffff"); for (const [x, y] of [[7, 15], [8, 18], [24, 14]]) sp.set(x, y, "#e43b44"); },
     tusk: sp => paint(sp, stroke(t => [7 + t * 18, 27 - 22 * Math.sin(t * 1.3)], t => 2.6 * (1 - t) + 0.4, 60), auto(RAMP.bone)),
+    // a folded green pelt (troll-hide, design pass 12 section 3.11.4): the fur side with a ragged foot and three leg flaps, its far
+    // corner folded over along the diagonal so the pale flesh side lies on the fur, a few dark tufts in the fur
+    pelt: sp => {
+      paint(sp, maskSet(or(and(poly([[4, 12], [18, 10], [28, 20], [28, 24], [5, 25]]), (x, y) => y < 24 || (x + y) % 3 !== 0),
+        poly([[3, 14], [8, 11], [2, 8]]), poly([[5, 22], [11, 22], [7, 28]]), poly([[21, 22], [27, 22], [26, 28]]))), auto(RAMP.green, (x, y) => y === 12 && x % 5 === 2));
+      for (const [x, y] of [[8, 16], [12, 20], [15, 14], [10, 23], [16, 18], [14, 22], [22, 22]]) { sp.set(x, y, RAMP.green[0]); sp.set(x + 1, y - 1, RAMP.green[0]); }
+      paint(sp, maskSet(poly([[18, 10], [28, 20], [18, 20]])), auto(RAMP.bone, (x, y) => x === 19 && y === 13));
+      for (let x = 17; x <= 27; x++) sp.set(x, 21, RAMP.green[0]);   // the flap's shadow on the fur
+    },
     can: sp => { paint(sp, maskSet(or(rect(8, 10, 24, 28), poly([[8, 10], [12, 6], [24, 6], [24, 10]]))), auto(RAMP.red)); paint(sp, maskSet(rect(8, 16, 24, 21)), flat("#feae34")); paint(sp, maskSet(rect(18, 2, 22, 6)), auto(RAMP.steel)); paint(sp, maskSet(rect(10, 3, 15, 4)), auto(RAMP.iron)); },
     bell: sp => { paint(sp, maskSet(or(ell(16, 14, 7, 8), poly([[9, 14], [23, 14], [27, 25], [5, 25]]))), auto(RAMP.gold, (x, y) => x === 12 && y > 9 && y < 18)); paint(sp, maskSet(disc(16, 27, 2)), auto(RAMP.iron)); paint(sp, maskSet(rect(15, 4, 16, 6)), flat(RAMP.iron[1])); },
     mirror: sp => { paint(sp, maskSet(ell(16, 14, 9, 11)), auto(RAMP.gold)); paint(sp, maskSet(ell(16, 14, 6.5, 8.5)), (x, y) => ((x - y) % 6 === 0 ? "#ffffff" : x < 16 ? "#c0cbdc" : "#8b9bb4")); paint(sp, maskSet(rect(15, 25, 17, 30)), auto(RAMP.gold)); },
@@ -578,7 +587,7 @@
     "leather-strip": ["strip"], rope: ["rope"], "glass-shard": ["shards", null, "silver"], feather: ["feather"], silk: ["spool"], coal: ["coal"], salt: ["salt"],
     "golem-core": ["core", "earth"], "dragon-scale": ["scale", "fire"], "dragon-breath": ["jar", "fire"], "wraith-shroud": ["cloth", "void"],
     "slime-jelly": ["blob", "poison"], "skeleton-skull": ["skull"], "treant-branch": ["branch"], "goblin-ear": ["ear"], "wyvern-wing": ["wing"],
-    "mimic-tongue": ["tongue"], "basilisk-eye": ["eye"], "troll-tooth": ["tusk"],
+    "mimic-tongue": ["tongue"], "basilisk-eye": ["eye"], "troll-tooth": ["tusk"], "troll-hide": ["pelt"],
     "gas-can": ["can"], bell: ["bell"], mirror: ["mirror"], hourglass: ["hourglass"], magnet: ["magnet"], lantern: ["lanternIcon", "holy"],
     spring: ["spring"], chain: ["chainlinks"], gear: ["gear"], "war-horn": ["hornIcon"]
   };

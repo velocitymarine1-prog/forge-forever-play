@@ -143,6 +143,24 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 /* the menu */
 #menuPlank{max-width:380px;color:var(--parch)}
 #menuPlank h2{color:var(--parch);margin-bottom:2px}
+#menuPlank .small{color:var(--brass);text-align:center;margin:0 0 4px}
+/* the level's planks (design pass 12, section 3.14), built from the cellar's frames: the gate plate and Leave the gate? on oak, the tally
+   and The gate is shut on parchment */
+#gatePlank,#askPlank{max-width:380px;color:var(--parch)}
+#gatePlank h2,#askPlank h2{color:var(--parch);margin-bottom:2px}
+#gatePlank .small,#askPlank .small{color:var(--brass);text-align:center;margin:0 0 6px}
+#gatePlank .small b{color:var(--hot);font-weight:600}
+.brothers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+.brothers button{min-height:38px;background-color:transparent;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--parch)}
+.brothers button[aria-pressed="true"],#gateAlone[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
+#tallyPlank{max-width:520px}
+#tallyPlank h2{letter-spacing:.04em}
+.finds{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 2px;min-height:40px}
+.finds .find{position:relative;display:flex;flex-direction:column;align-items:center;min-width:40px;padding:2px 2px 0;color:var(--ink)}
+.finds .find canvas{width:32px;height:32px}
+.finds .find span{font-family:var(--data);font-size:10px;letter-spacing:.03em;color:var(--ink2)}
+.finds .find i{position:absolute;right:-2px;top:-4px;font-family:var(--data);font-style:normal;font-size:8px;letter-spacing:.06em;padding:0 3px;color:var(--parch);background:var(--ink3)}
+.finds .none{font-family:var(--data);font-size:11px;color:var(--ink2);padding:10px 0}
 /* (seven rows with forced landscape on must fit 350 px: 39 px rows, 5 px apart) */
 .menu{display:grid;gap:5px;margin-top:4px}
 .menu button{min-height:38px;padding:2px 8px;display:flex;align-items:center;justify-content:space-between;gap:8px;background-color:transparent;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05;color:var(--parch);text-align:left}
@@ -162,6 +180,8 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 /* the fade to and from black; the toast */
 .fade{position:fixed;inset:0;z-index:30;background:#000;opacity:0;pointer-events:none;transition:opacity .25s steps(5,end)}
 .fade.on{opacity:1}
+/* a wipe's line rides on the fade itself (data-line), over the black that covers the note */
+.fade.wipe::after{content:attr(data-line);position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:70%;padding:2px 8px;font-family:var(--data);font-size:10.5px;letter-spacing:.03em;text-align:center;color:var(--parch);background:rgba(24,20,37,.82);border:2px solid var(--stone-2);white-space:nowrap}
 .toast{position:absolute;left:50%;bottom:calc(10px + var(--sb));transform:translateX(-50%);z-index:8;max-width:70%;padding:4px 10px;font-family:var(--data);font-size:12px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);opacity:0;transition:opacity .25s;pointer-events:none;text-align:center}
 .toast.show{opacity:1}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -212,7 +232,8 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
   </div>
   <div class="veil" id="menuVeil" hidden>
     <div class="plank f-plank" id="menuPlank" role="dialog" aria-label="Menu">
-      <h2>The cellar</h2>
+      <h2 id="menuTitle">The cellar</h2>
+      <p class="small" id="mSatchel" hidden></p>
       <div class="menu">
         <button class="f-iron" id="mReach" aria-pressed="false">Show reach<span>off</span></button>
         <button class="f-iron" id="mSlow" aria-pressed="false">Slow time<span>off</span></button>
@@ -222,6 +243,48 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
         <div class="two"><button class="f-iron" id="mForge">Back to the Forge<span>↑</span></button><button class="f-iron" id="mHome">Main menu<span><canvas data-glyph="house" aria-hidden="true"></canvas></span></button></div>
         <button class="f-ember" id="mClose" style="color:var(--soot)">Back to the cellar<span style="color:var(--soot)"></span></button>
       </div>
+    </div>
+  </div>
+  <!-- the level's planks (design pass 12, section 3.14): the gate plate opened from the door on the cellar's left wall; Leave the gate?; the tally
+       of a clear; The gate is shut when the level's spec can't be read -->
+  <div class="veil" id="gateVeil" hidden>
+    <div class="plank f-plank" id="gatePlank" role="dialog" aria-label="The Troll Gate">
+      <h2 id="gateTitle">The Troll Gate</h2>
+      <p class="small" id="gateLine">Normal</p>
+      <div class="menu">
+        <button class="f-ember" id="gateAlone" style="color:var(--soot)">Go alone<span style="color:var(--soot)"></span></button>
+        <p class="small" style="margin:4px 0 0">Bring sword-brothers</p>
+        <div class="brothers"><button class="f-iron" id="gateB1">1</button><button class="f-iron" id="gateB2">2</button><button class="f-iron" id="gateB3">3</button></div>
+        <div class="two" id="gateParty" hidden><button class="f-iron" id="gateRaise">Raise a party</button><button class="f-iron" id="gateJoin">Join a party</button></div>
+        <button class="f-iron" id="gateBack">Back to the cellar<span></span></button>
+      </div>
+    </div>
+  </div>
+  <div class="veil" id="askVeil" hidden>
+    <div class="plank f-plank" id="askPlank" role="dialog" aria-label="Leave the gate?">
+      <h2>Leave the gate?</h2>
+      <p class="small">Your finds go home; a run that does not clear pays nothing.</p>
+      <div class="pbtns"><button class="f-iron" id="askLeave">Leave</button><button class="f-ember primary" id="askStay">Stay</button></div>
+    </div>
+  </div>
+  <div class="veil" id="tallyVeil" hidden>
+    <div class="plank f-parch" id="tallyPlank" role="dialog" aria-label="The tally">
+      <h2 id="tallyTitle">THE GATE IS OURS</h2>
+      <p id="tallyTime"></p>
+      <p class="small" id="tallyFelled"></p>
+      <p class="small" id="tallyWith" hidden></p>
+      <p class="small" id="tallyFindsLine">Your finds</p>
+      <div class="finds" id="tallyFinds"></div>
+      <p id="tallyPay"></p>
+      <p class="small" id="tallyLevel" hidden></p>
+      <div class="pbtns"><button class="f-iron" id="tallyForge">Back to the Forge</button><button class="f-ember primary" id="tallyAgain">Again</button></div>
+    </div>
+  </div>
+  <div class="veil" id="shutVeil" hidden>
+    <div class="plank f-parch" id="shutPlank" role="dialog" aria-label="The gate is shut">
+      <h2>The gate is shut</h2>
+      <p id="shutLine">The Troll Gate could not be read. Go back up to the Forge and come down again.</p>
+      <div class="pbtns"><button class="f-iron" id="shutForge">↑ Forge</button></div>
     </div>
   </div>
 </div>
@@ -243,15 +306,26 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="spec/things.js"></script>
 <script src="spec/combat.js"></script>
 <script src="spec/cellar.js"></script>
+<script src="spec/gate.js"></script>
+<script src="spec/trolls.js"></script>
 <script src="spec/abilities.js"></script>
+<script src="spec/drops.js"></script>
+<script src="spec/difficulty.js"></script>
 <script src="ledger/ledger.js"></script>
+<script src="proto/coin.js"></script>
+<script src="proto/progress.js"></script>
 <script src="proto/pixel-forge.js"></script>
 <script src="proto/smithy.js"></script>
 <script src="proto/settings.js"></script>
 <script src="proto/nav.js"></script>
 <script src="proto/knight.js"></script>
+<script src="proto/trolls.js"></script>
 <script src="proto/cellar.js"></script>
+<script src="proto/gate.js"></script>
+<script src="proto/physics.js"></script>
 <script src="proto/combat.js"></script>
+<script src="proto/level.js"></script>
+<script src="proto/bots.js"></script>
 <script src="proto/battlegrounds.js"></script>
 </body>
 </html>

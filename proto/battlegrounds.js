@@ -9,26 +9,70 @@
 // the planks, the orientation, and the handoff with the Forge (localStorage: forge-forever:to-cellar comes down with the loadout and
 // every owned weapon as a whole record; forge-forever:from-cellar goes back up with the loadout, on every change of hand).
 //
+// Since design pass 12 (build 7) the same page plays a level: ?area=gate boots the Troll Gate (spec/gate.js, drawn by proto/gate.js, its
+// trolls by proto/trolls.js). A level's area is larger than the stage: the VIEW (384 x 216, the cellar's size) is the stage and the fit's
+// measure, the ground comes from the level's baked column tiles and decal canvases drawn before the camera's translate, and everything
+// else is drawn in world coordinates after it; the camera is the fight's own (fight.view, stepped by the rules), read by cam().
+// ?perf=stress builds the worst case for the frame (done criterion 17) and shows a step and frame-time readout; ?perf=1 shows the readout.
+// The level's HUD is the cellar's, exactly (section 3.14): the note shows one timed line at a time by priority, the prompt over the knight
+// says what E or a tap does (the exit, a lift, the chest, the ram), the toast says what was picked up, and the planks a level needs (the
+// gate plate, Leave the gate?, the tally, The gate is shut) are built from the cellar's frames. The way in is the door on the cellar's
+// left wall (its zone opens the gate plate, which fades to ?area=gate&brothers=n); the way home is forge-forever:from-battle, written
+// once with the satchel (ingredient ids only) and the run's finds at the clear, or banked without pay on a quit (section 3.11.5).
+//
 // For the harness (tools/battle-harness.html): ?harness=1 lets time move only through TheBattlegrounds.step(ms); ?seed=n fixes the
 // fight; ?weapons=a,b picks the loadout; ?pointer=coarse|fine overrides the pointer; ?fresh=1 shows the first-visit plank again and
-// ?seen=1 skips it; ?motion=reduce stills the room; ?stay=1 leaves without going anywhere.
+// ?seen=1 skips it; ?motion=reduce stills the room; ?stay=1 leaves without going anywhere; ?brothers=n brings sword-brothers and
+// ?party=n fills bench seats (as the Forge's bench.party does); ?badspec=1 plays a level whose spec can't be read, ?badspec=2 one whose
+// spec throws while the page reads it (a boot error, which shows the shut plank too).
 (function () {
   "use strict";
-  const PF = window.PixelForge, C = window.Cellar, Combat = window.Combat, SPEC = window.FORGE_COMBAT, AREA = window.FORGE_CELLAR, Smithy = window.Smithy;
+  const PF = window.PixelForge, C = window.Cellar, Combat = window.Combat, SPEC = window.FORGE_COMBAT, Smithy = window.Smithy, Gate = window.Gate, Trolls = window.Trolls, Knight = window.Knight;
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
+  // the area: the cellar, or a level the query names (the Troll Gate's spec and painter must be loaded for it; a level that can't be read
+  // shows "The gate is shut", never a blank stage: section 3.15)
+  const wantLevel = params.get("area") === "gate";
+  // a level that throws while the page comes up (a spec past its checks that the page still cannot read) shows the shut plank as well:
+  // until the page says it has booted, an uncaught error opens the shut veil, lifts the fade and makes ↑ Forge go up plainly
+  if (wantLevel) window.addEventListener("error", function bootShut() {
+    if (document.body.getAttribute("data-booted") === "1") return;
+    try {
+      const up = () => { window.location.href = document.body.getAttribute("data-forge") || "the-forge.html"; };
+      for (const id of ["shutForge", "upBtn", "homeBtn", "tForge", "tHome"]) { const b = $(id); if (b) b.addEventListener("click", up); }
+      $("shutVeil").hidden = false; $("fade").classList.remove("on");
+      if (!window.TheBattlegrounds) window.TheBattlegrounds = { state: { booted: true, shut: true, left: false }, AREA: null, LEVEL: false, shut: true, bootError: true, toasts: [], fit() {}, get paused() { return true; }, step() { return 0; } };
+      document.body.setAttribute("data-booted", "1");
+    } catch (e) { /* the plank could not be shown either */ }
+  });
+  const levelOk = a => !!(a && a.level && a.w > 0 && a.h > 0 && a.view && a.knight && a.zones && a.sections && a.arenas && a.waves && window.FORGE_TROLLS && Gate && Trolls);
+  const badSpec = params.get("badspec");
+  const AREA = wantLevel && badSpec !== "1" && levelOk(window.FORGE_GATE) ? (badSpec === "2" ? new Proxy(window.FORGE_GATE, { get(t, k) { if (k === "knight") throw new Error("the spec could not be read"); return t[k]; } }) : window.FORGE_GATE) : window.FORGE_CELLAR;   // (badspec=2: the spec passes its checks and throws at the page's first read of its knight block, before the fight is built)
+  const LEVEL = !!AREA.level, SHUT = wantLevel && !LEVEL;
   const media = q => !!(window.matchMedia && window.matchMedia(q).matches);
   // less motion: the phone's setting, the game's own switch (forge-forever:less-motion, design pass 9) or ?motion=reduce
   const reduce = window.Settings ? Settings.reduce() : (params.get("motion") ? params.get("motion") === "reduce" : media("(prefers-reduced-motion: reduce)"));
   const harness = params.get("harness") === "1", stay = params.get("stay") === "1";
   const coarse = params.get("pointer") ? params.get("pointer") === "coarse" : media("(pointer: coarse)");
-  const STEP = SPEC.step, W = AREA.w, H = AREA.h, OUT = C.OUT, TAU = Math.PI * 2, FEEL = SPEC.feel, CHEST = SPEC.knight.chest;
-  const KEYS = { to: "forge-forever:to-cellar", from: "forge-forever:from-cellar", seen: "forge-forever:cellar-seen", forced: "forge-forever:forced-landscape", lefty: "forge-forever:left-handed" };
-  // storage is a convenience: the cellar works without it, and nothing is remembered
+  // the view is the stage: the area's own size in the cellar, 384 x 216 over a larger level (design pass 12, section 3.2)
+  const VIEW = AREA.view || { w: AREA.w, h: AREA.h };
+  const STEP = SPEC.step, W = VIEW.w, H = VIEW.h, OUT = C.OUT, TAU = Math.PI * 2, FEEL = SPEC.feel, CHEST = SPEC.knight.chest;
+  const perf = params.get("perf");
+  const KEYS = { to: "forge-forever:to-cellar", from: "forge-forever:from-cellar", seen: "forge-forever:cellar-seen", forced: "forge-forever:forced-landscape", lefty: "forge-forever:left-handed",
+    // design pass 12: a level's run home, the level's first visit, the gate plate's last choice, the first-time lines seen, the satchel (sessionStorage)
+    battle: "forge-forever:from-battle", gateSeen: "forge-forever:gate-seen", brothers: "forge-forever:gate-brothers", firsts: "forge-forever:gate-firsts", satchel: "forge-forever:satchel" };
+  // storage is a convenience: the cellar works without it, and nothing is remembered (?nostore=1 plays as if it were blocked)
+  const nostore = params.get("nostore") === "1";
   const store = {
-    get(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
-    set(k, v) { try { window.localStorage.setItem(k, v); return true; } catch (e) { return false; } },
-    del(k) { try { window.localStorage.removeItem(k); } catch (e) { /* nothing to forget */ } }
+    get(k) { try { return nostore ? null : window.localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { if (nostore) return false; window.localStorage.setItem(k, v); return true; } catch (e) { return false; } },
+    del(k) { try { if (!nostore) window.localStorage.removeItem(k); } catch (e) { /* nothing to forget */ } }
+  };
+  // the satchel lives in sessionStorage between a reload and the way home (section 3.11.2); blocked, it lives in memory
+  const session = {
+    get(k) { try { return nostore ? null : window.sessionStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { if (nostore) return false; window.sessionStorage.setItem(k, v); return true; } catch (e) { return false; } },
+    del(k) { try { if (!nostore) window.sessionStorage.removeItem(k); } catch (e) { /* nothing to forget */ } }
   };
   const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -81,9 +125,11 @@
 
   // the hands (what the knight holds now, practice weapons included) and the loadout (what goes back up)
   const state = { visiting, handoff: visiting ? null : handoff, loadout: [], empty: false, slow: false, reach: false, lefty: store.get(KEYS.lefty) === "1", forced: store.get(KEYS.forced) === "1",
-    t: 0, arrive: reduce ? 0 : AREA.knight.arrive, lit: reduce ? 3 : 0, hold: 0, shake: { t: 0, amp: 0 }, fx: [], nums: [], parts: [], rings: [], sums: {}, heal: { n: 0, at: 0 }, trail: [],
+    t: 0, arrive: reduce ? 0 : (AREA.knight.arrive || 0), lit: reduce || !AREA.light ? 3 : 0, hold: 0, shake: { t: 0, amp: 0 }, fx: [], nums: [], parts: [], rings: [], sums: {}, heal: { n: 0, at: 0 }, trail: [],
     plank: null, turned: false, left: false, leftTo: null, went: null, tookBack: false, stairs: 0, zone: null, booted: false, layout: { x: 0, y: 0, s: 1, k: 1, w: W, h: H, pl: 0, pt: 0 }, frames: 0, log: [],
-    legendNoted: false, noteUntil: 0, noteText: "" };   // the first legend of the visit: a note under the plate for 3 s (design pass 10)
+    done: false, shut: false, askTo: null, brothers: 0, lv: null,   // a level: the run is over (the tally shows), the gate is shut, where leaving asks to go
+    legendNoted: false, noteUntil: 0, noteText: "",   // the first legend of the visit: a note under the plate for 3 s (design pass 10)
+    perf: perf ? { steps: [], frames: [], last: 0, hitches: 0, batchT: 0, batchN: 0 } : null, stress: null };
   function firstHands() {
     let ids = [], active = 0;
     const asked = (params.get("weapons") || "").split(",").map(s => s.trim()).filter(id => world.has(id));
@@ -113,14 +159,64 @@
   }
   const first = firstHands();
   const seed = params.get("seed") ? (parseInt(params.get("seed"), 10) >>> 0) : ((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0);
-  let fight = Combat.newFight(AREA, first.hands, seed);
-  fight.k.active = first.active;
-  const scene = new C.Scene(AREA);
+  // the seats of a level (design pass 12, section 3.10): the player first; then the bench's bots as full knights (?party=n, or bench.party
+  // in the handoff from the Forge's Settings > Developer), then the sword-brothers (?brothers=n, chosen on the gate plate); four seats at
+  // most. proto/bots.js (stage F) gives their seats and drives them; until it is loaded the brothers of section 3.10 stand still
+  const BROTHERS = [{ name: "Edric", loadout: ["sword", "bow"] }, { name: "Osk", loadout: ["hammer", "sword"] }, { name: "Tam", loadout: ["spear", "bow"] }];
+  const classThing = id => (window.FORGE_THINGS || []).find(t => t.id === id);
+  const brotherSeats = (n, kind) => BROTHERS.slice(0, n).map(b => ({ kind, name: b.name, loadout: b.loadout.map(classThing).filter(isWeapon) }));
+  const Bots = window.Bots || null;
+  const brothersN = LEVEL ? clamp(parseInt(params.get("brothers"), 10) || (perf === "stress" ? 3 : 0), 0, 3) : 0;   // (the stress case brings three brothers)
+  const benchParty = handoff && handoff.bench ? parseInt(handoff.bench.party, 10) : NaN;   // (a bench.party that is no number counts for nothing)
+  const partyN = LEVEL ? clamp(parseInt(params.get("party"), 10) || (Number.isFinite(benchParty) ? benchParty : 0) || 1, 1, 4) : 1;
+  function seats() {
+    const out = [{ loadout: first.hands, kind: "player", name: handoff && handoff.smith ? handoff.smith.name : null }];
+    const bench = Math.min(partyN - 1, 3), bros = Math.min(brothersN, 3 - bench);
+    if (bench > 0) out.push(...(Bots && Bots.bench ? Bots.bench(bench) : brotherSeats(bench, "bench")));
+    if (bros > 0) out.push(...(Bots && Bots.brothers ? Bots.brothers(bros) : brotherSeats(bros, "brother")));
+    return out.slice(0, 4);
+  }
+  // a level's fight takes its knights in seat order; the cellar's takes the hands. A level whose world can't be built is shut (section 3.15)
+  let fight = null, scene = null, shutBy = null;
+  // the hand the thumbs are in (section 3.14): the rules read fight.hand for the thumbs' corner the archers avoid, the door rule's thumb
+  // check and Level.edgeMarks' default; set with the fight and kept in step on every fit (a switch of hands in the menu refits)
+  const syncHand = () => { if (fight && LEVEL) fight.hand = state.lefty ? "left" : "right"; };
+  try {
+    fight = LEVEL ? Combat.newFight(AREA, seats(), seed) : Combat.newFight(AREA, first.hands, seed);
+    fight.k.active = first.active;
+    // the director (design pass 12, proto/level.js: the camera, the waves, the doors, the engines, the castle front, the drops) is attached
+    // by one call, never by newFight, and sets fight.brains itself; ?perf=stress builds its own scene (stress()) and keeps the camera where
+    // that puts it, so it runs without one
+    if (LEVEL && window.Level && perf !== "stress") Level.attach(fight);
+    syncHand();
+    scene = LEVEL ? new Gate.Scene(AREA) : new C.Scene(AREA);
+  } catch (e) { if (!wantLevel) throw e; shutBy = e; }
+  const shut = SHUT || !!shutBy;
+  // the party's controller (stage F's Bots.party): it turns the player's input into every seat's; without it the other seats stand still
+  const party = fight && LEVEL && fight.knights.length > 1 && Bots && Bots.party ? Bots.party(fight) : null;
+  // the run's id, "<seed>-<seat>-<startedAt>" (section 3.11.5): the Forge pays or banks a run once by it
+  const startedAt = Date.now(), runId = seed + "-0-" + startedAt;
+  // the camera: the fight's own view (its origin in whole world pixels; the rules move it), (0, 0) in the cellar
+  const cam = () => fight.view ? [fight.view.x0, fight.view.y0] : [0, 0];
   const stage = $("stage"), ctx = stage.getContext("2d");
   ctx.imageSmoothingEnabled = false;
   const game = $("game");
   // the screen's own random numbers (particles, the shake): drawing never touches the fight's
   const rnd = Combat.rng((seed ^ 0x9e3779b9) >>> 0);
+  if (shut) {
+    // the gate is shut (section 3.15: a bad gate.json or trolls.json): a parchment plank over the dark stage and ↑ Forge, never a blank stage
+    if (window.console && shutBy) window.console.warn("Forge Forever: the Troll Gate could not be read: " + (shutBy.message || shutBy));
+    fit();
+    $("shutVeil").hidden = false; state.plank = "shut"; state.shut = true;
+    const up = () => { if (state.left) return; state.left = true; $("fade").classList.add("on"); const url = document.body.getAttribute("data-forge") || "the-forge.html"; state.leftTo = url; state.went = window.Nav ? Nav.go("forge", url, { stay }) : { to: "forge", url, how: "push" }; if (!stay && !window.Nav) window.location.href = url; };
+    $("shutForge").addEventListener("click", up); $("upBtn").addEventListener("click", up); $("homeBtn").addEventListener("click", up); $("tForge").addEventListener("click", up); $("tHome").addEventListener("click", up);
+    window.TheBattlegrounds = { state, world, toasts: [], AREA, LEVEL: false, shut: true, fit, get paused() { return true; }, step() { return 0; } };
+    state.booted = true;
+    document.body.setAttribute("data-booted", "1");
+    document.body.setAttribute("data-errors", String((window.__errors || []).length));
+    $("fade").classList.remove("on");
+    return;
+  }
 
   // ------------------------------------------------------------------ going back up: the loadout, on every change of hand
   function writeBack() {
@@ -137,10 +233,11 @@
     if (state.left) return;
     to = to === "menu" ? "menu" : "forge";
     state.left = true;
+    if (LEVEL) sendHome(lv.done);   // a quit banks the satchel and pays nothing (section 3.11.5); after a clear the run has gone home already, and goes as a clear if it has not
     writeBack();
     try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
     try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {}); } catch (e) { /* not full screen */ }
-    $("fade").classList.add("on");
+    $("fade").classList.remove("wipe"); $("fade").classList.add("on");
     const go = () => {
       const url = to === "menu" ? menuUrl() : forgeUrl();
       state.leftTo = url;
@@ -150,6 +247,24 @@
     };
     if (reduce || harness) go(); else setTimeout(go, 260);
   }
+  // in a level, ↑ Forge, the house and the menu's two ways out ask first (section 3.8), unless the run is over (the tally shows)
+  function askLeave(to) { if (state.left) return; if (!LEVEL || state.done) { leave(to); return; } state.askTo = to; openPlank("ask"); }
+  // the way to the level (section 3.14): the gate plate's Go starts the fade as leave() does, writes from-cellar back as the cellar always
+  // does, remembers the choice, and changes page to ?area=gate&brothers=n 260 ms later (the same page; the harness's own flags ride along)
+  const levelUrl = n => (location.pathname.split("/").pop() || "the-battlegrounds.html") + "?area=gate&brothers=" + n + (harness ? "&harness=1&seen=1" : "") + (params.get("world") ? "&world=" + encodeURIComponent(params.get("world")) : "");
+  function go(n) {
+    if (state.left) return;
+    n = clamp(n | 0, 0, 3);
+    state.left = true; state.brothers = n;
+    store.set(KEYS.brothers, String(n));
+    writeBack();
+    $("fade").classList.add("on");
+    const url = levelUrl(n);
+    const run = () => { state.leftTo = url; state.went = { to: "gate", url, how: "push" }; if (!stay) window.location.href = url; };
+    if (reduce || harness) run(); else setTimeout(run, 260);
+  }
+  // Again, from the tally: the same level with the same brothers (a new seed); the run that just ended has gone home already
+  function again() { if (state.left) return; state.left = true; $("fade").classList.add("on"); const url = levelUrl(brothersN); const run = () => { state.leftTo = url; state.went = { to: "gate", url, how: "push" }; if (!stay) window.location.href = url; }; if (reduce || harness) run(); else setTimeout(run, 260); }
   // restored from the back-forward cache: the handoff may be another one, so start again
   window.addEventListener("pageshow", e => { if (e.persisted) { state.left = false; window.location.reload(); } });
   window.addEventListener("pagehide", () => { if (!state.left) writeBack(); });
@@ -169,11 +284,12 @@
     } else { game.style.width = ""; game.style.height = ""; game.style.transform = ""; }
     game.classList.toggle("forced", state.turned);
     game.classList.toggle("lefty", state.lefty);
+    syncHand();
     const availW = gw - pl - pr, availH = gh - pt - pb, dpr = window.devicePixelRatio || 1;
     const k = Math.max(1, Math.floor(Math.min(availW / W, availH / H) * dpr));
     const cw = W * k / dpr, ch = H * k / dpr;
     stage.style.width = cw + "px"; stage.style.height = ch + "px";
-    state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s: k / dpr, k, w: cw, h: ch, pl, pt, gw, gh, vw: v.w, vh: v.h, dpr };
+    state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s: k / dpr, k, w: cw, h: ch, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr };
     // a phone held upright gets the turn plate, and the game waits
     const plate = portrait && coarse && !state.forced;
     $("turnPlate").hidden = !plate;
@@ -189,7 +305,7 @@
   const paused = () => !!(state.plank || state.plate || document.hidden || state.left);
 
   // ------------------------------------------------------------------ input: the stick, the buttons, the keyboard
-  const input = { stick: null, sx: 0, sy: 0, strike: false, swap: false, dodge: false, ability: false, keys: {}, test: null };
+  const input = { stick: null, sx: 0, sy: 0, strike: false, swap: false, dodge: false, ability: false, use: false, keys: {}, test: null };
   const R = 44, DEAD = 0.12;
   function stickTo(gx, gy) {
     const dx = gx - input.stick.cx, dy = gy - input.stick.cy, d = Math.hypot(dx, dy), m = Math.min(1, d / R);
@@ -240,14 +356,16 @@
   for (const ev of ["contextmenu", "gesturestart", "dblclick"]) game.addEventListener(ev, e => e.preventDefault());
   // what the thumbs say for this step
   function gather() {
-    const K = input.keys, T = input.test;
+    const K = input.keys, T = typeof input.test === "function" ? input.test(STEP) : input.test;   // (a driver, the harness's squire, answers once a step)
     let mx = input.sx, my = input.sy;
     if (!input.stick) { mx = (K.right ? 1 : 0) - (K.left ? 1 : 0); my = (K.down ? 1 : 0) - (K.up ? 1 : 0); const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; } }
     const inp = { move: [mx, my], strike: input.strike || !!K.strike, swap: input.swap, dodge: input.dodge, ability: input.ability };
-    input.swap = false; input.dodge = false; input.ability = false;   // Swap, Dodge and the ability are passed once, a press each
-    if (T) { if (T.move) inp.move = T.move; if (T.strike !== undefined) inp.strike = !!T.strike; if (T.swap) { inp.swap = true; T.swap = false; } if (T.dodge) { inp.dodge = true; T.dodge = false; } if (T.ability) { inp.ability = true; T.ability = false; } if (T.target !== undefined) inp.target = T.target; if (T.face !== undefined) inp.face = T.face; }
-    // arriving: the knight walks down off the bottom step while input waits
-    if (state.arrive > 0) { state.arrive -= STEP; return { move: fight.k.y < AREA.knight.walkTo[1] ? [0, 1] : [0, 0] }; }
+    if (LEVEL && input.use) inp.use = true;   // E or a tap on the prompt by the chest or the ram: the rules take it up (section 3.14)
+    input.swap = false; input.dodge = false; input.ability = false; input.use = false;   // Swap, Dodge, the ability and use are passed once, a press each
+    if (T) { if (T.move) inp.move = T.move; if (T.strike !== undefined) inp.strike = !!T.strike; if (T.swap) { inp.swap = true; T.swap = false; } if (T.dodge) { inp.dodge = true; T.dodge = false; } if (T.ability) { inp.ability = true; T.ability = false; } if (T.use) { inp.use = true; T.use = false; } if (T.target !== undefined) inp.target = T.target; if (T.face !== undefined) inp.face = T.face; }
+    // arriving: the knight walks in while input waits, to the area's walkTo ([x, y], null for an axis it keeps: the cellar's knight walks
+    // down off the bottom step, the level's in from the left edge of the field)
+    if (state.arrive > 0) { state.arrive -= STEP; const wt = AREA.knight.walkTo || [null, null], k = fight.k; return { move: [wt[0] !== null && wt[0] !== undefined && k.x < wt[0] ? 1 : 0, wt[1] !== null && wt[1] !== undefined && k.y < wt[1] ? 1 : 0] }; }
     return inp;
   }
 
@@ -269,12 +387,17 @@
   // one step of the screen's clock: the world holds on a hit; otherwise the fight moves on and its events are shown
   function tick() {
     state.t += STEP;
-    if (state.lit < 3) state.lit = Math.min(3, Math.floor(state.t / (AREA.light.catch / 3)));   // the torches catch one after another
+    if (state.lit < 3 && AREA.light) state.lit = Math.min(3, Math.floor(state.t / (AREA.light.catch / 3)));   // the torches catch one after another
     if (state.hold > 0) { state.hold -= STEP; for (const n of state.nums) n.t += STEP * 0.25; return; }
-    const k = fight.k, before = k.active, events = Combat.step(fight, STEP, gather());
+    const k = fight.k, before = k.active, carried = !!k.carry, inp0 = gather(), t0 = state.perf ? window.performance.now() : 0;
+    // with sword-brothers or bench bots the party's controller gives every seat its input (the player's is seat 0's)
+    const events = Combat.step(fight, STEP, party ? party.step(STEP, inp0) : inp0);
+    // the step's cost is timed in batches of 8 (a clock of 0.1 ms, 1 ms in Safari, cannot time one step): each sample is a batch's mean
+    if (state.perf) { const P = state.perf; P.batchT += window.performance.now() - t0; if (++P.batchN >= 8) { P.steps.push(P.batchT / P.batchN); P.batchT = 0; P.batchN = 0; if (P.steps.length > 240) P.steps.shift(); } }
     if (harness) { for (const e of events) state.log.push(e); if (state.log.length > 4000) state.log.splice(0, state.log.length - 4000); }
     take(events);
-    if (k.active !== before) { syncHud(); writeBack(); }
+    if (k.active !== before) { syncHud(); writeBack(); } else if (!!k.carry !== carried) syncHud();
+    if (LEVEL) levelTick();
     particles();
     for (const f of state.fx) f.t += STEP;
     state.fx = state.fx.filter(f => f.t < f.life);
@@ -297,6 +420,7 @@
   function say(x, y, s, c, big) { state.nums.push({ x, y, s: String(s), c: c || INK.normal, t: 0, life: FEEL.number, big: !!big }); if (state.nums.length > 64) state.nums.shift(); }
   function take(events) {
     for (const e of events) {
+      if (LEVEL && takeLevel(e)) continue;
       if (e.type === "fx") addFx(e, e.kind === "blast" && e.small ? { life: 0.25 } : null);
       else if (e.type === "hit") onHit(e);
       else if (e.type === "shake") { if (!reduce) state.shake = { t: e.time, amp: e.amp }; }
@@ -315,6 +439,186 @@
       else if (e.type === "swap") addFx({ kind: "puff", x: fight.k.x, y: fight.k.y - 14, c: "#9a948c", life: 0.3 });
       else if (e.type === "log" && window.console) window.console.warn("Forge Forever: " + e.text + " (played by the fallback)");
     }
+  }
+  // a level's events (design pass 12): the marks and the pieces go to the painter (a smash's crack is a lasting mark there, stamped once,
+  // not the cellar's live effect); a knight's hurt and its burn ticks show in the INK colours; a troll's death by the water or the spikes
+  // says so; the director's events (section 3.6) become the note's lines, the pickups go into the satchel, and the first time a thing
+  // happens the note teaches it (section 3.8). Returns true for an event the cellar's take() must not see
+  function takeLevel(e) {
+    if (e.type === "mark" || e.type === "markEnd" || e.type === "wreck" || e.type === "fell" || e.type === "die" || e.type === "windUp") scene.take(e, fight);   // (windUp: the Emberback's flare, a ring with no troll behind it)
+    if (e.type === "palisade") scene.fell["pal" + e.id] = state.t;   // a palisade topples from the director's event (its four frames on the screen's clock, as the painter times them)
+    if (e.type === "unspawn") scene.last.delete(e.foe);   // a wipe's quiet removal (section 3.8): no stone death, no rubble; the painter only forgets the troll
+    if (e.type === "hurt") {
+      const kz = e.z !== undefined ? e.z : ((fight.knights[e.seat] || fight.k).z || 0);   // a number over a knight on the roof or the deck is lifted with it
+      say(e.x + (e.tick ? rnd() * 6 - 3 : 0), e.y - kz - (e.tick ? 30 : 36), Math.max(1, Math.round(e.amount)), e.tick && e.src === "burning" ? INK.WEAK : INK.bleed);
+      if (e.src === "wire" && isMine(e)) firstTime("wire", "Wire cuts. Go round or cut it.");
+      if (isMine(e) && fight.k.hp > 0 && fight.k.hp <= LVN.badlyHurt && !lv.badly) { lv.badly = true; note("Badly hurt", "badlyHurt"); }
+      return true;
+    }
+    // (the satchel is saved on every count too, so a reload keeps the finds and the counts earned since the last pickup)
+    if (e.type === "die") { if (e.foe !== undefined) { lv.felled++; if (e.kind === "emberback") lv.finds.rare_enemies++; saveSatchel(); } if (e.why === "DROWNED" || e.why === "SPIKED") say(e.x, e.y - 24, e.why, INK.block); }
+    if (e.type === "wreck") { if (e.kind === "hut" || e.kind === "tent") { lv.huts++; saveSatchel(); } else if (e.kind === "engine" || e.kind === "trebuchet") { lv.engines++; saveSatchel(); } }
+    if (e.type === "regrow") { if (e.amount >= 1) say(e.x, e.y - 4, "+" + Math.round(e.amount), INK.heal); firstTime("regrow", "It heals. Burn it."); }   // the troll's green + of regrowth (its y comes lifted: the rules say it over the chest)
+    if (e.type === "fx" && e.kind === "crack") { scene.stamp({ type: "mark", kind: "crack", id: e.seed | 0, x: e.x, y: e.y, z: 0, r: 8 }); return true; }
+    // the director's lines (section 3.14: one timed line at a time, by priority) and what the first time of a thing teaches
+    const D = DIRECTOR[e.type];
+    if (D) D(e);
+    return false;
+  }
+  // ------------------------------------------------------------------ the level's HUD (design pass 12, sections 3.8, 3.11 and 3.14)
+  // The note's lines and their priorities come from the area (gate.json notes: the priority list and each line's seconds). The director's
+  // events this page reads (proto/level.js emits them): wave { n, of, name, arena, attempt }, breakGate { name, hp }, lastOfThem { name },
+  // gateStage { stage, frac, hp }, onward { arena, next }, breather { heal }, horn, rattle { time }, bridgeDown, burst { x, y }, gateOurs,
+  // pickup { seat, id, from, pouch }, chestOpen { seat, open }, palisade { id }, unspawn { foe }, spawn with from: "hut" for a hut's troll,
+  // foeShotEnd with over: true for a shot over a trench; wipe / rally / secondWind / down / carry / kstatus / aimLine / mark are the rules' own
+  // (the notes block is read with care: a priority list that is no list of names, or lacks a name the page uses, falls back to the note's
+  // order for what is missing, so a malformed spec never stops the page)
+  const NOTES = AREA.notes && typeof AREA.notes === "object" ? AREA.notes : {};
+  const PRIORITY = ["downed", "wipe", "secondWind", "gateOurs", "wave", "gateLine", "onward", "firstTime", "badlyHurt", "empty"];
+  const specPri = Array.isArray(NOTES.priority) ? NOTES.priority.filter(s => typeof s === "string") : [];
+  const LVN = { secs: Object.assign({ wave: 2.5, breakGate: 2.5, lastOfThem: 2.5, gateLine: 2.0, onward: 2.0, breather: 2.5, wipe: 3.0, gateOurs: 3.0, secondWind: 1.5, firstTime: 3.0, badlyHurt: 2.0, horn: 2.5 }, NOTES),
+    priority: specPri.concat(PRIORITY.filter(name => !specPri.includes(name))),
+    empty: typeof NOTES.empty === "string" ? NOTES.empty : "You carry the practice sword. Bring weapons from the Forge", badlyHurt: typeof NOTES.badlyHurtAt === "number" ? NOTES.badlyHurtAt : 30 };   // the HP at which the note says Badly hurt (section 3.8: 30 HP or less)
+  const PRI = {}; LVN.priority.forEach((name, i) => { PRI[name] = i; });
+  // the level's own state on the page: the note, the satchel, the counts for the tally, what the first-time lines have taught
+  const lv = { line: null, waved: false, badly: false, ours: false, done: false, clearT: 0, felled: 0, huts: 0, engines: 0, edgeSeen: false,
+    things: [], finds: { gold_chests: 0, iron_chests: 0, rare_enemies: 0, quest_embers: 0 }, firsts: new Set(), sent: null };
+  state.lv = lv;
+  const isMine = e => e.seat === undefined || e.seat === fight.k.seat;
+  const title = s => { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); };
+  // one timed line at a time: a new line replaces the shown one if its priority is the same or higher and restarts the timer; a lower line
+  // arriving while a higher one shows is dropped, never queued (returns whether it shows)
+  function note(text, kind, secs) {
+    const pri = PRI[kind] === undefined ? PRI.firstTime : PRI[kind], dur = secs === undefined ? (typeof LVN.secs[kind] === "number" ? LVN.secs[kind] : 2.5) : secs;
+    if (lv.line && lv.line.until > state.t && lv.line.pri < pri) return false;
+    lv.line = { text, pri, until: state.t + dur, kind };
+    syncHud();
+    return true;
+  }
+  // a first-time line (section 3.8): once per profile, 3 s; dropped for a higher line it is not marked seen, so it shows the next time.
+  // Returns whether there is nothing more to show (the line showed now, or was taught before); false while it waits for its turn
+  function firstTime(key, text) {
+    if (lv.firsts.has(key)) return true;
+    if (!note(text, "firstTime")) return false;
+    lv.firsts.add(key);
+    store.set(KEYS.firsts, JSON.stringify(Array.from(lv.firsts)));
+    return true;
+  }
+  try { for (const k of JSON.parse(store.get(KEYS.firsts) || "[]")) if (typeof k === "string") lv.firsts.add(k); } catch (e) { /* nothing taught yet */ }
+  const DIRECTOR = {
+    wave(e) { lv.waved = true; lv.badly = false; note("Wave " + (e.n || 1) + " of " + (e.of || (AREA.waves || []).length || 5) + " · " + title(e.name), "wave"); },
+    breakGate(e) { note(title((e && e.name) || "Break the gate"), "wave", LVN.secs.breakGate); },
+    lastOfThem(e) { note(title((e && e.name) || "The last of them"), "wave", LVN.secs.lastOfThem); },
+    gateStage(e) { const L = (AREA.gate || {}).lines || {}, line = L[String(e.frac)] || L[String(e.at)]; if (line) note(line, "gateLine"); },
+    onward() { note(arrowed("Onward →"), "onward"); },
+    breather(e) { note("Breather · +" + (e.heal || (AREA.breather || {}).heal || 40), "onward", LVN.secs.breather); },
+    // the castle front (section 3.4): the horn's line while the camera frames the gatehouse, the chains' rattle a 1 px tremor for its time
+    // (the portcullis lifts from fight.gate.lift), the bridge's landing a dust burst at the deck's bank end (the director's shake rides with
+    // it), the burst a blast of splinters at the arch (the doors split from fight.gate.burst, the fight's clock)
+    horn() { note("A war horn sounds from the castle", "onward", LVN.secs.horn); },
+    rattle(e) { if (!reduce) state.shake = { t: Math.max(state.shake.t, e.time || 1.5), amp: 1 }; },
+    bridgeDown() { const B = AREA.bridge; if (!B || !B.u) return; for (const v of [B.v[0] + 8, (B.v[0] + B.v[1]) / 2, B.v[1] - 8]) addFx({ kind: "dust", x: (B.u[0] + v) / 2, y: (v - B.u[0]) / 2, c: "#b86f50", life: 0.5 }); },
+    burst(e) { addFx({ kind: "blast", x: e.x, y: e.y, r: 18, life: 0.5 }); for (let i = 0; i < 3; i++) addFx({ kind: "puff", x: e.x - 8 + i * 8, y: e.y + 4 - (i % 2) * 6, c: "#9a948c", life: 0.45 }); },
+    // (the wipe's line rides on the fade itself, which covers the note: .fade.wipe shows its data-line over the black until the rally)
+    wipe() { note("The trolls hold the field", "wipe"); if (!reduce) { const f = $("fade"); f.setAttribute("data-line", "The trolls hold the field"); f.classList.add("on", "wipe"); } },
+    rally() { lv.badly = false; clearFx(); $("fade").classList.remove("on", "wipe"); },
+    secondWind() { note("Second wind", "secondWind"); },
+    gateOurs() { lv.ours = true; lv.clearT = fight.t; note("The gate is ours.", "gateOurs"); },
+    clear() { DIRECTOR.gateOurs(); },
+    pickup(e) { if (isMine(e)) pickup(e.id || e.thing, e.from); },
+    chestOpen(e) { if (isMine(e)) { lv.finds.iron_chests = 1; saveSatchel(); } },
+    spawn(e) { if (e.from === "hut" || e.door === "hut" || e.hut !== undefined) firstTime("hut", "Huts send trolls. Wreck them."); if (e.kind === "brute" || e.kind === "rockbrute") firstTime("brute", "Hit it hard and fast."); if (e.kind === "emberback") firstTime("emberback", "A glowing one. It drops a rare find."); },
+    aimLine() { firstTime("aimLine", "Red line: step off it."); },
+    mark(e) { if (e.kind === "stone") firstTime("stone", "Red ring: a stone is coming. Move."); },
+    foeShotEnd(e) { if (e.why === "over" || e.over) firstTime("trench", "In a trench, arrows from the side fly over you."); },
+    kstatus(e) { if (!e.on || !isMine(e)) return; if (e.status === "burning") firstTime("burning", "Burning! Dodge to roll it out."); if (e.status === "chill") firstTime("chill", "Ice slows you. Three hits freeze."); },
+    down(e) { if (!isMine(e)) firstTime("downed", "Stand by a fallen friend to lift them."); },
+    carry(e) { if (e.what === "ram" && e.on && isMine(e)) toast((AREA.ram || {}).name + " in hand"); }
+  };
+  // the satchel (section 3.11.2): ingredient ids only, kept in sessionStorage on every pickup so a reload does not lose it; the toast says
+  // what came, "Troll Hide +1", or "First find: Troll Hide" for a Thing never found before, "Iron chest: Chain +1" from the chest
+  const found = new Set(handoff && handoff.smith && Array.isArray(handoff.smith.found) ? handoff.smith.found : []);
+  const ingredient = id => { const t = classThing(id); return t && t.kind !== "weapon" ? t : null; };
+  function pickup(id, from) {
+    const t = ingredient(id);
+    if (!t) return false;
+    const first = !found.has(id) && !lv.things.includes(id);
+    lv.things.push(id);
+    saveSatchel();
+    toast(from === "chest" ? "Iron chest: " + t.name + " +1" : first ? "First find: " + t.name : t.name + " +1");
+    return true;
+  }
+  function saveSatchel() { session.set(KEYS.satchel, JSON.stringify({ v: 1, at: nowIso(), world: handoff ? handoff.world : null, things: lv.things, finds: lv.finds, felled: lv.felled, huts: lv.huts, engines: lv.engines })); }
+  (function loadSatchel() {   // a reload keeps the satchel (same world); a run that never ended (a closed tab) rides with the next one, so nothing is lost
+    let d = null; try { d = JSON.parse(session.get(KEYS.satchel)); } catch (e) { d = null; }
+    if (!d || d.v !== 1 || !Array.isArray(d.things) || (d.world || null) !== (handoff ? handoff.world : null)) return;
+    for (const id of d.things) if (ingredient(id)) lv.things.push(id);
+    for (const k of Object.keys(lv.finds)) lv.finds[k] = Math.max(0, (d.finds || {})[k] | 0);
+    lv.felled = d.felled | 0; lv.huts = d.huts | 0; lv.engines = d.engines | 0;
+  })();
+  // the way home (section 3.11.5): forge-forever:from-battle, written once with the run; a clear pays at the Forge, a quit banks. The key
+  // keeps every run still waiting for the Forge, each by its own id, so the Forge pays or banks each in turn (Again twice: two runs, two
+  // pays): this world's in order under `runs` (`run` is the latest, the note's shape), another world's under `others` by its world, left
+  // whole until that world's Forge reads them. A quit with nothing in the satchel and no clear has nothing to send and leaves the key as it is
+  const clearedBefore = !!(handoff && handoff.smith && handoff.smith.cleared && handoff.smith.cleared[AREA.id]);
+  const fullKnight = k => k.kind !== "brother";
+  const okRun = r => !!(r && typeof r === "object" && typeof r.id === "string");
+  const runsOf = d => (Array.isArray(d.runs) ? d.runs : d.run ? [d.run] : []).filter(okRun);
+  function sendHome(cleared) {
+    if (lv.sent) return lv.sent;
+    const run = { id: runId, area: AREA.id, level: AREA.level || 1, boss: !!AREA.boss, replay: clearedBefore, cleared: !!cleared, things: lv.things.slice(), finds: Object.assign({}, lv.finds),
+      party: fight.knights.filter(fullKnight).length, brothers: fight.knights.filter(k => k.kind === "brother").length };
+    if (!state.handoff) { session.del(KEYS.satchel); lv.sent = { ok: false, why: "visiting", run }; return lv.sent; }   // visiting: no world to carry the finds to
+    if (!run.cleared && !run.things.length) { session.del(KEYS.satchel); lv.sent = { ok: true, why: null, run, empty: true }; return lv.sent; }   // nothing to bank, nothing to pay
+    const me = state.handoff.world;
+    let prev = null; try { prev = JSON.parse(store.get(KEYS.battle)); } catch (e) { prev = null; }
+    let runs = []; const others = {};
+    if (prev && typeof prev === "object" && prev.v === 1) {
+      const head = runsOf(prev);
+      if (prev.world === me) runs = head; else if (typeof prev.world === "string" && head.length) others[prev.world] = { at: prev.at, loadout: prev.loadout, active: prev.active, runs: head };
+      for (const [w, o] of Object.entries(prev.others && typeof prev.others === "object" ? prev.others : {})) { if (!o || typeof o !== "object") continue; const l = runsOf(o); if (!l.length) continue; if (w === me) runs = l.concat(runs); else others[w] = Object.assign({}, o, { runs: l }); }
+    }
+    runs = runs.filter(r => r.id !== run.id).slice(-19); runs.push(run);
+    const loadout = state.loadout.filter(id => world.has(id) && !practice(world.get(id))).slice(0, 2), held = fight.hands[fight.k.active].thing.id;
+    const d = { v: 1, at: nowIso(), world: me, loadout, active: Math.max(0, loadout.indexOf(held)), run, runs };
+    if (Object.keys(others).length) d.others = others;
+    const ok = store.set(KEYS.battle, JSON.stringify(d));
+    if (ok) session.del(KEYS.satchel);
+    lv.sent = { ok, why: ok ? null : "storage", run };
+    return lv.sent;
+  }
+  // the clear (section 3.4): the first knight into the gate takes the party in; the chest is opened first if it was not, its pouches going
+  // straight to the satchel; the fade closes and the tally shows 260 ms later
+  function finish() {
+    if (state.left || lv.done) return;
+    lv.done = true; state.done = true;
+    // one step with exit: true, always (the rules land every pouch still flying), and use: true while the chest stands unopened (its pouches
+    // go straight to the satchel); then the clear goes home at once, before the fade, so a thumb on ↑ Forge inside it finds the run sent
+    const landed = Combat.step(fight, STEP, Object.assign(gather(), { use: !!(LV.chest() && !LV.chestOpen()), exit: true }));
+    if (harness) for (const e of landed) state.log.push(e);   // (the exit's own step is logged like any tick's: its pickups are the run's last)
+    take(landed);
+    if (lv.clearT <= 0) lv.clearT = fight.t;
+    sendHome(true);
+    $("fade").classList.add("on");
+    const show = () => { renderTally(); openPlank("tally"); $("fade").classList.remove("on"); };
+    if (reduce || harness) show(); else setTimeout(show, 260);
+  }
+  // what the page reads of the director's state (the rules keep it; the shapes stage G and this stage assume are one line each to change)
+  const LV = {
+    when(name) { return name === "gateOpen" ? lv.ours || !!(fight.gate && fight.gate.ours) : name === "chestShown" ? !!LV.chest() && !LV.chestOpen() : true; },   // (the chest stays shown for its lid once open; its prompt does not)
+    chest() { const c = fight.chest; return c && c.shown ? c : null; },   // { x, y, shown, open?, openAt? }
+    chestOpen() { const c = LV.chest(); return !!c && (c.open === true || (c.openAt !== undefined && c.openAt !== null)); },
+    ram() { const W = fight.world, id = W && W.ram; if (id === null || id === undefined || !W.solids || !W.solids[id]) return null; const s = W.solids[id]; return { x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1 }; },
+    at(name) { return name === "chest" ? LV.chest() : name === "ram" ? LV.ram() : null; },
+    // the knight a lift line is about: a downed ally within the lift's reach of the player's knight
+    lifting() { const k = fight.k, L = (SPEC.downed || {}).lift || { within: 16, time: 2 }; if (k.down || k.out) return null; for (const b of fight.knights) if (b !== k && b.down && !b.out && dist(k.x, k.y, b.x, b.y) <= (L.within || 16)) return b; return null; }
+  };
+  // every step of a level: the downed countdown and the lift line are read from the knights, the ladder's foot teaches the climb
+  function levelTick() {
+    const k = fight.k;
+    if (k.down) { const left = Math.max(0, Math.ceil(k.down.t)); if (!lv.line || lv.line.kind !== "downed" || lv.line.text.slice(-String(left).length) !== String(left)) { lv.line = { text: "Down · a friend can lift you · " + left, pri: PRI.downed, until: state.t + 1, kind: "downed" }; syncHud(); } }
+    else if (lv.line && lv.line.kind === "downed") { lv.line = null; syncHud(); }
+    if (!lv.firsts.has("ladder") && !k.climbing && fight.world && fight.world.ladders) for (const L of fight.world.ladders) if (L.active !== false && dist(k.x, k.y, L.foot[0], L.foot[1]) <= 12) { firstTime("ladder", "Climb: push up at the ladder."); break; }
   }
   function onHit(e) {
     const tagged = e.tag && INK[e.tag];
@@ -351,26 +655,79 @@
     state.rings = state.rings.filter(r => r.r < r.len);
   }
 
-  // ------------------------------------------------------------------ the stairs and the rack: prompts above the knight
-  const inZone = z => { const k = fight.k; return k.x >= z.x0 && k.x <= z.x1 && k.y >= z.y0 && k.y <= z.y1; };
-  function zones() {
-    const Z = AREA.zones, was = state.zone;
-    state.zone = state.arrive > 0 ? null : inZone(Z.stairs) ? "stairs" : inZone(Z.rack) ? "rack" : null;
-    if (state.zone !== was) syncPrompt();
-    // walking up into the stairs for 0.4 s leaves the cellar
-    const mv = (fight.input && fight.input.move) || [0, 0];
-    if (state.zone === "stairs" && mv[1] < -0.5 && fight.k.y <= AREA.floor.y0 + 0.5) { state.stairs += STEP; if (state.stairs >= Z.stairs.dwell) leave(); } else state.stairs = 0;
+  // ------------------------------------------------------------------ the zones: prompts above the knight, read from the area
+  // The cellar's zones (the stairs, the rack, the door to the Troll Gate) are boxes; a level's (design pass 12, section 3.4) are the exit's
+  // slanted box in u = x - y and v = x + y, and the chest and the ram, followed within a few pixels while the director shows them. The
+  // area's promptOrder says which wins where two apply (the exit, a lift line, the chest, the ram); a lift line is a knight's state, not a
+  // zone (section 3.8). Walking into a zone's wall for its dwell does what E does there (the stairs up, the door left, the gate right or up)
+  const inZone = z => { const k = fight.k; return !!z && z.x0 !== undefined && k.x >= z.x0 && k.x <= z.x1 && k.y >= z.y0 && k.y <= z.y1; };
+  // the player's move this step: the fight's input is a plain object alone, keyed by seat with a party
+  const myMove = () => { const I = fight.input, mine = !I ? null : Array.isArray(I) ? I[fight.k.seat] : I[fight.k.seat] && typeof I[fight.k.seat] === "object" && I.move === undefined ? I[fight.k.seat] : I; return (mine && mine.move) || [0, 0]; };
+  function zoneAt(z) {
+    const k = fight.k;
+    if (!z || (z.when && !LV.when(z.when))) return false;
+    if (z.follow) { const p = LV.at(z.follow); if (!p) return false; const qx = p.x1 !== undefined ? clamp(k.x, p.x0, p.x1) : p.x, qy = p.y1 !== undefined ? clamp(k.y, p.y0, p.y1) : p.y; return dist(k.x, k.y, qx, qy) <= (z.within || 16); }
+    if (z.u) { const u = k.x - k.y, v = k.x + k.y; return u >= z.u[0] && u <= z.u[1] && v >= z.v[0] && v <= z.v[1]; }
+    return inZone(z);
   }
-  function use() { if (state.zone === "stairs") leave(); else if (state.zone === "rack") openPlank("rack"); }
+  function zones() {
+    const Z = AREA.zones || {}, was = state.zone, wasText = state.promptText;
+    let zone = null;
+    if (state.arrive <= 0 && !fight.k.down && !fight.k.out) for (const name of (AREA.promptOrder || Object.keys(Z))) {
+      if (name === "lift") { if (LEVEL && LV.lifting()) { zone = name; break; } continue; }
+      if (zoneAt(Z[name])) { zone = name; break; }
+    }
+    state.zone = zone;
+    state.promptText = promptText();
+    if (zone !== was || state.promptText !== wasText) syncPrompt();
+    // walking into the zone's wall (the stairs up, the door left) or toward the gate for the zone's dwell does what E does there
+    const z = Z[zone], mv = myMove(), F = AREA.floor || {};
+    const pushing = z && z.dwell && [].concat(z.dir || "up").some(d => d === "up" ? mv[1] < -0.5 && (!!z.u || fight.k.y <= F.y0 + 0.5) : d === "left" ? mv[0] < -0.5 && (!!z.u || fight.k.x <= F.x0 + 0.5) : d === "right" ? mv[0] > 0.5 : d === "down" && mv[1] > 0.5);
+    if (pushing) { state.stairs += STEP; if (state.stairs >= z.dwell - 1e-9) { state.stairs = 0; useZone(zone); } } else state.stairs = 0;
+  }
+  // E, a tap on the prompt, or the dwell: the stairs leave for the Forge, the rack and the door open their planks, the exit takes the party
+  // into the castle, the chest and the ram are the rules' (use rides with the next step); a lift line does nothing (section 3.8)
+  function useZone(zone) {
+    const z = (AREA.zones || {})[zone];
+    if (!zone || !z && zone !== "lift") return;
+    if (zone === "lift") return;
+    if (zone === "stairs") leave("forge");
+    else if (zone === "rack") openPlank("rack");
+    else if (z.opens) openPlank(z.opens);
+    else if (zone === "exit") finish();
+    else input.use = true;
+  }
+  function use() { useZone(state.zone); }
+  // "←" and "→" are set in Pixelify Sans like the cellar's "↑ The Forge" (section 3.14). Once the font is loaded, a glyph it lacks would come
+  // from another face: then the prompt is plain "The Troll Gate" and the lines "Onward" and "Into the castle". A glyph is in the font when
+  // its width is the same with either fallback behind the font; with the font itself missing (offline) nothing can be told and the arrows stay
+  state.arrows = null;
+  const arrowed = s => state.arrows === false ? String(s).replace(/^[←→]\s*/, "").replace(/\s*[←→]$/, "") : s;
+  (function arrows() {
+    const FS = document.fonts; if (!FS || !FS.ready) return;
+    const test = () => { try {
+      const c = document.createElement("canvas").getContext("2d"), w = (f, s) => { c.font = f; return c.measureText(s).width; }, inFont = ch => Math.abs(w("40px 'Pixelify Sans', monospace", ch) - w("40px 'Pixelify Sans', serif", ch)) < 0.01;
+      state.arrows = inFont("A") ? inFont("←") && inFont("→") : null;
+      if (state.zone) { state.promptText = promptText(); syncPrompt(); }
+    } catch (e) { /* the arrows stay */ } };
+    FS.ready.then(test, () => {});
+  })();
+  function promptText() {
+    const z = state.zone;
+    if (!z) return "";
+    // "Lift Ana" while the lift waits (the lifter was just hit, or another knight lifts), "Lifting Ana 1/4" to "4/4" while this knight lifts
+    if (z === "lift") { const b = LV.lifting(), L = (SPEC.downed || {}).lift || { time: 2 }, who = (b && b.name) || "your friend"; return b && b.down.by === fight.k.seat ? "Lifting " + who + " " + Math.min(4, Math.floor(b.down.lift / (L.time || 2) * 4) + 1) + "/4" : "Lift " + who; }
+    return arrowed((AREA.zones[z] || {}).prompt || "");
+  }
   function syncPrompt() {
     const p = $("prompt"), z = state.zone;
     p.hidden = !z;
-    if (z) p.textContent = AREA.zones[z].prompt;
+    if (z) { p.textContent = state.promptText || promptText(); p.style.pointerEvents = z === "lift" ? "none" : ""; hud.half = Math.ceil((p.offsetWidth || 0) / 2) + 2; hud.x = -1; }
   }
   $("prompt").addEventListener("click", use);
 
   // ------------------------------------------------------------------ drawing
-  const px = (x, y, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); };
+  const px = (x, y, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); }, pxAt = px;
   const dith = (x, y, a) => C.BAYER[((Math.round(y) & 3) * 4) + (Math.round(x) & 3)] < a;
   function line(x0, y0, x1, y1, c) { const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) | 0; for (let i = 0; i <= n; i++) { const u = n ? i / n : 0; px(x0 + (x1 - x0) * u, y0 + (y1 - y0) * u, c); } }
   const wcache = new Map();
@@ -384,6 +741,8 @@
   const FIRECOL = ["#fee761", "#feae34", "#f77622", "#e43b44"];
   function draw() {
     state.frames++;
+    if (state.perf) { const now = window.performance.now(); if (state.perf.last) { state.perf.frames.push(now - state.perf.last); if (state.perf.frames.length > 240) state.perf.frames.shift(); } state.perf.last = now; }
+    if (LEVEL) { drawLevel(); return; }
     const k = fight.k, t = state.t, still = reduce, fxf = still ? 0 : Math.floor(t * 8) % 4;
     ctx.save();
     if (state.shake.t > 0 && !still) ctx.translate(Math.round((rnd() * 2 - 1) * state.shake.amp), Math.round((rnd() * 2 - 1) * state.shake.amp));
@@ -412,6 +771,46 @@
     ctx.restore();
     syncLive();
   }
+  // a level's frame (design pass 12, section 3.2): inside the shake, the ground from the column tiles and the decal canvases before the
+  // camera's translate; after it, in world coordinates, the grass tufts, the live marks and telegraphs on the floor, the traps and auras,
+  // every actor by its feet (the painter sorts the pieces, the bodies and the platform groups), the knights' shots, streams, effects and
+  // numbers; then, in view coordinates, the marks for trolls off the screen; the reach overlay last
+  function drawLevel() {
+    const t = state.t, still = reduce, [camX, camY] = cam(), fxf = still ? 0 : Math.floor(t * 8) % 4;
+    if (!scene.tiles.allDone()) scene.tiles.work(2, () => window.performance.now());   // the tiles bake in 2 ms slices while the party walks
+    ctx.save();
+    if (state.shake.t > 0 && !still) ctx.translate(Math.round((rnd() * 2 - 1) * state.shake.amp), Math.round((rnd() * 2 - 1) * state.shake.amp));
+    const hitches = scene.tiles.hitches;
+    scene.drawGround(ctx, camX, camY);
+    if (state.perf && scene.tiles.hitches > hitches) { state.perf.hitches++; if (window.console) window.console.warn("Forge Forever: a column tile was finished at once (a hitch)"); }
+    ctx.translate(-camX, -camY);
+    const o = { t, still, dt: STEP, marks: state.stress ? state.stress.marks : null, patchFade: SPEC.patch.fade, few: state.fx.length > 64,
+      knight: (k, c) => drawKnight(fxf, k, c), minion: (m, c) => drawMinion(m, c), statuses: (f, c) => drawStatuses(f, t, c) };
+    scene.drawWallArchers(ctx, fight, o);
+    scene.drawTufts(ctx, t, still, fight);
+    scene.drawFloor(ctx, fight, o);
+    for (const tr of fight.traps) drawTrap(tr, t);
+    for (const k of fight.knights) if (!k.out) for (const h of k.hands) if (h.aura) drawAura(h.aura, k, t);
+    scene.draw(ctx, fight, o);
+    for (const p of fight.shots) drawShot(p, t);
+    drawStreams();
+    for (const f of state.fx) if (f.kind !== "crack") drawFx(f);
+    for (const n of state.nums) { const q = n.t / n.life, y = n.y - FEEL.rise * Math.min(1, q * 1.4); if (q > 0.8 && (state.frames & 1) && !still) continue; C.outlined(ctx, n.s, Math.round(n.x - C.textWidth(n.s) / 2), Math.round(y), n.c); }
+    ctx.translate(camX, camY);
+    if (!state.plank && !state.left) { const em = (window.Level ? Level.edgeMarks : Gate.edgeMarks)(fight, { lefty: state.lefty, toast: $("toast").classList.contains("show"), marks: o.marks }); scene.drawEdgeMarks(ctx, em); if (em.length && !state.lv.edgeSeen && firstTime("edge", "Marks at the edge: trolls off the screen.")) state.lv.edgeSeen = true; }   // (dropped under a higher line, the line is tried again while marks show)
+    if (state.reach) { ctx.translate(-camX, -camY); drawReach(); ctx.translate(camX, camY); }
+    if (state.perf) drawPerf();
+    ctx.restore();
+    syncLive();
+  }
+  // the step and frame-time readout under ?perf: the steps are timed in batches of 8 (the clock's grain is too coarse for one), so the
+  // line says the mean step and the p99 of the 8-step means over the last 240 batches (ms); then the mean and p99 frame time, the
+  // hitches, the frame's stamps; the numbers in the 3 x 5 font, under the top row
+  function drawPerf() {
+    const P = state.perf, mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0, p99 = a => { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * 0.99))]; };
+    const lines = ["STEP " + mean(P.steps).toFixed(3) + " MS  P99 OF 8-STEP MEANS " + p99(P.steps).toFixed(3), "FRAME " + mean(P.frames).toFixed(1) + " MS  P99 " + p99(P.frames).toFixed(1), "HITCH " + P.hitches + "  STAMPS " + scene.stamped + "  FOES " + (fight.foes || []).length];
+    lines.forEach((s, i) => C.outlined(ctx, s, 4, 34 + i * 7, "#fee761"));
+  }
   // the tally board, in chalk: the last hit, the damage a second over the last 5 s, the dummy's name
   function drawBoard() {
     const bi = scene.boardInner, b = fight.board;
@@ -426,29 +825,44 @@
     if (d.arm) C.quintainArm(ctx, Math.round(d.x), Math.round(d.y), d.arm.a, d.arm.len);
     drawStatuses(d, t);
   }
-  function drawKnight(fxf) {
-    const k = fight.k, a = Combat.animOf(fight), h = Combat.hold(fight, a.anim, a.i), kf = h.frame;
-    C.shadow(ctx, k.x, k.y, 7);
+  // a knight's animation in a level (design pass 12, section 3.12): the frames a real fight needs, from its state, else the cellar's
+  function levelAnim(k) {
+    if (k.air) return { anim: "fall", i: 0 };
+    if (k.climbing) return { anim: "climb", i: Math.floor((k.z || 0) / 6) & 1 };
+    if (k.down || k.rise > 0) return k.down && k.moving ? { anim: "crawl", i: Math.floor(k.walkT * 4) & 1 } : { anim: "down", i: 0 };
+    if (k.hurt > 0 && ((state.frames >> 2) & 1) && !reduce) return { anim: "hurt", i: 0 };   // the blink after a hit
+    if (k.teeter) return { anim: "teeter", i: 0 };
+    return Combat.animOf(fight, k);
+  }
+  // the look of a knight: the cellar's for the solo player's knight, the brothers' steel-grey kit with their seat's colour, the carried ram
+  const lookOf = k => { const L = {}; if (k.kind === "brother") { L.seat = k.seat; L.kit = "brother"; } else if (k.seat && fight.knights.length > 1) L.seat = k.seat; if (k.carry) L.carry = "ram"; return Object.keys(L).length ? L : null; };
+  // the knight (c: a context in world coordinates; the painter lifts a knight by its height before calling this in a level)
+  function drawKnight(fxf, k, c) {
+    k = k || fight.k; c = c || ctx;
+    const a = LEVEL ? levelAnim(k) : Combat.animOf(fight), h = Combat.hold(fight, a.anim, a.i, k), look = LEVEL ? lookOf(k) : null, kf = look ? Knight.frame(h.facing, a.anim, a.i, h.reach, look) : h.frame;
+    if (!LEVEL) C.shadow(c, k.x, k.y, 7);   // (in a level the painter draws the shadow on the surface under the knight)
     // the dodge draws the walk frame with three fading afterimages; so does a lunge
-    if (!reduce) for (let g = 1; g <= 3; g++) { const p = state.trail[g * 3 - 1]; if (!p) break; ctx.globalAlpha = 0.3 / g; ctx.drawImage(kf.canvas(), Math.round(p[0]) - 16, Math.round(p[1]) - 31); ctx.globalAlpha = 1; }
-    const wc = weaponCanvas(h.thing, h.facing, fxf), sheathed = k.swapT > SPEC.knight.swap / 2;
+    if (!reduce && k === fight.k) for (let g = 1; g <= 3; g++) { const p = state.trail[g * 3 - 1]; if (!p) break; c.globalAlpha = 0.3 / g; c.drawImage(kf.canvas(), Math.round(p[0]) - 16, Math.round(p[1]) - 31); c.globalAlpha = 1; }
+    const wc = weaponCanvas(h.thing, h.facing, fxf), sheathed = k.swapT > SPEC.knight.swap / 2, noWeapon = LEVEL && (k.down || k.climbing || k.air || k.carry);
     const drawW = () => {
-      if (sheathed) return;   // swapping: the knight sheathes, then draws
+      if (sheathed || noWeapon) return;   // swapping: the knight sheathes, then draws; down, on the ladder or in the air the weapon is away
       const S = k.stream;
-      if (S && S.charging && !reduce && (state.frames >> 2) & 1) ctx.globalAlpha = 0.6;
-      ctx.drawImage(wc.c, h.hx - wc.grip[0], h.hy - wc.grip[1]);
-      ctx.globalAlpha = 1;
+      if (S && S.charging && !reduce && (state.frames >> 2) & 1) c.globalAlpha = 0.6;
+      c.drawImage(wc.c, h.hx - wc.grip[0], h.hy - wc.grip[1]);
+      c.globalAlpha = 1;
       if (k.charging) {   // a charge: a glow building on the weapon
-        const c = clamp(k.chargeT / SPEC.modifiers.charge.time, 0, 1);
+        const q = clamp(k.chargeT / SPEC.modifiers.charge.time, 0, 1);
         if (!wc.white) wc.white = C.canvasOf(wc.px, 32, 32, { tint: () => "#fff6c8" });
-        ctx.globalAlpha = 0.15 + 0.55 * c * (reduce || c >= 1 || (state.frames >> 2) & 1 ? 1 : 0.6);
-        ctx.drawImage(wc.white, h.hx - wc.grip[0], h.hy - wc.grip[1]);
-        ctx.globalAlpha = 1;
+        c.globalAlpha = 0.15 + 0.55 * q * (reduce || q >= 1 || (state.frames >> 2) & 1 ? 1 : 0.6);
+        c.drawImage(wc.white, h.hx - wc.grip[0], h.hy - wc.grip[1]);
+        c.globalAlpha = 1;
       }
     };
     if (h.behind) drawW();   // facing away the weapon is further from the camera, so it is drawn behind the knight
-    ctx.drawImage(k.bonk > SPEC.dummies.quintain.stagger - 0.15 ? kf.white() : kf.canvas(), h.x0, h.y0);
+    c.drawImage(k.bonk > SPEC.dummies.quintain.stagger - 0.15 ? kf.white() : kf.canvas(), h.x0, h.y0);
     if (!h.behind) drawW();
+    // the statuses a level puts on a knight (section 3.8): burning, chill and frozen as overlays made from the frame's own pixels
+    if (LEVEL) { const ov = k.frozen > 0 ? "frozen" : k.chill && k.chill.n > 0 ? "chill" : k.burn ? "burning" : null; if (ov) { const o = kf.over(ov, reduce ? 0 : Math.floor(state.t * 8) & 1); if (o) c.drawImage(o.canvas(), h.x0, h.y0); } }
   }
   function drawReach() {
     const c = "#2ce8f5", dot = (x, y) => px(x, y, c);
@@ -561,13 +975,14 @@
     }
   }
   // a paper imp, folded from the book's pages
-  function drawMinion(m) {
-    C.shadow(ctx, m.x, m.y, 5);
+  function drawMinion(m, c) {
+    c = c || ctx;
+    if (!LEVEL) C.shadow(c, m.x, m.y, 5);
     const bob = reduce ? 0 : Math.floor(m.walkT * 6) % 2, x = Math.round(m.x) - 5, y = Math.round(m.y) - 13 - bob, flip = m.face < 0;
     const rows = ["k........k", "kk......kk", "k3k....k3k", "k33kkkk33k", "k3333333k.", ".k3k33k3k.", ".k333333k.", ".k322223k.", "..k2222k..", "..k2kk2k..", "..kk..kk.."];
-    C.paint(ctx, rows, { k: OUT, "3": "#fffaf0", "2": "#ead4aa", "1": "#c28569" }, x, y, flip !== (m.swing > 0));
-    px(x + 3, y + 5, "#b55088"); px(x + 6, y + 5, "#b55088");
-    if (m.swing > 0) for (let i = 0; i < 5; i++) px(x + (flip ? -2 - i * 0.5 : 11 + i * 0.5), y + 3 + i, i % 2 ? "#f6757a" : "#ffe0f0");
+    C.paint(c, rows, { k: OUT, "3": "#fffaf0", "2": "#ead4aa", "1": "#c28569" }, x, y, flip !== (m.swing > 0));
+    c.fillStyle = "#b55088"; c.fillRect(x + 3, y + 5, 1, 1); c.fillRect(x + 6, y + 5, 1, 1);
+    if (m.swing > 0) for (let i = 0; i < 5; i++) { c.fillStyle = i % 2 ? "#f6757a" : "#ffe0f0"; c.fillRect(Math.round(x + (flip ? -2 - i * 0.5 : 11 + i * 0.5)), y + 3 + i, 1, 1); }
   }
   function drawShot(p, t) {
     const Rr = ramp(p.el, p.mat), blink = reduce ? 0 : Math.floor(t * 10) % 2;
@@ -618,8 +1033,11 @@
     for (const r of state.rings) { const n = Math.ceil(r.r * r.half * 2) + 2; for (let i = 0; i <= n; i++) { const a = r.a - r.half + 2 * r.half * i / n, x = r.x + Math.cos(a) * r.r, y = r.y + Math.sin(a) * r.r; if (dith(x, y, 1 - r.r / r.len * 0.6)) { px(x, y, i % 3 ? "#bfe8e0" : "#ffffff"); if (r.r < r.len * 0.5) px(x - Math.cos(a), y - Math.sin(a), "#6fb0a8"); } } }
     for (const p of state.parts) { const q = p.t / p.life, rp = elemRamp(p.el), c = p.el === "fire" ? FIRECOL[Math.min(3, Math.floor(q * 4))] : rp[3 - Math.min(3, Math.floor(q * 4))]; px(p.x, p.y, c); if (q < 0.4) px(p.x + 1, p.y, c); }
   }
-  function drawStatuses(d, t) {
-    const st = d.st, hx = d.arm ? Combat.hitPoint(d)[0] : d.x, hy = d.arm ? Combat.hitPoint(d)[1] : d.y - d.chest, f = reduce ? 0 : Math.floor(t * 8);
+  function drawStatuses(d, t, c) {
+    const st = d.st, hx = d.arm ? Combat.hitPoint(d)[0] : d.x, hy = (d.arm ? Combat.hitPoint(d)[1] : d.y - d.chest) - (d.z || 0), f = reduce ? 0 : Math.floor(t * 8);
+    const px = c && c !== ctx ? (x, y, col) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), 1, 1); } : pxAt;
+    if (!st) return;
+    if (d.head === undefined) d = Object.assign({}, d, { head: d.chest + 8, eyes: d.chest + 5, y: d.y - (d.z || 0) });   // a troll: its head and eyes stand over its chest
     if (st.burn) for (let i = 0; i < 3; i++) px(hx - 4 + ((i * 5 + f) % 9), hy - 2 - ((f + i * 3) % 7), FIRECOL[(f + i) % 4]);
     if (st.bleed) for (let i = 0; i < (st.bleed.stacks > 2 ? 2 : 1); i++) px(hx - 3 + i * 5, hy + 2 + ((f + i * 4) % 8), "#a22633");
     if (st.poisoned) px(hx + 2, hy + 2 + (f % 8), "#63c74d");
@@ -637,23 +1055,36 @@
   const hud = { held: null, other: null, pip: -1, tag: null, p: -1, c: -1, on: null, x: -1, y: -1, ab: -1 };
   // a legend's ability button (design pass 10) carries its head class's own weapon, drawn at 1x
   const classWeapon = c => (window.FORGE_THINGS || []).find(t => t.kind === "weapon" && t.weapon && t.weapon.visual && t.weapon.visual.base === c);
+  // the ram on the Strike button (section 3.14): an iron-capped log, drawn once
+  let ramIconCanvas = null;
+  function ramIcon() {
+    if (ramIconCanvas) return ramIconCanvas;
+    const rows = ["kkkk....................kkkk", "k22kkkkkkkkkkkkkkkkkkkkkk22k", "k23k1111111111111111111k32k", "k23kb222b222b222b222b22k32k", "k23k1bbb1bbb1bbb1bbb1bbk32k", "k22kkkkkkkkkkkkkkkkkkkkkk22k", "kkkk....................kkkk"];
+    const cv = C.canvas(28, 7), g = cv.getContext("2d");
+    C.paint(g, rows, { k: OUT, "1": "#733e39", "2": "#8b9bb4", "3": "#c0cbdc", b: "#b86f50" }, 0, 0);
+    const out = C.canvas(56, 14); out.getContext("2d").imageSmoothingEnabled = false; out.getContext("2d").drawImage(cv, 0, 0, 56, 14);
+    out.style.width = "52px"; out.style.height = "13px";
+    return (ramIconCanvas = out);
+  }
   function syncHud() {
-    const k = fight.k, hand = fight.hands[k.active], t = hand.thing, other = fight.hands.length > 1 ? fight.hands[1 - k.active].thing : null;
+    const k = fight.k, hand = fight.hands[k.active], ram = LEVEL && k.carry ? k.carry : null, t = ram ? ram.thing : hand.thing;
+    // while a knight carries the ram it is the active weapon: Strike shows the ram, Swap the knight's own weapon (Swap puts the ram down)
+    const other = ram ? hand.thing : fight.hands.length > 1 ? fight.hands[1 - k.active].thing : null;
     if (hud.held !== t.id) {
       hud.held = t.id;
-      $("wName").textContent = t.name || t.id; $("wLine").textContent = sentence(t);
-      const sb = $("strikeBtn"); sb.replaceChildren(icon(t, 2)); sb.insertAdjacentHTML("beforeend", '<i class="clock"></i><i class="glow"></i>');
+      $("wName").textContent = t.name || t.id; $("wLine").textContent = ram ? (t.line || "SMASH · BREAKS GATES") : sentence(t);
+      const sb = $("strikeBtn"); sb.replaceChildren(ram ? ramIcon() : icon(t, 2)); sb.insertAdjacentHTML("beforeend", '<i class="clock"></i><i class="glow"></i>');
       sb.setAttribute("aria-label", "Strike with " + (t.name || t.id));
       $("pips").hidden = true;   // design pass 10: no third blow and no pips; a legend's head is its ability
       // the gold button above Strike, only while a legend is in hand: the head's class weapon as its icon, the ability's words as its label
-      const ab = $("abilityBtn"), ua = hand.ua;
+      const ab = $("abilityBtn"), ua = ram ? null : hand.ua;
       ab.hidden = !ua;
       if (ua) {
         const cw = classWeapon((t.weapon.visual || {}).fuse);
         ab.replaceChildren(cw ? icon(cw, 1) : document.createTextNode("✦")); ab.insertAdjacentHTML("beforeend", '<i class="clock"></i><i class="glow"></i>');
         ab.setAttribute("aria-label", ua.ability.name + ": " + ua.ability.line); ab.title = ua.ability.name;
-        // the first legend of the visit: a note under the plate says where its ability is, for 3 s
-        if (!state.legendNoted) { state.legendNoted = true; state.noteUntil = state.t + 3; state.noteText = "✦ " + ua.ability.name + " · the gold button above Strike"; }
+        // the first legend of the visit: a note under the plate says where its ability is, for 3 s (in a level, a first-time line)
+        if (!state.legendNoted) { state.legendNoted = true; if (LEVEL) firstTime("ability", "✦ " + ua.ability.name + " · the gold button above Strike"); else { state.noteUntil = state.t + 3; state.noteText = "✦ " + ua.ability.name + " · the gold button above Strike"; } }
       }
       hud.ab = -1;
       if (ua) syncAbility(hand);   // the clock of the hand now held, at once (a swap never shows the other hand's clock for a frame)
@@ -663,14 +1094,21 @@
     if (hud.other !== oid) {
       hud.other = oid;
       const sw = $("swapBtn");
-      if (other) { sw.replaceChildren(icon(other, 1)); sw.setAttribute("aria-label", "Swap to " + (other.name || other.id)); } else { sw.textContent = "Swap"; sw.setAttribute("aria-label", "Swap: you carry one weapon"); }
+      if (other) { sw.replaceChildren(icon(other, 1)); sw.setAttribute("aria-label", ram ? "Put the ram down for " + (other.name || other.id) : "Swap to " + (other.name || other.id)); } else { sw.textContent = "Swap"; sw.setAttribute("aria-label", "Swap: you carry one weapon"); }
       sw.classList.toggle("off", !other); sw.disabled = !other;   // one weapon: Swap is greyed
     }
-    const tag = practice(t) ? "practice" : "";
+    const tag = !ram && practice(t) ? "practice" : "";
     if (hud.tag !== tag) { hud.tag = tag; $("wTag").hidden = !tag; $("wTag").textContent = tag ? "⛓ practice only" : ""; }
     $("wSlow").hidden = !state.slow;
-    const note = $("note"), text = state.empty && state.loadout.length === 0 ? "Bring weapons from the Forge, or take one from the rack" : state.noteUntil > state.t ? state.noteText : "";
+    const note = $("note"), text = LEVEL ? levelNote() : state.empty && state.loadout.length === 0 ? "Bring weapons from the Forge, or take one from the rack" : state.noteUntil > state.t ? state.noteText : "";
     note.hidden = !text; if (text) note.textContent = text;
+  }
+  // the level's note (section 3.14): the timed line by priority, else, with an empty loadout, the level's own line until the first wave
+  function levelNote() {
+    const L = state.lv;
+    if (L.line && (L.line.until > state.t || L.line.kind === "downed")) return L.line.text;
+    if (L.line) L.line = null;
+    return state.empty && state.loadout.length === 0 && !L.waved ? LVN.empty : "";
   }
   // the ability's clock sweeps while it cools (--p in 40 steps); ready, the button pulses
   function syncAbility(hand) { const q = hand.acd > 0 ? Math.round((1 - hand.acd / (hand.acdOf || 1)) * 40) / 40 : 1; if (q !== hud.ab) { hud.ab = q; const ab = $("abilityBtn"); ab.style.setProperty("--p", String(q)); ab.classList.toggle("ready", q >= 1); } }
@@ -679,39 +1117,47 @@
     const k = fight.k, hand = fight.hands[k.active];
     if (hand.ua) syncAbility(hand);
     if (state.noteUntil && state.t >= state.noteUntil) { state.noteUntil = 0; syncHud(); }   // the first-legend note is over
+    if (LEVEL && state.lv.line && state.lv.line.kind !== "downed" && state.lv.line.until <= state.t) syncHud();   // a timed line is over
     const of = hand.recoverOf || 1, p = hand.recover > 0 ? Math.round((1 - hand.recover / of) * 40) / 40 : 1;
     if (p !== hud.p) { hud.p = p; $("strikeBtn").style.setProperty("--p", String(p)); }
     const c = k.charging ? Math.round(clamp(k.chargeT / SPEC.modifiers.charge.time, 0, 1) * 20) / 20 : 0;
     if (c !== hud.c) { hud.c = c; $("strikeBtn").style.setProperty("--c", String(c)); }
     const on = !!(fight.input && fight.input.strike);
     if (on !== hud.on) { hud.on = on; $("strikeBtn").classList.toggle("on", on); }
-    if (state.zone) { const L = state.layout, x = Math.round(L.x - L.pl + k.x * L.s), y = Math.round(L.y - L.pt + (k.y - 36) * L.s); if (x !== hud.x || y !== hud.y) { hud.x = x; hud.y = y; const pr = $("prompt"); pr.style.left = x + "px"; pr.style.top = Math.max(76, y) + "px"; } }
+    // the prompt floats over the knight's screen feet (lifted by its height, the camera taken off) and is clamped to the HUD's box (the
+    // game's width inside the safe-area insets); its half width is measured when its text changes (syncPrompt), not every frame
+    if (state.zone) { const L = state.layout, [camX, camY] = cam(), pr = $("prompt"), half = hud.half || 40, wide = (L.gw || L.w) - L.pl - (L.pr || 0);
+      const x = Math.round(clamp(L.x - L.pl + (k.x - camX) * L.s, half, wide - half)), y = Math.round(L.y - L.pt + (k.y - (k.z || 0) - camY - 36) * L.s);
+      if (x !== hud.x || y !== hud.y) { hud.x = x; hud.y = y; pr.style.left = x + "px"; pr.style.top = Math.max(76, y) + "px"; } }
   }
   let toastTimer = 0;
   const toasts = [];
   function toast(m) { const el = $("toast"); el.textContent = m; el.classList.add("show"); window.clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove("show"), 3000); toasts.push(m); }
 
-  // ------------------------------------------------------------------ the planks: the first visit, the rack, the menu
-  const VEILS = { first: "firstVeil", rack: "rackVeil", menu: "menuVeil" };
+  // ------------------------------------------------------------------ the planks: the first visit, the rack, the menu; the level's (section 3.14)
+  const VEILS = { first: "firstVeil", rack: "rackVeil", menu: "menuVeil", gate: "gateVeil", ask: "askVeil", tally: "tallyVeil" };
+  const STAYS = ["first", "tally"];   // planks a tap outside does not close: the first visit, and the tally (the run is over)
   function openPlank(which) {
-    if (state.left) return;
+    if (state.left || !VEILS[which]) return;
     closePlank();
     state.plank = which;
     input.strike = false; input.keys = {}; stickUp();
     if (which === "rack") renderRack();
     if (which === "menu") renderMenu();
+    if (which === "gate") renderGate();
     $(VEILS[which]).hidden = false;
     const focus = $(VEILS[which]).querySelector("button"); if (focus && !coarse) focus.focus();
   }
   function closePlank() {
     if (!state.plank) return;
+    if (state.plank === "tally") return;   // the run is over: the tally stays until Back to the Forge or Again
     $(VEILS[state.plank]).hidden = true;
-    if (state.plank === "first") store.set(KEYS.seen, "1");
+    if (state.plank === "first") store.set(LEVEL ? KEYS.gateSeen : KEYS.seen, "1");
     state.plank = null; last = window.performance.now(); acc = 0;
     if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
   }
   $("firstGo").addEventListener("click", closePlank);
-  for (const id of Object.values(VEILS)) $(id).addEventListener("click", e => { if (e.target === $(id) && id !== VEILS.first) closePlank(); });
+  for (const [which, id] of Object.entries(VEILS)) $(id).addEventListener("click", e => { if (e.target === $(id) && !STAYS.includes(which)) closePlank(); });
   // the rack: your weapons as a grid of sprites with their names, newest first, with class chips to filter
   const rackView = { cls: null };
   function renderRack() {
@@ -766,28 +1212,72 @@
     list.addEventListener("pointermove", e => { if (rackDrag.id !== e.pointerId) return; const d = toGame(e.clientX, e.clientY)[1] - rackDrag.y; rackDrag.moved = Math.max(rackDrag.moved, Math.abs(d)); if (rackDrag.moved > 6) list.scrollTop = rackDrag.top - d; });
     for (const ev of ["pointerup", "pointercancel"]) list.addEventListener(ev, e => { if (rackDrag.id !== e.pointerId) return; rackDrag.id = null; if (rackDrag.moved > 6) rackDrag.at = Date.now(); });
   })($("rackList"));
+  // the menu: the cellar's seven rows; in a level (section 3.14) the title is the level's, a line under it counts the satchel, Slow time and
+  // Reset the dummies do not show, and the ember button goes back to the gate
   function renderMenu() {
     const set = (id, on) => { const b = $(id); b.setAttribute("aria-pressed", String(on)); b.querySelector("span").textContent = on ? "on" : "off"; };
     set("mReach", state.reach); set("mSlow", state.slow); set("mLefty", state.lefty);
     $("mForced").hidden = !state.forced;
+    if (LEVEL) { const n = state.lv.things.length; $("mSatchel").hidden = false; $("mSatchel").textContent = "Satchel: " + n + (n === 1 ? " thing" : " things"); }
   }
+  if (LEVEL) { $("menuTitle").textContent = AREA.name || "The Troll Gate"; $("mSlow").hidden = true; $("mReset").hidden = true; $("mClose").firstChild.textContent = "Back to the gate"; $("menuBtn").setAttribute("aria-label", "The gate's menu"); $("menuBtn").title = "The gate's menu"; }
   $("menuBtn").addEventListener("click", () => openPlank("menu"));
   $("mReach").addEventListener("click", () => { state.reach = !state.reach; renderMenu(); });
   $("mSlow").addEventListener("click", () => { state.slow = !state.slow; renderMenu(); syncHud(); });
   $("mLefty").addEventListener("click", () => { state.lefty = !state.lefty; store.set(KEYS.lefty, state.lefty ? "1" : "0"); fit(); renderMenu(); });
   $("mReset").addEventListener("click", () => { reset(); closePlank(); toast("The dummies stand as they were"); });
   $("mForced").addEventListener("click", () => { setForced(false); closePlank(); });
-  $("mForge").addEventListener("click", () => leave("forge"));
-  $("mHome").addEventListener("click", () => leave("menu"));
+  $("mForge").addEventListener("click", () => askLeave("forge"));
+  $("mHome").addEventListener("click", () => askLeave("menu"));
   $("mClose").addEventListener("click", closePlank);
-  $("upBtn").addEventListener("click", () => leave("forge"));
-  $("homeBtn").addEventListener("click", () => leave("menu"));
-  function reset() { Combat.reset(fight); state.fx = []; state.nums = []; state.parts = []; state.rings = []; state.sums = {}; state.heal = { n: 0, at: state.t }; state.hold = 0; state.shake = { t: 0, amp: 0 }; }
+  $("upBtn").addEventListener("click", () => askLeave("forge"));
+  $("homeBtn").addEventListener("click", () => askLeave("menu"));
+  function clearFx() { state.fx = []; state.nums = []; state.parts = []; state.rings = []; state.sums = {}; state.heal = { n: 0, at: state.t }; state.hold = 0; state.shake = { t: 0, amp: 0 }; state.trail = []; }
+  function reset() { Combat.reset(fight); clearFx(); }
+  // the gate plate (section 3.14), opened from the door on the cellar's left wall: Go alone, Bring sword-brothers 1 to 3 (the last choice
+  // remembered), Back to the cellar; Raise and Join a party wait for the second build; "Cleared" once the smith has cleared it
+  function renderGate() {
+    const smith = (handoff && handoff.smith) || {}, cleared = !!(smith.cleared && smith.cleared["castle-gate"]), last = clamp(parseInt(store.get(KEYS.brothers), 10) || 0, 0, 3);
+    $("gateLine").innerHTML = "Normal" + (cleared ? ' · <b>Cleared</b>' : "");
+    $("gateAlone").setAttribute("aria-pressed", String(last === 0));
+    for (const n of [1, 2, 3]) $("gateB" + n).setAttribute("aria-pressed", String(last === n));
+    $("gateParty").hidden = true;
+  }
+  $("gateAlone").addEventListener("click", () => go(0));
+  for (const n of [1, 2, 3]) $("gateB" + n).addEventListener("click", () => go(n));
+  $("gateBack").addEventListener("click", closePlank);
+  // Leave the gate? (section 3.8): Leave banks the satchel and goes; Stay closes the plank
+  $("askLeave").addEventListener("click", () => leave(state.askTo || "forge"));
+  $("askStay").addEventListener("click", closePlank);
+  // the tally (section 3.11.5): the time, the trolls felled and the huts and engines wrecked, the brothers who came, the finds as icons at x 2
+  // with NEW on a first find, the pay (the Legend Ember's chances are rolled at the Forge), a level-up; visiting, or with storage blocked,
+  // the finds could not be carried home
+  function renderTally() {
+    const L = state.lv, sent = L.sent || {}, secs = Math.max(0, Math.round(L.clearT || fight.t)), mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, "0");
+    $("tallyTime").textContent = "The old road to the castle in " + mm + ":" + ss + ".";
+    const parts = ["You felled " + L.felled + (L.felled === 1 ? " troll" : " trolls")];
+    if (L.huts || L.engines) parts.push("wrecked " + [L.huts ? L.huts + (L.huts === 1 ? " hut" : " huts") : null, L.engines ? L.engines + (L.engines === 1 ? " engine" : " engines") : null].filter(Boolean).join(" and "));
+    $("tallyFelled").textContent = parts.join(" and ") + ".";
+    const bros = fight.knights.filter(k => k.kind === "brother").map(k => k.name).filter(Boolean);
+    $("tallyWith").hidden = !bros.length; if (bros.length) $("tallyWith").textContent = "With " + (bros.length > 1 ? bros.slice(0, -1).join(", ") + " and " + bros[bros.length - 1] : bros[0]);
+    const carried = sent.ok === true;
+    $("tallyFindsLine").textContent = carried ? "Your finds" : "Your finds could not be carried home";
+    const row = $("tallyFinds"), counts = {}; for (const id of L.things) counts[id] = (counts[id] || 0) + 1;
+    row.replaceChildren();
+    for (const id of Object.keys(counts)) { const t = ingredient(id); if (!t) continue; const d = document.createElement("div"); d.className = "find"; d.title = t.name; d.appendChild(icon(t, 2)); const s = document.createElement("span"); s.textContent = t.name + (counts[id] > 1 ? " ×" + counts[id] : ""); d.appendChild(s); if (!found.has(id)) { const n = document.createElement("i"); n.textContent = "NEW"; d.appendChild(n); } row.appendChild(d); }
+    if (!L.things.length) row.insertAdjacentHTML("beforeend", '<div class="none">Nothing dropped this time.</div>');
+    const pay = window.Coin && Coin.runPay ? Coin.runPay(AREA.level || 1, !!AREA.boss, clearedBefore, L.finds) : null, smith = (handoff && handoff.smith) || {};
+    $("tallyPay").textContent = !carried ? (sent.why === "visiting" ? "You came without the Forge, so nothing is paid." : "The finds could not be saved, so nothing is paid.") : pay ? pay.xp + " XP and " + pay.coins + " coins" + (clearedBefore ? " (a replay)" : "") + (L.finds.iron_chests || L.finds.rare_enemies ? " · the Forge rolls for a Legend Ember" : "") : "";
+    const up = carried && pay && window.Progress && typeof smith.xp === "number" && typeof smith.level === "number" ? Progress.levelFor(smith.xp + pay.xp) : null;
+    $("tallyLevel").hidden = !(up && up > smith.level); if (up && up > smith.level) $("tallyLevel").textContent = "Level " + up + "!";
+  }
+  $("tallyForge").addEventListener("click", () => leave("forge"));
+  $("tallyAgain").addEventListener("click", again);
 
   // ------------------------------------------------------------------ the turn plate
   function setForced(on) { state.forced = !!on; if (on) store.set(KEYS.forced, "1"); else store.del(KEYS.forced); fit(); last = window.performance.now(); acc = 0; }
   $("tForce").addEventListener("click", () => setForced(true));
-  $("tForge").addEventListener("click", () => leave("forge"));
+  $("tForge").addEventListener("click", () => leave("forge"));   // (the turn plate covers the page, so its ways out bank and go without asking)
   $("tHome").addEventListener("click", () => leave("menu"));
   $("tFull").addEventListener("click", () => {
     try { const p = document.documentElement.requestFullscreen(); if (p && p.then) p.then(lockLandscape).catch(() => {}); } catch (e) { /* this browser doesn't go full screen */ }
@@ -818,19 +1308,72 @@
   document.addEventListener("visibilitychange", () => { last = window.performance.now(); acc = 0; if (document.hidden) { input.strike = false; input.keys = {}; stickUp(); } });
   // the harness's handle on the screen
   window.TheBattlegrounds = {
-    state, world, toasts, input(o) { input.test = o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud,
+    // (input(o): a plain object stands for the thumbs until changed; a function is a driver, called once a step with dt, its answer the thumbs' input)
+    state, world, toasts, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, scene, VIEW, AREA, LEVEL,
+    // a level (design pass 12): the run's id, the satchel's state, the way home, the clear, the adapter over the director's state, a synthetic event
+    runId, go, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, get lv() { return state.lv; }, take(events) { take(Array.isArray(events) ? events : [events]); },
     get fight() { return fight; }, get rack() { return rack.slice(); }, get paused() { return paused(); },
     // move time on by ms (in steps of 1/60 s); while the game is paused, time doesn't move
     step(ms) { let n = 0; const want = Math.round(ms / 1000 / STEP); for (let i = 0; i < want; i++) { if (paused()) break; tick(); n++; } flushSums(false); draw(); return n; },
     stick(cx, cy, dx, dy) { const [gx, gy] = toGame(cx, cy), [hx, hy] = toGame(cx + dx, cy + dy); input.stick = { id: -1, cx: gx, cy: gy }; stickTo(hx, hy); return [input.sx, input.sy]; },
     draw
   };
+  // a level: the first two column tiles are baked whole behind the fade (the rest in slices while the party walks); ?perf=stress builds the
+  // worst case for the frame in arena 3's lower screen (done criterion 17): three sword-brothers, the alive cap of trolls and the roar
+  // footmen round the Stilt Camp and its tower, thinking and fighting (fight.brains), six more trolls above the view for the edge marks,
+  // every mark kind at its cap (the marks are stood in for until the rules keep them), the camera on them
+  if (LEVEL) { scene.tiles.finish(0); scene.tiles.finish(1); if (perf === "stress") stress(); }
+  function stress() {
+    const W = fight.world, P = window.Physics, caps = SPEC.caps, k = fight.k;
+    Combat.setView(fight, 1536, 216); Combat.place(fight, k, 1660, 300);
+    fight.knights.slice(1).forEach((b, i) => Combat.place(fight, b, 1640 + i * 14, 320 + i * 12));
+    state.arrive = 0;
+    const kinds = ["footman", "footman", "footman", "footman", "footman", "footman", "footman", "footman", "footman", "firestaff", "archer", "icearcher", "brute", "rockbrute", "winchman"];
+    const spots = [[1600, 260], [1640, 340], [1700, 300], [1760, 320], [1800, 350], [1840, 300], [1870, 260], [1620, 400], [1700, 400], [1560, 330], [1700, 260], [1860, 400], [1600, 370], [1800, 390], [1740, 240]];
+    kinds.forEach((kind, i) => Combat.spawn(fight, kind, spots[i][0], spots[i][1], { tell: 0 }));
+    if (fight.foes.length < kinds.length + 1) Combat.spawn(fight, "archer", 1770, 250, { tell: 0, on: "towerDeck" });
+    for (let i = 0; i < 6; i++) Combat.spawn(fight, "footman", 1560 + i * 60, 120 + (i % 2) * 40, { tell: 0 });   // off the screen, above the view and inside the world: the edge marks
+    fight.brains = true;   // the trolls think, path and wind up, as the director has them do in a wave
+    const rm = Combat.rng(1210), pick = (x0, x1, y0, y1) => [x0 + Math.floor(rm() * (x1 - x0)), y0 + Math.floor(rm() * (y1 - y0))], mk = (kind, n, r, life, extra) => { const out = []; for (let i = 0; i < n; i++) { const [x, y] = pick(1550, 1900, 230, 420); out.push(Object.assign({ id: i + 1, kind, x, y, z: 0, r, t: rm() * life * 0.8, life, side: "troll" }, extra ? extra(x, y, i) : {})); } return out; };
+    const M = fight.marks;
+    if (M) {
+      // the rules' own marks at every cap (done criterion 17), made by the rules' makers: fire, ice and puddles each on a band of their own
+      // (a fire melts the ice it touches, a puddle quenches a fire), craters over the whole stretch, the chunks of one burst, the stones in
+      // flight, the arrows stuck on a piece; a maker that merges or refuses a spot is simply tried at another
+      // (the craters first, since a crater removes the live patches it opens under; then the patches on a lattice wider than their merge
+      // reach, so none merges into its neighbour, with random spots in the same band for any the makers refuse)
+      const fill = (list, cap, x0, x1, y0, y1, d, make) => {
+        const spots = []; for (let y = y0 + d / 2; y < y1; y += d) for (let x = x0 + d / 2; x < x1; x += d) spots.push([Math.round(x + (rm() - 0.5) * 4), Math.round(y + (rm() - 0.5) * 4)]);
+        for (let i = 0; i < spots.length + cap * 8 && list.length < cap; i++) { const [x, y] = i < spots.length ? spots[i] : pick(x0, x1, y0, y1); make(x, y); } };
+      fill(M.crater, caps.craters || 24, 1550, 1900, 230, 420, 34, (x, y) => Combat.crater(fight, x, y, 14, 10, { side: "troll" }));
+      fill(M.fire, caps.worldFire || 12, 1550, 1660, 230, 420, 26, (x, y) => Combat.fire(fight, x, y, 10, 4, "troll"));
+      fill(M.ice, caps.ice || 16, 1672, 1790, 230, 420, 26, (x, y) => Combat.ice(fight, x, y, 10, 8, "troll"));
+      fill(M.puddle, caps.puddles || 16, 1802, 1900, 230, 420, 22, (x, y) => Combat.puddle(fight, x, y, 8, 20, "world"));
+      Combat.chunks(fight, 1720, 330, 0, null, { n: [caps.chunks || 24, caps.chunks || 24], dist: [16, 70], flight: [0.6, 0.8], shadow: 3, damageKnight: 2, damageTroll: 4, push: 4, clodEvery: 3 }, "troll", false);
+      for (let i = 0; i < (caps.stones || 4); i++) Combat.throwStone(fight, [1500, 300], { x: 1600 + i * 80, y: 260 + (i % 2) * 100, z: 0, on: null }, { engine: "treb4", seat: 0 });
+      const piece = fight.pieces.find(p => p.kind === "hut") || fight.pieces[0];
+      if (piece) for (let i = 0; i < (caps.stuckOnPieces || 32); i++) { const [x, y] = pick(1550, 1900, 230, 420); Combat.stuck(fight, x, y, 0, null, piece, "arrow"); }
+    } else state.stress = { marks: { fire: mk("fire", caps.worldFire || 12, 10, 4), ice: mk("ice", caps.ice || 16, 10, 8), puddle: mk("puddle", caps.puddles || 16, 8, 20), crater: [], clod: [],
+      chunk: mk("chunk", caps.chunks || 24, 2, 0.7, (x, y, i) => ({ x0: x - 30, y0: y - 10, clod: i % 3 === 0 })), stone: mk("stone", 2, 16, 2, (x, y) => ({ x0: x - 200, y0: y - 40, z0: 40, peak: 80 })), stuck: mk("stuck", caps.stuckOnPieces || 32, 1, 1e9, () => ({ piece: 1 })) } };
+    if (!M) for (let i = 0; i < (caps.craters || 24); i++) { const [x, y] = pick(1550, 1900, 230, 420); if (P.crater) P.crater(W, x, y, 14, 10); scene.stamp({ type: "mark", kind: "crater", id: i, x, y, z: 0, r: 14 }); }
+    for (let i = 0; i < (caps.clods || 24); i++) { const [x, y] = pick(1550, 1900, 230, 420); P.addSolid(W, { kind: "clod", shape: "c", x, y, r: 4, ht: 6 }); }
+    for (let i = 0; i < 40; i++) { const [x, y] = pick(1550, 1900, 230, 420); scene.stamp({ type: "mark", kind: i % 2 ? "scorch" : "rubble", id: i, x, y, z: 0, r: 6 + (i % 5) }); }
+    fight.tdirty = true;
+  }
   lockLandscape();
   fit();
   syncHud(); syncPrompt();
-  if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = "You came without weapons from the Forge, so the rack holds the twenty class weapons and the world's forged weapons."; }
-  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = "E uses the rack on the wall and the stairs back up. U: a legend's ability. Esc opens the cellar's menu."; }
-  if (params.get("seen") !== "1" && (store.get(KEYS.seen) !== "1" || params.get("fresh") === "1")) openPlank("first");
+  // the first-visit plank: the cellar's, or the level's in the same frame (section 3.14), its key line for a keyboard or for thumbs
+  if (LEVEL) {
+    $("firstPlank").setAttribute("aria-label", AREA.name || "The Troll Gate"); $("firstPlank").querySelector("h2").textContent = AREA.name || "The Troll Gate";
+    $("firstPlank").querySelector("p").textContent = "Trolls hurt here. Fight east to the castle, and break its gate.";
+    $("firstGo").textContent = "Onto the old road";
+    $("stage").setAttribute("aria-label", "The Troll Gate: a dusk field two screens deep before a troll castle; knights among trolls, wire, stakes, huts and trenches");
+  }
+  if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = LEVEL ? "You came without weapons from the Forge: you carry the Sword and the Bow, and your finds cannot be carried home." : "You came without weapons from the Forge, so the rack holds the twenty class weapons and the world's forged weapons."; }
+  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = LEVEL ? "E takes up what lies on the field and goes into the castle. Esc opens the menu." : "E uses the rack, the stairs and the Troll Gate's door. U: a legend's ability. Esc opens the cellar's menu."; }
+  else { $("keyLine").textContent = LEVEL ? "Tap the prompt over your knight to take up what lies on the field, and to go into the castle." : "Under the rack on the wall you can take any weapon you own. The stairs lead back up. The door on the left goes to the Troll Gate."; if (LEVEL) $("keyDodge").textContent = "a roll past a blow"; }   // (the cellar's "through the bag" is the cellar's)
+  if (params.get("seen") !== "1" && (store.get(LEVEL ? KEYS.gateSeen : KEYS.seen) !== "1" || params.get("fresh") === "1")) openPlank("first");
   draw();
   state.booted = true;
   document.body.setAttribute("data-booted", "1");

@@ -96,6 +96,7 @@
       for (let x = side; x < W - side; x++) set(x, H - front - 1, OUT, 0);
     }
     this.props = {};
+    if (o.door) this.door(o.door);   // the door to the Troll Gate in the left wall (design pass 12, section 3.14)
     if (o.stairs !== undefined && o.stairs !== null) this.stairs(o.stairs);
     this.torches = [];
     for (const tx of (o.torches || [])) this.torch(tx, o.torchY || 24);
@@ -130,6 +131,24 @@
         set(x, y, edge ? "#8b9bb4" : (y < top + 10 && seg % 2) ? T.stone[2] : y >= top + 10 && Math.floor((y - top) / 6) % 2 ? T.stone[2] : T.stone[1]);
       } else if (inArch(x - 1, y) || inArch(x + 1, y) || inArch(x, y - 1)) set(x, y, OUT);
     }
+  };
+  // the door to the Troll Gate (design pass 12, section 3.14): in this view a side wall shows only its top, so the door reads as an
+  // opening cut through the left wall's top strip at the floor's edge, as a doorway in a plan does. From y0 to y1 the strip x 0 to 7 is
+  // the passage's floor, going dark to the west, with two worn steps; jamb stones above and below; an oak leaf swung open against the
+  // north jamb with two iron straps; a worn sill over the floor's edge at x 8 to 9; and above the north jamb a small iron plate with the
+  // trolls' smeared green hand, saying where it goes. Like the rest of that wall it is drawn with light 0, so the torches never change it.
+  // o: { side: "w", y0, y1 }; the door's rectangle (x 0 to 9, y0 - 6 to y1 + 4) is the only part of the room that changes
+  Scene.prototype.door = function (o) {
+    const set = this.set, y0 = o.y0 === undefined ? 88 : o.y0, y1 = o.y1 === undefined ? 112 : o.y1;
+    this.props.door = { side: o.side || "w", x0: 0, x1: 9, y0: y0 - 6, y1: y1 + 4, open: { y0, y1 } };
+    for (let y = y0; y <= y1; y++) for (let x = 0; x <= 7; x++) set(x, y, x <= 1 ? T.dark : x <= 4 ? "#1b1525" : "#231c2e", 0);   // the passage (the stone of the page's gutters), darker to the west
+    for (let y = y0 + 4; y <= y1; y++) { set(2, y, T.oak[0], 0); set(5, y, T.oak[0], 0); }                                        // two worn steps
+    for (const y of [y0 - 2, y0 - 1, y1 + 1, y1 + 2]) for (let x = 0; x <= 7; x++) set(x, y, y === y0 - 2 || y === y1 + 1 ? T.course : T.under, 0);   // the jamb stones
+    for (let y = y0 + 1; y <= y0 + 3; y++) for (let x = 0; x <= 7; x++) set(x, y, T.oak[y - y0], 0);                                  // the oak leaf, swung open against the north jamb
+    for (const x of [2, 5]) for (let y = y0 + 1; y <= y0 + 3; y++) set(x, y, "#3a4466", 0);                                          // its two iron straps
+    for (let y = y0; y <= y1; y++) { set(8, y, T.wall[3], 0); set(9, y, T.wall[3], 0); }                                             // the worn sill over the floor's edge
+    for (let y = y0 - 6; y <= y0 - 3; y++) for (let x = 1; x <= 6; x++) set(x, y, y === y0 - 6 || x === 1 || x === 6 ? OUT : "#3a4466", 0);   // the iron plate
+    for (const [x, y] of [[3, y0 - 5], [4, y0 - 5], [3, y0 - 4], [2, y0 - 4]]) set(x, y, "#265c42", 0);                                // the trolls' smeared hand
   };
   // a wall torch: an iron bracket and an oak handle; its flame is drawn live (flame), its light is baked (frame)
   Scene.prototype.torch = function (x, y) {

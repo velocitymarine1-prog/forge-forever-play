@@ -23,6 +23,10 @@
 // stands by the bellows, drawn into the room by the smithy's figure layer, breathes and twitches, swings the sledge in every forge
 // (forge-fx.js draws him at the anvil in the close-up), and has a word after the forges that matter, when tapped, on a first meeting,
 // on a greeting and on the way up from the cellar, in a parchment bubble over his head. The player is not a smith: he calls them kid.
+// Since build 7 (design pass 12, section 3.11.5) a level hands its run back through forge-forever:from-battle: a clear is paid by
+// World.run (a replay once the area is in profile.cleared), a run that did not clear banks its finds by World.bank with no pay, and
+// either way the run's id goes into profile.runs in the same save, so a reload never pays or banks twice. Ingredients only, never a
+// weapon. The handoff down carries the areas cleared.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -132,7 +136,7 @@
   }
 
   // ------------------------------------------------------------------ the seam with the Battlegrounds (design pass 7 section 3.9)
-  const KEY_TO = "forge-forever:to-cellar", KEY_FROM = "forge-forever:from-cellar", MAX_DOWN = 400;
+  const KEY_TO = "forge-forever:to-cellar", KEY_FROM = "forge-forever:from-cellar", KEY_BATTLE = "forge-forever:from-battle", MAX_DOWN = 400;
   const canWield = t => !!t && F.isWeapon(t) && Progress.canEquip(t, profile, G);
   const cellarUrl = () => (document.body.getAttribute("data-battlegrounds") || "the-battlegrounds.html") + (params.get("harness") === "1" ? "?harness=1&seen=1" : "");
   // out goes the loadout and every weapon the smith owns, as whole records: the loadout first, then newest first, at most 400; a
@@ -144,8 +148,12 @@
     if (tryId && world.has(tryId) && !ids.includes(tryId)) ids.push(tryId);
     for (const t of owned(t => F.isWeapon(t)).sort((a, b) => own.get(b.id).seq - own.get(a.id).seq)) { if (ids.length >= MAX_DOWN) break; if (!ids.includes(t.id)) ids.push(t.id); }
     const pack = list => { const out = {}; for (const id of list) { const t = clone(world.get(id)); if (!canWield(t)) t.practice = true; out[id] = t; } return out; };
-    const head = { v: 1, at: nowIso(), world: worldKey(), smith: { id: profile.id, name: profile.name || profile.id, level: profile.level, classes: profile.classes.slice() },
+    // (design pass 12: the areas cleared ride down too, so the gate plate says Cleared and a run knows it is a replay; the Things found,
+    // so a level's toast can say "First find"; the XP, so a clear's tally can say the level it reaches; and the bench's Party size, when
+    // more than one, so the level fills bench seats: section 3.10)
+    const head = { v: 1, at: nowIso(), world: worldKey(), smith: { id: profile.id, name: profile.name || profile.id, level: profile.level, xp: profile.xp, classes: profile.classes.slice(), cleared: Object.assign({}, profile.cleared), found: profile.found.slice() },
       loadout, active: Math.max(0, Math.min(loadout.length - 1, session.active | 0)) };
+    const party = benchParty(); if (party > 1) head.bench = { party };
     if (tryId && !loadout.includes(tryId) && world.has(tryId)) head.try = tryId;
     try { localStorage.setItem(KEY_TO, JSON.stringify(Object.assign({}, head, { weapons: pack(ids), order: ids }))); return ids.length; }
     catch (e) {
@@ -155,6 +163,8 @@
       catch (e2) { return 0; }   // no storage: the cellar arrives visiting
     }
   }
+  // the bench's Party size (Settings > Developer), 1 to 4: the level fills the seats after the player's with bench bots, full knights
+  function benchParty() { const el = $("benchParty"); const n = el ? parseInt(el.value, 10) : 1; return Math.max(1, Math.min(4, n || 1)); }
   // the door, or Try it in the cellar on a weapon's plaque: the weapon becomes the active hand (equipped, first in first out as always,
   // when it can be wielded; practice only when it can't), and the smith goes down
   function goDown(id) {
@@ -201,12 +211,73 @@
     try { d = JSON.parse(localStorage.getItem(KEY_FROM)); } catch (e) { d = null; }
     if (!d || d.v !== 1 || !Array.isArray(d.loadout) || d.world !== worldKey()) return false;
     if (session.savedAt && d.at && Date.parse(d.at) < Date.parse(session.savedAt)) return false;   // two tabs: the Forge's own save is newer
-    session.equipped = d.loadout.filter(id => world.has(id) && own.has(id) && canWield(world.get(id))).slice(0, 2);
-    session.active = Math.max(0, Math.min(session.equipped.length - 1, d.active | 0));
+    loadoutFrom(d);
     try { localStorage.removeItem(KEY_FROM); } catch (e) { /* no storage */ }
     save();
     if (session.equipped.length) toast("Up from the cellar with " + session.equipped.map(id => world.get(id).name).join(" and "));
     return true;
+  }
+  function loadoutFrom(d) {
+    session.equipped = d.loadout.filter(id => world.has(id) && own.has(id) && canWield(world.get(id))).slice(0, 2);
+    session.active = Math.max(0, Math.min(session.equipped.length - 1, d.active | 0));
+  }
+  // in come the runs from a level (design pass 12 section 3.11.5), once each, those for this world: forge-forever:from-battle holds the
+  // latest world's runs in order under `runs` (`run` the latest, the note's shape) and other worlds' under `others`; a run for another
+  // world waits in the key for its own Forge. Each run is paid or banked by its own id: a clear by World.run, a replay when the run or
+  // profile.cleared says the area was cleared before (so the second of two clears waiting together is a replay); a run that did not clear
+  // banks its things by World.bank, and its finds are dropped. Either way the run's id goes into profile.runs in the same save, so a reload
+  // never pays or banks twice; what the world can't take yet (no answer, no save) stays in the key with the runs after it, as do the other
+  // worlds' runs. Only ingredients the Forge knows are taken, never a weapon. The loadout comes back as from the cellar, unless the Forge's
+  // own save was newer. Returns the last run taken, { res, before, cleared, things, id }, or null
+  // (the key as it stands once this world's runs but `left` are taken: the other worlds' parts take the head in turn; nothing left: null)
+  function keyLeaving(d, me, left) {
+    const others = Object.assign({}, d.others && typeof d.others === "object" ? d.others : {}), mineHead = d.world === me ? { at: d.at, loadout: d.loadout, active: d.active } : Object.assign({}, others[me] || {});
+    delete others[me];
+    const parts = [];
+    if (left.length) parts.push([me, Object.assign(mineHead, { runs: left })]);
+    if (d.world !== me && typeof d.world === "string") parts.push([d.world, { at: d.at, loadout: d.loadout, active: d.active, runs: Array.isArray(d.runs) ? d.runs : d.run ? [d.run] : [] }]);
+    for (const [w, o] of Object.entries(others)) if (o && typeof o === "object") parts.push([w, o]);
+    if (!parts.length) return null;
+    const [w0, p0] = parts[0], runs = Array.isArray(p0.runs) ? p0.runs : [], out = { v: 1, at: p0.at || d.at, world: w0, loadout: p0.loadout, active: p0.active, run: runs.length ? runs[runs.length - 1] : null, runs };
+    if (parts.length > 1) { out.others = {}; for (const [w, p] of parts.slice(1)) out.others[w] = p; }
+    return out;
+  }
+  async function takeRunBack() {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(KEY_BATTLE)); } catch (e) { d = null; }
+    if (!d || typeof d !== "object" || d.v !== 1) return null;
+    const me = worldKey(), part = d.world === me ? d : d.others && typeof d.others === "object" && d.others[me] && typeof d.others[me] === "object" ? d.others[me] : null;
+    if (!part) return null;   // nothing for this world: the key waits for its own
+    const list = (Array.isArray(part.runs) ? part.runs : part.run && typeof part.run === "object" ? [part.run] : []).filter(r => r && typeof r === "object");
+    const write = left => { try { const k = keyLeaving(d, me, left); if (k) localStorage.setItem(KEY_BATTLE, JSON.stringify(k)); else localStorage.removeItem(KEY_BATTLE); } catch (e) { /* no storage */ } };
+    const before = profile.level, savedBefore = session.savedAt;
+    let last = null, taken = 0;
+    for (const run of list) {
+      const id = typeof run.id === "string" ? run.id.slice(0, 120) : "";
+      if (!id || (profile.runs || []).includes(id)) { taken++; continue; }   // no id, or brought home already (a reload after the save)
+      const things = (Array.isArray(run.things) ? run.things : []).filter(t => typeof t === "string" && world.has(t) && !F.isWeapon(world.get(t)));
+      const cleared = run.cleared === true, area = typeof run.area === "string" ? run.area.slice(0, 60) : "", replay = !!run.replay || !!(profile.cleared || {})[area];
+      let res = null;
+      try {
+        if (cleared) {
+          const f = run.finds || {}, finds = {};
+          for (const k of ["gold_chests", "iron_chests", "rare_enemies", "quest_embers"]) finds[k] = Math.max(0, Math.min(99, f[k] | 0));
+          res = await World.run(Math.max(1, run.level | 0), !!run.boss, replay, things, finds, { id, area });
+        } else res = await World.bank(things, { id });
+      } catch (e) { res = null; }
+      if (!res || res.saved === false) break;   // the world can't take it now: it waits in the key, with the runs after it
+      taken++;
+      if (res.again) continue;
+      const n = {}; for (const t of (cleared ? things : res.banked || [])) n[t] = (n[t] || 0) + 1;
+      const names = Object.keys(n).map(t => world.get(t).name + (n[t] > 1 ? " ×" + n[t] : "")).join(", ");
+      if (cleared) toast(`Home with a clear${(res.replay === undefined ? replay : res.replay) ? " (a replay)" : ""}: ${res.pay.xp} XP, ${res.pay.coins} coins${res.pay.ember ? ", a Legend Ember" : ""}${names ? " · " + names : ""}`);
+      else toast("Home without a clear: " + (names ? names + " banked, no pay" : "nothing to bank"));
+      last = { res, before, cleared, things, id };
+    }
+    write(list.slice(taken));
+    if (last && Array.isArray(part.loadout) && !(savedBefore && part.at && Date.parse(part.at) < Date.parse(savedBefore))) { loadoutFrom(part); save(); }
+    window.TheForge.lastRun = last ? { id: last.id, cleared: last.cleared, things: last.things, res: last.res } : null;
+    return last;
   }
 
   // ------------------------------------------------------------------ sprites and their four-frame particles
@@ -291,22 +362,42 @@
       return true;
     },
     // a run's pay (design pass 10 revision 1): XP and coins as always; Legend Embers only from what the run found (`finds`: gold
-    // chests, iron chests, rare enemies, quest Embers, by spec/drops.js), each chance rolled here; reaching level 25 gives none
-    async run(level, boss, replay, things, finds) {
+    // chests, iron chests, rare enemies, quest Embers, by spec/drops.js), each chance rolled here; reaching level 25 gives none.
+    // `from` is a level's run brought home (design pass 12 section 3.11.5), { id, area }: paid once by its id (remembered in
+    // profile.runs) and marking its area in profile.cleared, in the same save; the service does the same by run_id ({ again: true }
+    // when it was paid before). The things go into the stock in both modes
+    async run(level, boss, replay, things, finds, from) {
       if (svc.url) {
-        const { code, body } = await api("POST", "/run", { player: svc.player, level, boss, replay, things, finds: finds || {} });
-        if (code === 200) { await refreshProfile(); return body; }
+        const { code, body } = await api("POST", "/run", Object.assign({ player: svc.player, level, boss, replay, things, finds: finds || {} }, from ? { run_id: from.id, area: from.area || "" } : {}));
+        if (code === 200) { await refreshProfile(); if (!body.again) for (const id of things) if (world.has(id)) gain(id); return body; }
         return null;
       }
+      if (from && !Progress.rememberRun(profile, from.id)) return { again: true, pay: { xp: 0, coins: 0, ember: 0, ember_chances: [] }, level: profile.level, levelled: false, crucible_woke: false };
       const before = profile.level;
       const pay = Coin.runPay(level, boss, replay, finds, window.FORGE_DROPS);
       const ember = pay.ember + pay.ember_chances.filter(p => Math.random() < p).length;
       profile.xp += pay.xp; profile.coins += pay.coins; profile.embers += ember;
       for (const id of things) { gain(id); if (!profile.found.includes(id)) profile.found.push(id); }
+      if (from && from.area) profile.cleared = Object.assign({}, profile.cleared, { [from.area]: true });
       profile.level = Progress.levelFor(profile.xp);
       const woke = before < G.fuse.level && profile.level >= G.fuse.level;
-      save();
-      return { pay: Object.assign({}, pay, { ember }), level: profile.level, levelled: profile.level > before, crucible_woke: woke };
+      const saved = save();
+      return { pay: Object.assign({}, pay, { ember }), replay: !!replay, level: profile.level, levelled: profile.level > before, crucible_woke: woke, saved };
+    },
+    // a run that did not clear (design pass 12 section 3.11.5): its things (ingredients the Forge knows, never a weapon) go into the
+    // stock and profile.found, and nothing is paid; `from` ({ id }) banks it once, remembered in profile.runs in the same save; the
+    // service's POST /bank does the same
+    async bank(things, from) {
+      if (svc.url) {
+        const { code, body } = await api("POST", "/bank", Object.assign({ player: svc.player, things }, from ? { run_id: from.id } : {}));
+        if (code === 200) { await refreshProfile(); for (const id of body.banked || []) if (world.has(id)) gain(id); return body; }
+        return null;
+      }
+      if (from && !Progress.rememberRun(profile, from.id)) return { ok: true, again: true, banked: [] };
+      const banked = things.filter(id => world.has(id) && !F.isWeapon(world.get(id)));
+      for (const id of banked) { gain(id); if (!profile.found.includes(id)) profile.found.push(id); }
+      const saved = save();
+      return { ok: true, banked, saved };
     },
     async buy(id, n) {
       if (svc.url) {
@@ -1627,7 +1718,6 @@
     const finds = { gold_chests: $("runGold").checked ? 1 : 0, rare_enemies: $("runRare").checked ? 1 : 0 };   // the run's finds (design pass 10 revision 1): one each when ticked
     const res = await World.run(level, boss, false, got.map(t => t.id), finds);
     if (!res) { toast("The world can't be reached"); return; }
-    if (svc.url) for (const t of got) gain(t.id);
     const nc = got.map(classOf).find(c => c && !hadClass.has(c));
     toast(`Back from level ${level}${boss ? "'s boss" : ""}: ${res.pay.coins} coins, ${res.pay.xp} XP${res.pay.ember ? ", a Legend Ember" : ""}, ${got.map(t => t.name).join(", ")}`);
     if (nc) state.glow = nc;
@@ -1701,6 +1791,8 @@
       closePlaque(); closeArmory(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo();
       if (!profile.classes.length) openFirstWeapon();
       takeLoadoutBack();
+      const ran = await takeRunBack();   // (a level's run for this smith, paid or banked by the service once)
+      if (ran) { renderAll(); if (ran.cleared) afterLevelChange(ran.before, ran.res); }
       toast(`Connected: ${svc.smiths} smith${svc.smiths === 1 ? "" : "s"} in the world · you are ${player}`);
       if (session.pending.length) { try { await api("POST", "/forge/settle", { player, forges: session.pending }); session.pending = []; toast("The forge has spoken on your pending forges"); } catch (e) { /* later */ } }
       return true;
@@ -1757,7 +1849,7 @@
     profile.picks = Progress.picksLeft(profile);
   }
   window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
-    save, load, goDown, writeHandoff, takeLoadoutBack, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
+    save, load, goDown, writeHandoff, takeLoadoutBack, takeRunBack, lastRun: null, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
     openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
     showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine,
     grycus: { get pose() { return gry.pose; }, get line() { return gry.line; }, get mem() { return gry.mem; }, get pending() { return gry.pending; }, get spot() { return gry.spot; }, get seq() { return gry.seq; },
@@ -1780,20 +1872,24 @@
     if (!load()) { returningSmith(); state.a = "sword"; state.b = "fire"; }
     takeAssist();
     bootFromCellar = takeLoadoutBack();
+    const ran = await takeRunBack();   // a level's run, paid or banked once (design pass 12 section 3.11.5)
     renderAll();
+    if (ran && ran.cleared) afterLevelChange(ran.before, ran.res);
     if (!profile.classes.length) openFirstWeapon();
   })().then(() => { session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
   // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
   // open says what is equipped now. After an erase, or a change of less motion, elsewhere, the page boots again instead
-  window.addEventListener("pageshow", e => {
+  window.addEventListener("pageshow", async e => {
     if (!e.persisted) return;
     session.leaving = false; window.TheForge.wentTo = null; window.TheForge.wentDown = null;
     if (window.Settings && (erasedSinceBoot() || Settings.reduce() !== reduce)) { window.location.reload(); return; }
     if (window.Settings) { session.assistTap = Settings.isOn("pour"); turn.forced = Settings.isOn("forced"); }
     lockLandscape(); fitTurn();
-    if (!takeLoadoutBack()) return;
+    const took = takeLoadoutBack(), ran = await takeRunBack();
+    if (!took && !ran) return;
     renderAll();
-    gryHush(); gryOpen(true);
+    if (ran && ran.cleared) afterLevelChange(ran.before, ran.res);
+    gryHush(); gryOpen(took);   // (his way-up lines are the cellar's: dummies and straw; a level's run home gets the ordinary opening)
     const eq = $("equipBtn"), t = plaqueThing;
     if (eq && t && plaqueOpen()) eq.textContent = equipLabel(t);
   });

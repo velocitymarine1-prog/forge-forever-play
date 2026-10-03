@@ -1,0 +1,761 @@
+// FORGE FOREVER: the trolls (design pass 12 sections 3.5 and 3.12, revision 3; built by build 7 stage H).
+// The Troll Gate's enemies, drawn in code on the knight's frame interface (proto/knight.js) with a painter of their own on 32 and 48
+// px grids: masks lit from the top left, four-tone ramps, a soot outline, feet on the bottom row. Eight kinds on three bodies: the
+// footman (a stooped green troll with an oak club studded with iron), the fire-staff troll (a soot hood and a charred staff with a coal
+// caged at its head), the Emberback (broader, its hide cracked over glowing veins, a charred club), the winchman (a leather apron and a
+// winch handle at his belt); the archer (lanky, a leather hood, an oak self bow and a quiver of pale fletching) and the ice archer (a
+// frost-white hood, the bow wrapped in pale cord, blue-white fletching, cyan arrowheads); the brute (48 px, darker, hunched, an iron
+// collar with a broken chain and a maul of a stone slab lashed to a log) and the rock brute (both arms up round a boulder in the field's
+// rock ramp). Three drawings (side, toward, away; left is the side mirrored), the frames idle 2, walk 4, wind, strike, recover, hit,
+// stone, climb 2 and fall 1 (climb and fall for the small trolls), and the few each kit needs besides: jab 2 (the archers' stab with
+// the bow's end, the fire-staff's butt), heave 2 (the winchman at the winch), charge, roar and sit (the brutes' charge, roar and
+// stagger). Every frame bakes a white canvas (the hit flash) and its stone canvases (the stone death: four steps of ramp swap to the
+// Things stone ramp); the fire-staff's coal and the Emberback's veins glow on two phases, still under reduced motion. A frame names
+// its weapon's tip, where the page draws the red glint of a wind-up: no sprite holds #ff0044, the colour kept for telegraphs.
+// Besides the trolls, the small things of the fight, each a sprite with its anchor: the troll arrow and the ice arrow (7 x 3, in 16
+// directions, with a 1 px ground shadow), the fire bolt's tumbling coal and its sparks, the trebuchet's stone, the chunks a rock slam
+// throws (dirt, clods, the drawbridge's splinters) and the soot shadows where they will land, the pouch, the splash and the rock brute's
+// rock as it lies. Building a frame costs under a millisecond in node; frames are made on first use and kept.
+// The pixels are made without a DOM, so node can check them; canvases are made only when a page asks.
+// Plain script, defines window.Trolls. Needs no other file.
+(function (root) {
+  "use strict";
+  const OUT = "#181425";
+  const R = {
+    green: ["#265c42", "#3e8948", "#63c74d", "#b4e67a"], nature: ["#193c3e", "#265c42", "#3e8948", "#63c74d"],
+    bone: ["#c28569", "#e8b796", "#ead4aa", "#fffaf0"], oak: ["#3e2731", "#733e39", "#b86f50", "#e4a672"], burlap: ["#733e39", "#b86f50", "#e4a672", "#ead4aa"],
+    leather: ["#2a1d28", "#3e2731", "#733e39", "#b86f50"], iron: ["#262b44", "#3a4466", "#5a6988", "#8b9bb4"], stone: ["#4a4450", "#6e6a70", "#9a948c", "#c4bcae"],
+    soot: ["#181425", "#262b44", "#3e2731", "#5a6988"], frost: ["#5a6988", "#8b9bb4", "#c0cbdc", "#ffffff"], charred: ["#181425", "#2a1d28", "#3e2731", "#733e39"],
+    fire: ["#be4a2f", "#f77622", "#feae34", "#fee761"]
+  };
+  const EYE = "#fee761", TUSK = ["#e8b796", "#ead4aa"], MOSS = "#265c42";
+  // the stone ramp the dead swap to (the Things', pixel-forge.js RAMP.stone) and the field's rock ramp, the same tones
+  const STONE = R.stone;
+  const FACINGS = ["right", "left", "away", "toward"];
+  const DRAWING = { right: ["side", false], left: ["side", true], away: ["up", false], toward: ["down", false] };
+  const SMALL = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, hit: 1, stone: 1, climb: 2, fall: 1 };
+  const LARGE = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, hit: 1, stone: 1 };
+  // each kind: its body, its cell, its skin, its dress and weapon, and the frames its kit adds
+  const KIND = {
+    footman: { body: "footman", N: 32, skin: R.green, weapon: "club" },
+    firestaff: { body: "footman", N: 32, skin: R.green, weapon: "staff", hood: R.soot, extra: { jab: 2 } },
+    emberback: { body: "footman", N: 32, skin: R.green, weapon: "ember", broad: 1, veins: true },
+    winchman: { body: "footman", N: 32, skin: R.green, weapon: "club", apron: true, extra: { heave: 2 } },
+    archer: { body: "archer", N: 32, skin: R.green, weapon: "bow", hood: R.leather, fletch: R.bone, extra: { jab: 2 } },
+    icearcher: { body: "archer", N: 32, skin: R.green, weapon: "bow", hood: R.frost, fletch: R.frost, ice: true, extra: { jab: 2 } },
+    brute: { body: "brute", N: 48, skin: R.nature, weapon: "maul", extra: { charge: 1, roar: 1, sit: 1 } },
+    rockbrute: { body: "brute", N: 48, skin: R.nature, weapon: "rock", extra: { roar: 1, sit: 1 } }
+  };
+  const KINDS = Object.keys(KIND);
+  const ANIMS = {}; for (const k of KINDS) ANIMS[k] = Object.assign({}, KIND[k].N === 48 ? LARGE : SMALL, KIND[k].extra || {});
+
+  // ------------------------------------------------------------------ a small painter over an N x N grid (the renderer's way)
+  function Grid(N) { this.N = N; this.px = new Array(N * N).fill(null); }
+  Grid.prototype.get = function (x, y) { const N = this.N; return x >= 0 && y >= 0 && x < N && y < N ? this.px[y * N + x] : null; };
+  Grid.prototype.set = function (x, y, c) { const N = this.N; x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < N && y < N) this.px[y * N + x] = c; };
+  const rect = (x0, y0, x1, y1) => (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+  const ell = (cx, cy, rx, ry) => (x, y) => ((x - cx) ** 2) / (rx * rx) + ((y - cy) ** 2) / (ry * ry) <= 1.02;
+  const or = (...f) => (x, y) => f.some(g => g(x, y));
+  // a thick line from (x0, y0) to (x1, y1), w pixels across, as a mask
+  function line(x0, y0, x1, y1, w) {
+    const s = new Set(), n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 2 + 1, a = -((w - 1) >> 1), b = w >> 1;
+    for (let i = 0; i <= n; i++) { const t = i / n, x = Math.round(x0 + (x1 - x0) * t), y = Math.round(y0 + (y1 - y0) * t); for (let dx = a; dx <= b; dx++) for (let dy = a; dy <= b; dy++) s.add((x + dx) + "," + (y + dy)); }
+    return (x, y) => s.has(x + "," + y);
+  }
+  // a region lit from the top left: o.ball [cx, cy, r] shades it as a round mass (light toward the top left, dark toward the bottom
+  // right), else as the house does, its upper-left edge light and its lower-right edge dark; o.spec puts the ramp's glint, o.flat one tone
+  function region(sp, pred, ramp, o) {
+    o = o || {}; const N = sp.N, m = (x, y) => x >= 0 && y >= 0 && x < N && y < N && pred(x, y);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (m(x, y)) {
+      const ul = !m(x - 1, y) || !m(x, y - 1), dr = !m(x + 1, y) || !m(x, y + 1);
+      let t;
+      if (o.ball) { const v = ((x - o.ball[0]) + (y - o.ball[1])) / (2 * o.ball[2]); t = v < -0.2 ? 2 : v < 0.55 ? 1 : 0; if (dr && t === 1 && v > 0.25) t = 0; }
+      else t = ul && dr ? 1 : dr ? 0 : ul ? 2 : 1;
+      let c = ramp[t];
+      if (o.spec && o.spec(x, y)) c = ramp[3];
+      if (o.flat !== undefined) c = ramp[o.flat];
+      if (o.tex) c = o.tex(x, y, c) || c;
+      sp.set(x, y, c);
+    }
+    // o.cast: the region casts a 1 px shadow down and to the right onto what is already painted behind it, in that tone, so a limb or
+    // a head reads apart from a body of the same skin
+    if (o.cast) for (let y = N - 1; y >= 0; y--) for (let x = N - 1; x >= 0; x--) if (!m(x, y) && sp.get(x, y) && sp.get(x, y) !== OUT && (m(x - 1, y) || m(x, y - 1) || m(x - 1, y - 1))) sp.set(x, y, o.cast);
+  }
+  function outline(sp) { const N = sp.N, add = []; for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!sp.get(x, y) && (sp.get(x - 1, y) || sp.get(x + 1, y) || sp.get(x, y - 1) || sp.get(x, y + 1))) add.push([x, y]); for (const [x, y] of add) sp.set(x, y, OUT); }
+  const dark = ramp => [ramp[0], ramp[0], ramp[1], ramp[2]];   // a limb on the far side, a step darker
+  // a limb from the shoulder (sx, sy) to the fist (fx, fy), 3 px thick, with a fist of radius fr
+  function limb(sp, sx, sy, fx, fy, ramp, fr, w) { region(sp, line(sx, sy, fx, fy, w || 3), ramp, { cast: ramp[0] }); region(sp, ell(fx, fy, fr || 2.3, (fr || 2.3) * 0.9), ramp, { ball: [fx - 1, fy - 1, 2.5], cast: ramp[0] }); }
+
+  // ------------------------------------------------------------------ the weapons
+  // each weapon is drawn from the fist toward its tip, and returns the tip's pixel (where a wind-up's glint is drawn). Every weapon stays
+  // a pixel inside its cell, so the outline closes it on every side: a club's head (2 px round its centre) is kept 3 px in, which also
+  // plants a club resting on the ground when the body breathes down a pixel
+  const inside = (v, r, N) => Math.max(r + 1, Math.min(N - 2 - r, v));
+  function club(sp, fx, fy, tx, ty, K) {
+    tx = inside(tx, 2, sp.N); ty = inside(ty, 2, sp.N);
+    const OAK = K.weapon === "ember" ? R.charred : R.oak;
+    region(sp, line(fx, fy, tx, ty, 2), OAK);
+    region(sp, ell(tx, ty, 2.4, 2.4), OAK, { ball: [tx, ty, Math.max(2.4, 2.4)], spec: (x, y) => x === Math.round(tx) - 1 && y === Math.round(ty) - 1 });
+    if (K.weapon === "ember") { sp.set(tx, ty, R.fire[K.glow ? 2 : 1]); sp.set(tx + 1, ty, R.fire[K.glow ? 1 : 0]); }
+    else for (const [dx, dy] of [[-1, 1], [1, -1], [1, 1]]) sp.set(tx + dx, ty + dy, R.iron[3]);
+    const d = Math.hypot(tx - fx, ty - fy) || 1;
+    return [Math.round(tx + (tx - fx) / d * 2), Math.round(ty + (ty - fy) / d * 2)];
+  }
+  // the fire-staff: a charred staff, 1 px, from its butt through the fist to an iron cage holding a coal (two phases; brighter in a wind);
+  // the cage (4 x 4 from a pixel up and left of its centre) and the butt stay inside the cell, the butt planted on the ground row
+  function staff(sp, bx, by, tx, ty, K, hot) {
+    const N = sp.N; bx = inside(bx, 0, N); by = inside(by, 0, N); tx = Math.max(2, Math.min(N - 4, tx)); ty = Math.max(2, Math.min(N - 4, ty));
+    region(sp, line(bx, by, tx, ty, 1), R.charred, { flat: 2 });
+    const cx = Math.round(tx), cy = Math.round(ty);
+    region(sp, rect(cx - 1, cy - 1, cx + 2, cy + 2), R.iron, { flat: 1 });
+    const f = K.glow ? 1 : 0, core = hot ? [R.fire[3], R.fire[2]] : [R.fire[2], R.fire[1]];
+    sp.set(cx, cy, core[f]); sp.set(cx + 1, cy, core[1 - f]); sp.set(cx, cy + 1, core[1 - f]); sp.set(cx + 1, cy + 1, R.fire[f ? 1 : 0]);
+    return [cx, cy - 2];
+  }
+
+  // ------------------------------------------------------------------ the footman's body (footman, fire-staff, Emberback, winchman)
+  // P: { step, bob, lean, head [dx, dy], arm (the weapon arm's state), climb (0, 1), fall, flinch }
+  function footman(drawing, P, K) {
+    const N = 32, sp = new Grid(N), S = K.skin, B = P.bob || 0, step = P.step || 0, W = K.broad || 0;
+    let tip = null;
+    if (drawing === "side") {
+      const X = P.lean || 0, back = step > 0 ? -2 : step < 0 ? 2 : 0, fwd = -back, hx = X + (P.head ? P.head[0] : 0), hy = B + (P.head ? P.head[1] : 0);
+      const arm = P.arm || "rest";
+      // the far arm, behind
+      if (arm === "heave") region(sp, line(11 + X, 15 + B, 19 + X + (P.pull ? -2 : 1), 19 + B, 3), dark(S));
+      else if (P.fall) limb(sp, 11 + X, 16 + B, 8 + X, 7 + B, dark(S));
+      else limb(sp, 11 + X, 15 + B, 10 + X, 22 + B, dark(S));
+      // the legs: short, thick and bowed, bare feet with the toes forward
+      region(sp, rect(11 + back, 24, 13 + back, 28), dark(S)); region(sp, rect(10 + back, 29, 14 + back, 30), dark(S));
+      region(sp, rect(15 + fwd, 24, 17 + fwd, 28), S); region(sp, rect(15 + fwd, 29, 19 + fwd, 30), S, { ball: [16 + fwd, 29, 3] });
+      // the hunched body, the hump of the shoulders behind the head
+      region(sp, ell(13.5 + X, 19 + B, 6.5 + W, 6), S, { ball: [13.5 + X, 19 + B, Math.max(6.5 + W, 6)] });
+      region(sp, ell(12 + X, 14.5 + B, 5.5 + W, 4.5), S, { ball: [12 + X, 14.5 + B, Math.max(5.5 + W, 4.5)], spec: (x, y) => x === 9 + X && y === 12 + B, cast: S[0] });
+      dress(sp, drawing, X, B, K);
+      // the head, jutting forward below the hump: a heavy brow, a yellow eye, a big nose, an underbite and a tusk, a pointed ear behind
+      region(sp, ell(20.5 + hx, 15 + hy, 4, 3.5), S, { ball: [20.5 + hx, 15 + hy, Math.max(4, 3.5)], cast: S[0] });
+      region(sp, rect(24 + hx, 14 + hy, 25 + hx, 16 + hy), S, { spec: (x, y) => x === 24 + hx && y === 14 + hy });
+      region(sp, or(rect(16 + hx, 12 + hy, 17 + hx, 13 + hy), rect(15 + hx, 11 + hy, 15 + hx, 11 + hy)), S, { flat: 1 });
+      for (let x = 19; x <= 23; x++) sp.set(x + hx, 13 + hy, S[0]);
+      sp.set(22 + hx, 14 + hy, P.flinch ? S[0] : EYE);
+      for (let x = 20; x <= 23; x++) sp.set(x + hx, 17 + hy, S[0]);
+      sp.set(23 + hx, 16 + hy, TUSK[1]); sp.set(23 + hx, 17 + hy, TUSK[0]);
+      if (K.hood) hood(sp, drawing, hx, hy, K);
+      if (K.veins) veins(sp, drawing, X, B, K);
+      // the near arm and the weapon
+      tip = nearArm(sp, drawing, arm, X, B, K, P);
+    } else {
+      const up = drawing === "up", lA = step > 0 ? -1 : 0, lB = step < 0 ? -1 : 0, hy = B + (P.head ? P.head[1] : 0);
+      const arm = P.arm || "rest", climb = P.climb, fall = P.fall;
+      // a weapon behind the body (raised over the head facing the camera, slung on the back while climbing)
+      if (!up && arm === "raise") tip = weapon(sp, drawing, "raise", B, K);
+      // the legs
+      if (climb !== undefined) {
+        const c = climb ? 1 : 0;
+        region(sp, rect(11, 23 - 2 * c, 13, 27 - 2 * c), S); region(sp, rect(10, 28 - 2 * c, 14, 29 - 2 * c), S);
+        region(sp, rect(18, 21 + 2 * c, 20, 28), S); region(sp, rect(17, 29, 21, 30), S);
+      } else if (fall) {
+        region(sp, rect(9, 24, 11, 28), S); region(sp, rect(8, 29, 12, 30), S); region(sp, rect(20, 24, 22, 28), S); region(sp, rect(19, 29, 23, 30), S);
+      } else {
+        region(sp, rect(11 - W, 25 + lA, 13 - W, 28 + lA), S); region(sp, rect(10 - W, 29 + lA, 14 - W, 30 + lA), S, { ball: [11, 29, 3] });
+        region(sp, rect(18 + W, 25 + lB, 20 + W, 28 + lB), S); region(sp, rect(17 + W, 29 + lB, 21 + W, 30 + lB), S, { ball: [18, 29, 3] });
+      }
+      // the belly and the broad shoulders
+      region(sp, ell(15.5, 19 + B, 7 + W, 5.5), S, { ball: [15.5, 19 + B, Math.max(7 + W, 5.5)] });
+      dress(sp, drawing, 0, B, K);
+      region(sp, ell(15.5, 15 + B, 9.5 + W, 3.6), S, { ball: [15.5, 15 + B, Math.max(9.5 + W, 3.6)], spec: (x, y) => x === 8 - W && y === 13 + B, cast: S[0] });
+      // the arms
+      if (climb !== undefined) {
+        const c = climb ? 1 : 0;
+        limb(sp, 8, 14, 7, 4 + 3 * c, S); limb(sp, 23, 14, 24, 7 - 3 * c, S);
+      } else if (fall) {
+        limb(sp, 7, 14, 4, 6, S); limb(sp, 24, 14, 27, 6, S);
+      } else {
+        const free = up ? [24 + W, 15, 24 + W, 22] : [7 - W, 15, 7 - W, 22];
+        if (arm === "heave") { limb(sp, 7, 15, 12, 21 + (P.pull ? 0 : 1), S); limb(sp, 24, 15, 19, 21 + (P.pull ? 0 : 1), S); }
+        else if (P.flinch) limb(sp, free[0], 15 + B, free[0] - 2, 19 + B, S);
+        else limb(sp, free[0], free[1] + B, free[2], free[3] + B, S);
+      }
+      // the head, low between the shoulders
+      region(sp, ell(15.5, 11.5 + hy, 4.5, 4), S, { ball: [15.5, 11.5 + hy, Math.max(4.5, 4)], cast: S[0] });
+      region(sp, or(rect(9, 10 + hy, 10, 11 + hy), rect(21, 10 + hy, 22, 11 + hy), rect(8, 9 + hy, 8, 9 + hy), rect(23, 9 + hy, 23, 9 + hy)), S, { flat: 1 });
+      if (!up) {
+        for (let x = 12; x <= 19; x++) sp.set(x, 10 + hy, S[0]);
+        sp.set(13, 11 + hy, P.flinch ? S[0] : EYE); sp.set(18, 11 + hy, P.flinch ? S[0] : EYE);
+        region(sp, rect(15, 12 + hy, 16, 13 + hy), S, { spec: (x, y) => x === 15 && y === 12 + hy });
+        for (let x = 13; x <= 18; x++) sp.set(x, 14 + hy, S[0]);
+        sp.set(13, 13 + hy, TUSK[1]); sp.set(18, 13 + hy, TUSK[1]); sp.set(13, 14 + hy, TUSK[0]); sp.set(18, 14 + hy, TUSK[0]);
+      } else for (let x = 13; x <= 18; x++) sp.set(x, 14 + hy, S[0]);
+      if (K.hood) hood(sp, drawing, 0, hy, K);
+      if (K.veins) veins(sp, drawing, 0, B, K);
+      if (climb === undefined && !fall && arm !== "heave" && !(arm === "raise" && !up)) tip = weapon(sp, drawing, arm, B, K, P.flinch);
+      else if (climb !== undefined || fall) tip = weapon(sp, drawing, climb !== undefined ? "back" : "flail", B, K);
+    }
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  // the loincloth (burlap, a rope belt, a ragged hem), the winchman's leather apron and winch handle
+  function dress(sp, drawing, X, B, K) {
+    const side = drawing === "side", x0 = side ? 8 + X : 10 - (K.broad || 0), x1 = side ? 19 + X : 21 + (K.broad || 0), y0 = 22 + B;
+    region(sp, (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y0 + 4 && !(y === y0 + 4 && (x + B) % 3 === 0), R.burlap);
+    for (let x = x0; x <= x1; x++) sp.set(x, y0, R.oak[2]);
+    if (K.apron) {
+      const ax0 = side ? 14 + X : 12, ax1 = side ? 20 + X : 19;
+      region(sp, rect(ax0, y0 - 3, ax1, y0 + 5), R.oak, { spec: (x, y) => x === ax0 + 1 && y === y0 - 2 });
+      for (let x = ax0; x <= ax1; x++) sp.set(x, y0 - 3, R.oak[0]);   // its top hem
+      // the winch handle at the belt: an iron crank
+      const hx = side ? 9 + X : 20, hy = y0 + 1;
+      region(sp, or(rect(hx, hy, hx + 1, hy + 3), rect(hx, hy + 3, hx + 3, hy + 3)), R.iron, { flat: 2 });
+    }
+  }
+  // the fire-staff's soot hood, over the head
+  function hood(sp, drawing, hx, hy, K) {
+    if (drawing === "side") region(sp, or(ell(18.5 + hx, 11.5 + hy, 4.5, 3.2), rect(14 + hx, 11 + hy, 16 + hx, 15 + hy)), K.hood, { ball: [18 + hx, 12 + hy, 4.5] });
+    else region(sp, or(ell(15.5, 10 + hy, 5.2, 3.5), rect(10, 10 + hy, 11, 14 + hy), rect(20, 10 + hy, 21, 14 + hy)), K.hood, { ball: [15.5, 10.5 + hy, 5] });
+    if (drawing === "side") { sp.set(21 + hx, 12 + hy, EYE); sp.set(18 + hx, 11 + hy, K.hood[0]); }
+    else if (drawing === "down") { sp.set(13, 11 + hy, EYE); sp.set(18, 11 + hy, EYE); }
+  }
+  // the Emberback's veins: 1 px cracks of fire over the hide, pulsing on two phases
+  function veins(sp, drawing, X, B, K) {
+    const a = R.fire[K.glow ? 2 : 1], b = R.fire[K.glow ? 1 : 2];
+    // each crack a short zigzag line of fire, its pixels changing colour on the two phases
+    const cracks = drawing === "side" ? [[[8, 13], [9, 14], [9, 15], [10, 16]], [[13, 12], [14, 13], [15, 13]], [[10, 19], [11, 20], [11, 21], [12, 22]], [[15, 18], [16, 19], [17, 19]]]
+      : drawing === "down" ? [[[8, 14], [9, 15], [9, 16], [10, 17]], [[21, 13], [22, 14], [22, 15], [23, 16]], [[13, 18], [14, 19], [15, 19], [16, 20]], [[18, 17], [19, 18], [19, 19]], [[12, 12], [13, 13]]]
+        : [[[9, 13], [10, 14], [10, 15], [11, 16]], [[20, 13], [21, 14], [21, 15]], [[14, 16], [15, 17], [16, 17], [17, 18]], [[12, 19], [13, 20]]];
+    for (const crack of cracks) crack.forEach(([x, y], k) => sp.set(x + X, y + B, k % 2 ? b : a));
+  }
+  // the near arm in the side drawing, and its weapon
+  function nearArm(sp, drawing, arm, X, B, K, P) {
+    const S = K.skin;
+    if (arm === "heave") { limb(sp, 16 + X, 15 + B, 21 + X + (P.pull ? -2 : 1), 20 + B, S); return null; }
+    const at = {
+      rest: [[16, 17], [18, 23]], raise: [[15, 16], [13, 10]], swing: [[16, 17], [22, 19]], ground: [[16, 17], [21, 23]],
+      flinch: [[15, 16], [15, 21]], jab0: [[16, 17], [14, 21]], jab1: [[16, 17], [22, 19]], flail: [[16, 17], [19, 8]]
+    }[arm] || [[16, 17], [18, 23]];
+    const [[sx, sy], [fx, fy]] = at;
+    // the weapon behind the fist when it is raised behind the head
+    let tip = null;
+    if (arm === "raise") tip = weaponSide(sp, arm, fx + X, fy + B, K);
+    limb(sp, sx + X, sy + B, fx + X, fy + B, S);
+    if (arm !== "raise") tip = weaponSide(sp, arm, fx + X, fy + B, K);
+    return tip;
+  }
+  // a footman's weapon in the side drawing, from the fist
+  function weaponSide(sp, arm, fx, fy, K) {
+    if (K.weapon === "staff") {
+      const v = { rest: [[fx - 1, fy + 7], [fx + 2, fy - 18]], raise: [[fx + 3, fy + 12], [fx - 3, fy - 8]], swing: [[fx - 9, fy + 2], [fx + 5, fy - 4]],
+        ground: [[fx - 6, fy - 5], [fx + 5, fy + 4]], flinch: [[fx - 2, fy + 8], [fx + 3, fy - 16]], jab0: [[fx - 6, fy - 3], [fx + 8, fy + 1]], jab1: [[fx + 6, fy + 1], [fx - 8, fy - 2]],
+        flail: [[fx - 3, fy + 10], [fx + 3, fy - 6]] }[arm] || [[fx - 1, fy + 7], [fx + 2, fy - 18]];
+      const [[bx, by], [tx, ty]] = v;
+      return staff(sp, bx, by, tx, ty, K, arm === "raise");
+    }
+    const t = { rest: [fx + 4, fy + 5], raise: [fx - 6, fy - 6], swing: [fx + 5, fy + 2], ground: [fx + 6, fy + 5], flinch: [fx + 4, fy - 9], flail: [fx + 4, fy - 5] }[arm] || [fx + 4, fy + 5];
+    return club(sp, fx, fy, t[0], t[1], K);
+  }
+  // a footman's weapon facing the camera or away
+  function weapon(sp, drawing, arm, B, K, flinch) {
+    const up = drawing === "up", m = x => up ? 31 - x : x, S = K.skin;
+    if (arm === "back") {   // climbing: slung across the back
+      if (K.weapon === "staff") return staff(sp, m(9), 26, m(22), 5, K);
+      return club(sp, m(10), 21, m(20), 9, K);
+    }
+    if (arm === "flail") {
+      if (K.weapon === "staff") return staff(sp, m(29), 16, m(27), 2, K);
+      return club(sp, m(27), 6, m(29), 2, K);
+    }
+    const W = K.broad || 0;
+    if (arm === "raise") {   // facing the camera, drawn before the body: the club back over the head
+      limb(sp, m(24 + W), 15 + B, m(22), 8 + B, S);
+      if (K.weapon === "staff") return staff(sp, m(25), 22 + B, m(19), 2 + B, K, true);
+      return club(sp, m(22), 8 + B, m(16), 3 + B, K);
+    }
+    const hand = { rest: [24 + W, 23], swing: [21, 20], ground: [22, 23], jab0: [22, 21], jab1: [20, 21] }[flinch ? "rest" : arm] || [24 + W, 23];
+    const fx = m(hand[0]), fy = hand[1] + B;
+    limb(sp, m(24 + W), 15 + B, fx, fy, S);
+    if (K.weapon === "staff") {
+      const v = { rest: [[fx + (up ? -1 : 1), fy + 7], [fx + (up ? -2 : 2), fy - 19]], swing: [[fx - (up ? -3 : 3), fy + 4], [fx + (up ? -4 : 4), fy - 14]], ground: [[fx, fy - 10], [fx + (up ? -4 : 4), fy + 4]],
+        jab0: [[fx + (up ? -3 : 3), fy - 4], [fx - (up ? -4 : 4), fy + 6]], jab1: [[fx - (up ? -5 : 5), fy - 6], [fx + (up ? -2 : 2), fy + 7]] }[flinch ? "rest" : arm] || [[fx, fy + 7], [fx + 2, fy - 19]];
+      return staff(sp, v[0][0], v[0][1], v[1][0], v[1][1], K, false);
+    }
+    const t = { rest: [fx + (up ? -3 : 3), fy + 5], swing: [fx + (up ? -3 : 3), fy + 7], ground: [fx + (up ? -3 : 3), fy + 6] }[flinch ? "rest" : arm] || [fx + (up ? -3 : 3), fy + 5];
+    return club(sp, fx, fy, t[0], t[1], K);
+  }
+
+  // ------------------------------------------------------------------ the archer's body (archer, ice archer)
+  // lanky and drawn 27 px tall (3.5; its h 25 walks under the archer tower's deck): thin legs, a leather kilt, a hood with a short mantle
+  // over the shoulders, its head hunched down into the mantle (2 px from the side, 3 px facing the camera or away), long thin arms, a
+  // quiver of pale fletching on the back, an oak self bow (the ice archer's wrapped in pale cord, its fletching blue-white, its heads cyan)
+  function archer(drawing, P, K) {
+    const N = 32, sp = new Grid(N), S = K.skin, H = K.hood, B = P.bob || 0, step = P.step || 0, arm = P.arm || "rest";
+    let tip = null;
+    if (drawing === "side") {
+      const X = P.lean || 0, back = step > 0 ? -2 : step < 0 ? 2 : 0, fwd = -back, hx = X + (P.head ? P.head[0] : 0), hy = B + 2 + (P.head ? P.head[1] : 0);
+      // the quiver on the back, the far arm (drawing the string, or hanging)
+      quiver(sp, 9 + X, 8 + B, K, "side");
+      if (arm === "draw") limb(sp, 13 + X, 12 + B, 17 + X, 11 + B, dark(S), 1.6, 2);
+      else if (arm === "loose") limb(sp, 13 + X, 12 + B, 14 + X, 10 + B, dark(S), 1.6, 2);
+      else if (arm !== "jab0" && arm !== "jab1") limb(sp, 12 + X, 12 + B, 11 + X, 20 + B, dark(S), 1.6, 2);
+      region(sp, rect(12 + back, 22, 13 + back, 28), dark(S)); region(sp, rect(11 + back, 29, 14 + back, 30), dark(S));
+      region(sp, rect(15 + fwd, 22, 16 + fwd, 28), S); region(sp, rect(15 + fwd, 29, 18 + fwd, 30), S, { ball: [16 + fwd, 29, 3] });
+      kilt(sp, 11 + X, 18 + X, 18 + B, K);
+      region(sp, ell(14.5 + X, 14.5 + B, 4, 4.8), S, { ball: [14.5 + X, 14.5 + B, Math.max(4, 4.8)] });
+      region(sp, line(11 + X, 12 + B, 17 + X, 18 + B, 1), K.hood, { flat: 0 });   // the quiver's strap across the chest
+      // the hood and its mantle, the face at its front: a yellow eye, a long nose, a small tusk
+      region(sp, ell(14 + X, 11 + B, 4.5, 2.2), H, { ball: [14 + X, 11 + B, Math.max(4.5, 2.2)], cast: H[0] });
+      region(sp, or(ell(16 + hx, 7.5 + hy, 4.2, 4.2), rect(12 + hx, 7 + hy, 14 + hx, 12 + hy)), H, { ball: [16 + hx, 8 + hy, 4.5], spec: (x, y) => x === 14 + hx && y === 4 + hy, cast: H[0] });
+      region(sp, ell(18.5 + hx, 8.5 + hy, 2.3, 2.6), S, { ball: [18.5 + hx, 8.5 + hy, Math.max(2.3, 2.6)] });
+      sp.set(19 + hx, 8 + hy, P.flinch ? S[0] : EYE); sp.set(21 + hx, 9 + hy, S[1]); sp.set(21 + hx, 10 + hy, S[0]); sp.set(19 + hx, 11 + hy, TUSK[1]);
+      tip = bowSide(sp, arm, X, B, K);
+    } else {
+      const up = drawing === "up", lA = step > 0 ? -1 : 0, lB = step < 0 ? -1 : 0, hy = B + 3 + (P.head ? P.head[1] : 0), m = x => up ? 31 - x : x;
+      const climb = P.climb, fall = P.fall;
+      if (!up) quiver(sp, 20, 6 + B, K, "down");
+      if (up && (climb !== undefined || arm === "back")) tip = bowFront(sp, "back", B, K, up);
+      if (climb !== undefined) {
+        const c = climb ? 1 : 0;
+        region(sp, rect(12, 21 - 2 * c, 13, 27 - 2 * c), S); region(sp, rect(11, 28 - 2 * c, 14, 29 - 2 * c), S);
+        region(sp, rect(18, 20 + 2 * c, 19, 28), S); region(sp, rect(17, 29, 20, 30), S);
+      } else if (fall) {
+        region(sp, rect(10, 22, 11, 28), S); region(sp, rect(9, 29, 12, 30), S); region(sp, rect(20, 22, 21, 28), S); region(sp, rect(19, 29, 22, 30), S);
+      } else {
+        region(sp, rect(12, 22 + lA, 13, 28 + lA), S); region(sp, rect(11, 29 + lA, 14, 30 + lA), S, { ball: [12, 29, 3] });
+        region(sp, rect(18, 22 + lB, 19, 28 + lB), S); region(sp, rect(17, 29 + lB, 20, 30 + lB), S, { ball: [18, 29, 3] });
+      }
+      kilt(sp, 11, 20, 18 + B, K);
+      region(sp, ell(15.5, 15 + B, 4.5, 5), S, { ball: [15.5, 15 + B, Math.max(4.5, 5)] });
+      if (up) quiver(sp, 13, 8 + B, K, "up");
+      region(sp, ell(15.5, 11.5 + B, 6.5, 2.4), H, { ball: [15.5, 11.5 + B, Math.max(6.5, 2.4)], cast: H[0] });
+      // the arms, long and thin
+      if (climb !== undefined) { const c = climb ? 1 : 0; limb(sp, 10, 12, 8, 3 + 3 * c, S, 1.6, 2); limb(sp, 21, 12, 23, 6 - 3 * c, S, 1.6, 2); }
+      else if (fall) { limb(sp, 10, 12, 8, 3, S, 1.6, 2); limb(sp, 21, 12, 23, 3, S, 1.6, 2); }
+      else if (!["draw", "loose", "jab0", "jab1"].includes(arm)) { limb(sp, m(21), 12 + B, m(22), 21 + B, S, 1.6, 2); if (arm !== "lower") limb(sp, m(10), 12 + B, m(9), 21 + B, S, 1.6, 2); }
+      // the hood, the face in its opening
+      region(sp, ell(15.5, 7.5 + hy, 4.6, 4.6), H, { ball: [15.5, 7.5 + hy, Math.max(4.6, 4.6)], spec: (x, y) => x === 13 && y === 4 + hy, cast: H[0] });
+      if (!up) {
+        region(sp, ell(15.5, 9 + hy, 3, 2.8), S, { ball: [15.5, 9 + hy, Math.max(3, 2.8)] });
+        sp.set(14, 8 + hy, P.flinch ? S[0] : EYE); sp.set(17, 8 + hy, P.flinch ? S[0] : EYE);
+        sp.set(15, 9 + hy, S[2]); sp.set(16, 9 + hy, S[1]); sp.set(15, 10 + hy, S[1]); sp.set(16, 10 + hy, S[0]);
+        sp.set(14, 11 + hy, TUSK[1]); sp.set(17, 11 + hy, TUSK[1]);
+      } else for (let y = 5; y <= 10; y++) sp.set(15, y + hy, H[0]);
+      if (climb === undefined && fall === undefined) tip = bowFront(sp, arm, B, K, up);
+      else if (fall) tip = bowFront(sp, "flail", B, K, up);
+      else if (!up) tip = bowFront(sp, "back", B, K, up);
+    }
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  function kilt(sp, x0, x1, y0, K) {
+    region(sp, (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y0 + 4 && !(y === y0 + 4 && x % 2 === 0), R.leather, { spec: (x, y) => y === y0 && x === x0 + 1 });
+    if (K.ice) for (let x = x0; x <= x1; x++) sp.set(x, y0, R.frost[1]);
+  }
+  // the quiver: a leather tube, its fletching standing out of the top
+  function quiver(sp, x, y, K, drawing) {
+    const F = K.fletch;
+    if (drawing === "side") { region(sp, rect(x, y + 2, x + 2, y + 9), R.leather); for (const [dx, dy, c] of [[0, 0, 2], [1, 1, 2], [2, 0, 1], [0, 1, 1], [2, 1, 2], [1, 0, 3]]) sp.set(x + dx, y + dy, F[c]); }
+    else if (drawing === "down") { for (const [dx, dy, c] of [[0, 1, 2], [1, 0, 2], [2, 1, 1], [1, 1, 3], [0, 2, 1], [2, 2, 2]]) sp.set(x + dx, y + dy, F[c]); }
+    else { region(sp, line(x + 6, y, x + 1, y + 10, 3), R.leather); for (const [dx, dy, c] of [[6, -1, 2], [7, -2, 2], [5, -2, 1], [6, -2, 3], [8, -1, 1]]) sp.set(x + dx, y + dy, F[c]); }
+  }
+  // a bow: an oak arc through the grip (gx, gy), its back bulging toward (dx, dy), its string straight or drawn back to (sx, sy)
+  function bow(sp, gx, gy, ax, ay, half, bulge, K, string) {
+    // ax, ay: the bow's axis (a unit vector along the limbs); the bulge is to the axis's right-hand side times `bulge`
+    const nx = -ay * bulge, ny = ax * bulge, pts = new Set();
+    for (let t = -half; t <= half; t += 0.25) { const b = Math.cos(t / half * 1.2) * 2.2; pts.add(Math.round(gx + ax * t + nx * b) + "," + Math.round(gy + ay * t + ny * b)); }
+    const arc = (x, y) => pts.has(x + "," + y);
+    region(sp, arc, K.ice ? R.frost : R.oak, { flat: K.ice ? 1 : 2, tex: (x, y) => (K.ice && (x + y) % 3 === 0 ? R.frost[3] : null) });
+    const e0 = [Math.round(gx - ax * half + nx * 0.8), Math.round(gy - ay * half + ny * 0.8)], e1 = [Math.round(gx + ax * half + nx * 0.8), Math.round(gy + ay * half + ny * 0.8)];
+    const strCol = "#ead4aa";
+    if (string) { region(sp, line(e0[0], e0[1], string[0], string[1], 1), [strCol, strCol, strCol, strCol]); region(sp, line(string[0], string[1], e1[0], e1[1], 1), [strCol, strCol, strCol, strCol]); }
+    else region(sp, line(e0[0], e0[1], e1[0], e1[1], 1), [strCol, strCol, strCol, strCol]);
+  }
+  // the nocked arrow from (x0, y0) to its head at (x1, y1): an oak shaft, the head (iron, or cyan for the ice archer)
+  function arrow(sp, x0, y0, x1, y1, K) {
+    region(sp, line(x0, y0, x1, y1, 1), K.ice ? R.frost : R.oak, { flat: K.ice ? 2 : 2 });
+    sp.set(x1, y1, K.ice ? "#2ce8f5" : R.iron[3]);
+    const d = Math.hypot(x1 - x0, y1 - y0) || 1; sp.set(Math.round(x1 - (x1 - x0) / d), Math.round(y1 - (y1 - y0) / d), K.ice ? "#2ce8f5" : R.iron[2]);
+    return [x1, y1];
+  }
+  function bowSide(sp, arm, X, B, K) {
+    const S = K.skin;
+    if (arm === "draw") {   // the bow held out, the string drawn to the cheek, the arrow along the line
+      limb(sp, 15 + X, 12 + B, 23 + X, 12 + B, S, 1.6, 2);
+      bow(sp, 24 + X, 12 + B, 0, 1, 8, 1, K, [17 + X, 11 + B]);
+      return arrow(sp, 17 + X, 11 + B, 28 + X, 11 + B, K);
+    }
+    if (arm === "loose") { limb(sp, 15 + X, 12 + B, 23 + X, 12 + B, S, 1.6, 2); bow(sp, 24 + X, 12 + B, 0, 1, 8, 1, K, null); return [25 + X, 12 + B]; }
+    if (arm === "jab0" || arm === "jab1") {
+      const f = arm === "jab1" ? 5 : 0;
+      limb(sp, 12 + X, 13 + B, 13 + X + f, 18 + B, dark(S), 1.6, 2);
+      limb(sp, 15 + X, 13 + B, 18 + X + f, 18 + B, S, 1.6, 2);
+      bow(sp, 16 + X + f, 18 + B, 1, 0, 8, 1, K, null);
+      return [25 + X + f, 18 + B];
+    }
+    if (arm === "flinch") { limb(sp, 15 + X, 12 + B, 19 + X, 15 + B, S, 1.6, 2); bow(sp, 21 + X, 14 + B, 0.3, 1, 8, 1, K, null); return [18 + X, 6 + B]; }
+    if (arm === "lower") { limb(sp, 15 + X, 12 + B, 19 + X, 19 + B, S, 1.6, 2); bow(sp, 21 + X, 20 + B, 0.6, 0.8, 8, 1, K, null); return [26 + X, 26 + B]; }
+    if (arm === "back") { bow(sp, 13 + X, 15 + B, 0.6, 0.8, 8, -1, K, null); return [8 + X, 9 + B]; }
+    if (arm === "flail") { limb(sp, 15 + X, 12 + B, 19 + X, 4 + B, S, 1.6, 2); bow(sp, 20 + X, 3 + B, 1, 0, 8, -1, K, null); return [28 + X, 3 + B]; }
+    // rest: the bow carried in the near hand, upright at the side
+    limb(sp, 15 + X, 12 + B, 17 + X, 20 + B, S, 1.6, 2);
+    bow(sp, 19 + X, 19 + B, 0, 1, 8, 1, K, null);
+    return [19 + X, 11 + B];
+  }
+  function bowFront(sp, arm, B, K, up) {
+    const S = K.skin, m = x => up ? 31 - x : x, s = up ? -1 : 1;
+    if (arm === "draw" || arm === "loose") {
+      // facing the camera the bow is held level across the chest and the arrow points down at the target; facing away, up
+      limb(sp, 10, 12 + B, 9, 16 + B, S, 1.6, 2); limb(sp, 21, 12 + B, 22, 16 + B, S, 1.6, 2);
+      if (up) { bow(sp, 15.5, 9 + B, 1, 0, 9, -1, K, arm === "draw" ? [15, 14 + B] : null); return arm === "draw" ? arrow(sp, 15, 14 + B, 15, 3 + B, K) : [15, 5 + B]; }
+      bow(sp, 15.5, 19 + B, 1, 0, 9, 1, K, arm === "draw" ? [15, 13 + B] : null);
+      return arm === "draw" ? arrow(sp, 15, 13 + B, 15, 25 + B, K) : [15, 22 + B];
+    }
+    if (arm === "jab0" || arm === "jab1") {
+      const f = arm === "jab1" ? 4 : 0;
+      limb(sp, m(10), 12 + B, m(13), 17 + B + f, S, 1.6, 2); limb(sp, m(21), 12 + B, m(18), 17 + B + f, S, 1.6, 2);
+      bow(sp, 15.5, 18 + B + f, 0, 1, 8, s, K, null);
+      return [15, 26 + B + f];
+    }
+    if (arm === "back") { bow(sp, m(16), 15 + B, 0.6, 0.8, 9, s, K, null); return [m(21), 22 + B]; }
+    if (arm === "flail") { bow(sp, 15.5, 3 + B, 1, 0, 8, -1, K, null); return [m(23), 2 + B]; }   // falling, the bow held over the head in both hands
+    if (arm === "flinch" || arm === "lower") { limb(sp, m(10), 12 + B, m(8), 18 + B, S, 1.6, 2); bow(sp, m(7), 18 + B, 0.4, 0.9, 8, -s, K, null); return [m(10), 25 + B]; }
+    // rest: upright in the left hand at the side
+    bow(sp, m(7), 20 + B, 0, 1, 8, -s, K, null);
+    return [m(7), 12 + B];
+  }
+
+  // ------------------------------------------------------------------ the brute's body (brute, rock brute), 48 px
+  // about 40 px tall and hunched: thick legs, a burlap loincloth, a belly and a huge hump of shoulders, the head low and forward, an
+  // iron collar with a broken chain; the maul (a stone slab lashed to a log) or, for the rock brute, a boulder held over its head
+  function brute(drawing, P, K) {
+    const N = 48, sp = new Grid(N), S = K.skin, B = P.bob || 0, step = P.step || 0, arm = P.arm || "rest", rock = K.weapon === "rock";
+    let tip = null;
+    const sit = P.sit, roar = P.roar ? -1 : 0;
+    if (drawing === "side") {
+      const X = (P.lean || 0) + (sit ? -1 : 0), back = step > 0 ? -3 : step < 0 ? 3 : 0, fwd = -back, D = sit ? 6 : 0;
+      const hx = X + (P.head ? P.head[0] : 0), hy = B + D + (P.head ? P.head[1] : 0);
+      // a maul held behind (raised overhead from behind the hump)
+      if (!rock && (arm === "rest" || arm === "raise" || arm === "roar" || arm === "flinch")) tip = maulSide(sp, arm, X, B, K);
+      if (rock && armsUp(arm)) tip = rockOver(sp, 20 + X + (arm === "raise" ? -2 : 0), (arm === "raise" ? 1 : 3) + B + roar, K);
+      // the far arm
+      if (rock && (armsUp(arm) || arm === "flinch")) limb(sp, 16 + X, 21 + B, 18 + X + (arm === "raise" ? -2 : arm === "flinch" ? -4 : 0), 10 + B + roar, dark(S), 3.2, 5);
+      else if (arm === "strike" || arm === "ground") limb(sp, 16 + X, 22 + B, 29 + X, 34 + B, dark(S), 3.2, 5);
+      else if (sit) limb(sp, 15 + X, 26 + D, 11 + X, 38 + D, dark(S), 3.2, 5);
+      else limb(sp, 15 + X, 23 + B, 13 + X, 35 + B, dark(S), 3.2, 5);
+      // the legs
+      if (sit) {
+        region(sp, rect(14, 38, 28, 42), dark(S)); region(sp, rect(25, 40, 31, 44), dark(S)); region(sp, rect(26, 45, 34, 46), dark(S));
+        region(sp, rect(18, 39, 32, 43), S); region(sp, rect(29, 41, 34, 44), S); region(sp, rect(30, 45, 38, 46), S, { ball: [32, 45, 4] });
+      } else {
+        region(sp, rect(17 + back, 37, 21 + back, 44), dark(S)); region(sp, rect(16 + back, 45, 23 + back, 46), dark(S));
+        region(sp, rect(23 + fwd, 37, 27 + fwd, 44), S); region(sp, rect(23 + fwd, 45, 30 + fwd, 46), S, { ball: [26 + fwd, 45, 4] });
+      }
+      // the belly, the loincloth, the hump of the shoulders
+      region(sp, ell(21 + X, 28 + B + D + roar, 11, 9), S, { ball: [21 + X, 28 + B + D + roar, Math.max(11, 9)] });
+      region(sp, (x, y) => x >= 12 + X && x <= 30 + X && y >= 34 + B + D && y <= 39 + B + D && !(y === 39 + B + D && x % 3 === 0), R.burlap, { tex: (x, y) => y === 34 + B + D ? R.oak[2] : null });
+      region(sp, ell(18 + X, 20 + B + D + roar, 9, 7), S, { ball: [18 + X, 20 + B + D + roar, Math.max(9, 7)], spec: (x, y) => x === 13 + X && y === 16 + B + D, cast: S[0] });
+      // the head, low and forward: a heavy brow, a yellow eye, a broad nose, an underbite with a big tusk, a torn ear
+      region(sp, ell(30 + hx, 23 + hy, 6, 5), S, { ball: [30 + hx, 23 + hy, Math.max(6, 5)], cast: S[0] });
+      region(sp, rect(35 + hx, 21 + hy, 37 + hx, 24 + hy), S, { spec: (x, y) => x === 35 + hx && y === 21 + hy });
+      region(sp, or(rect(25 + hx, 18 + hy, 26 + hx, 20 + hy), rect(24 + hx, 17 + hy, 24 + hx, 17 + hy)), S, { flat: 1 });
+      for (let x = 28; x <= 34; x++) sp.set(x + hx, 21 + hy, S[0]);
+      sp.set(33 + hx, 22 + hy, P.flinch ? S[0] : EYE);
+      for (let x = 30; x <= 35; x++) sp.set(x + hx, 26 + hy, P.roar ? OUT : S[0]);
+      if (P.roar) for (let x = 31; x <= 35; x++) sp.set(x + hx, 27 + hy, "#3e2731");
+      sp.set(34 + hx, 23 + hy, TUSK[1]); sp.set(34 + hx, 24 + hy, TUSK[1]); sp.set(34 + hx, 25 + hy, TUSK[0]); sp.set(35 + hx, 25 + hy, TUSK[0]);
+      // the iron collar and its broken chain
+      region(sp, rect(25 + X, 27 + B + D, 30 + X, 29 + B + D), R.iron, { spec: (x, y) => y === 27 + B + D && x % 2 === 0 });
+      for (const [dx, dy] of [[29, 31], [30, 32], [29, 33], [30, 35], [29, 36]]) sp.set(dx + X, dy + B + D, dy % 2 ? R.iron[3] : R.iron[1]);
+      // the near arm
+      if (rock && armsUp(arm)) limb(sp, 22 + X, 22 + B, 23 + X + (arm === "raise" ? -2 : 0), 11 + B + roar, S, 3.2, 5);
+      else if (arm === "strike" || arm === "ground") limb(sp, 22 + X, 23 + B, 37 + X, 36 + B, S, 3.4, 5);
+      else if (arm === "charge") limb(sp, 22 + X, 25 + B, 30 + X, 37 + B, S, 3.4, 5);
+      else if (sit) limb(sp, 22 + X, 27 + D, 27 + X, 36 + D, S, 3.4, 5);
+      else if (rock && arm === "flinch") limb(sp, 22 + X, 23 + B, 19 + X, 11 + B, S, 3.2, 5);
+      else if (!rock && (arm === "rest" || arm === "raise" || arm === "roar" || arm === "flinch")) limb(sp, 22 + X, 23 + B, ...maulFist(arm, X, B), S, 3.4, 5);
+      else limb(sp, 22 + X, 23 + B, 25 + X, 35 + B, S, 3.4, 5);
+      if (!rock && (arm === "strike" || arm === "ground")) tip = maulSide(sp, arm, X, B, K);
+      if (rock && arm === "flinch") tip = rockOver(sp, 15 + X, 2 + B, K);
+      if (rock && (arm === "strike" || arm === "ground")) tip = [Math.min(46, 39 + X), 38 + B];
+    } else {
+      const up = drawing === "up", lA = step > 0 ? -1 : 0, lB = step < 0 ? -1 : 0, D = sit ? 6 : 0, hy = B + D + (P.head ? P.head[1] : 0) + roar;
+      const m = x => up ? 47 - x : x;
+      if (!up && !rock && arm === "raise") tip = maulFront(sp, arm, B, K, up);
+      if (rock && armsUp(arm) && !up) tip = rockOver(sp, 17, (arm === "raise" ? 1 : 2) + B + roar, K);
+      if (rock && arm === "flinch" && !up) tip = rockOver(sp, 15, 1 + B, K);
+      // the legs
+      if (sit) {
+        region(sp, rect(12, 40, 21, 44), S); region(sp, rect(27, 40, 36, 44), S); region(sp, rect(10, 45, 21, 46), S, { ball: [14, 45, 4] }); region(sp, rect(27, 45, 38, 46), S, { ball: [31, 45, 4] });
+      } else {
+        region(sp, rect(16, 37 + lA, 21, 44 + lA), S); region(sp, rect(15, 45 + lA, 22, 46 + lA), S, { ball: [17, 45, 4] });
+        region(sp, rect(27, 37 + lB, 32, 44 + lB), S); region(sp, rect(26, 45 + lB, 33, 46 + lB), S, { ball: [28, 45, 4] });
+      }
+      region(sp, ell(24, 30 + B + D + roar, 11, 8.5), S, { ball: [24, 30 + B + D + roar, Math.max(11, 8.5)] });
+      region(sp, (x, y) => x >= 14 && x <= 34 && y >= 34 + B + D && y <= 39 + B + D && !(y === 39 + B + D && x % 3 === 0), R.burlap, { tex: (x, y) => y === 34 + B + D ? R.oak[2] : null });
+      if (up && rock && armsUp(arm)) tip = rockOver(sp, 17, (arm === "raise" ? 1 : 2) + B + roar, K);
+      if (up && rock && arm === "flinch") tip = rockOver(sp, 19, 1 + B, K);
+      region(sp, ell(24, 22 + B + D + roar, 15.5, 6), S, { ball: [24, 22 + B + D + roar, Math.max(15.5, 6)], spec: (x, y) => x === 12 && y === 19 + B + D, cast: S[0] });
+      // the arms
+      const big = (sx, sy, fx, fy) => limb(sp, sx, sy, fx, fy, S, 3.4, 5);
+      if (rock && armsUp(arm)) { const r = arm === "raise" ? -2 : 0; big(11, 21 + B, 16, 10 + B + r + roar); big(37, 21 + B, 32, 10 + B + r + roar); }
+      else if (rock && arm === "flinch") { big(11, 21 + B, 14, 9 + B); big(37, 21 + B, 30, 9 + B); }
+      else if (arm === "strike" || arm === "ground") { big(12, 22 + B, 18, 36 + B); big(36, 22 + B, 30, 36 + B); }
+      else if (arm === "charge") { big(11, 23 + B, 13, 37 + B); big(37, 23 + B, 35, 37 + B); }
+      else if (sit) { big(11, 23 + D, 8, 37 + D); big(37, 23 + D, 40, 37 + D); }
+      else if (arm === "roar") { big(m(10), 21 + B, m(6), 11 + B); big(m(38), 22 + B, m(39), 35 + B); }   // the maul brute rears up, a fist raised
+      else { big(m(10), 22 + B, m(9), 35 + B); if (rock || arm === "strike") big(m(38), 22 + B, m(39), 35 + B); }
+      if (up && !rock && arm === "raise") tip = maulFront(sp, arm, B, K, up);
+      // the head, low between the shoulders
+      region(sp, ell(24, 18 + hy, 6, 5), S, { ball: [24, 18 + hy, Math.max(6, 5)], cast: S[0] });
+      region(sp, or(rect(16, 16 + hy, 17, 18 + hy), rect(31, 16 + hy, 32, 18 + hy), rect(15, 15 + hy, 15, 15 + hy), rect(33, 15 + hy, 33, 15 + hy)), S, { flat: 1 });
+      if (!up) {
+        for (let x = 20; x <= 28; x++) sp.set(x, 16 + hy, S[0]);
+        sp.set(21, 17 + hy, P.flinch ? S[0] : EYE); sp.set(27, 17 + hy, P.flinch ? S[0] : EYE);
+        region(sp, rect(23, 18 + hy, 25, 20 + hy), S, { spec: (x, y) => x === 23 && y === 18 + hy });
+        for (let x = 20; x <= 28; x++) sp.set(x, 21 + hy, P.roar ? OUT : S[0]);
+        if (P.roar) for (let x = 21; x <= 27; x++) sp.set(x, 22 + hy, "#3e2731");
+        for (const [x, y, c] of [[20, 19, 1], [20, 20, 1], [20, 21, 0], [28, 19, 1], [28, 20, 1], [28, 21, 0]]) sp.set(x, y + hy, TUSK[c]);
+      } else for (let x = 20; x <= 28; x++) sp.set(x, 21 + hy, S[0]);
+      region(sp, rect(18, 22 + hy, 30, 24 + hy), R.iron, { spec: (x, y) => y === 22 + hy && x % 3 === 0 });
+      for (const [dx, dy] of [[31, 25], [32, 26], [31, 27], [32, 29], [31, 30]]) sp.set(m(dx), dy + hy, dy % 2 ? R.iron[3] : R.iron[1]);
+      if (!rock && arm !== "raise") tip = maulFront(sp, arm === "roar" ? "rest" : arm, B, K, up, sit, D);
+      if (rock && (arm === "strike" || arm === "ground")) tip = [24, 44 + B];
+    }
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  const armsUp = arm => arm === "rest" || arm === "raise" || arm === "roar";
+  // the rock brute's boulder over its head: 14 x 12 in the field's rock ramp with a moss cap, its top-left corner at (x, y)
+  function rockOver(sp, x, y, K) { boulder(sp, x, y); return [x + 7, y + 6]; }
+  function boulder(sp, x, y) {
+    region(sp, or(ell(x + 6.5, y + 6, 7, 5.5), rect(x + 2, y + 6, x + 11, y + 10)), STONE, { ball: [x + 4, y + 3, 7], spec: (xx, yy) => (xx === x + 3 && yy === y + 2) || (xx === x + 4 && yy === y + 1) });
+    for (const [dx, dy] of [[3, 1], [4, 1], [5, 0], [6, 1], [2, 2]]) sp.set(x + dx, y + dy, MOSS);
+    for (const [dx, dy] of [[8, 5], [9, 6], [9, 7], [10, 8]]) sp.set(x + dx, y + dy, STONE[0]);   // a crack
+  }
+  // the maul in the side drawing: where the fist is, and the log and slab from it
+  function maulFist(arm, X, B) { return { rest: [25 + X, 34 + B], raise: [24 + X, 12 + B], roar: [21 + X, 14 + B], flinch: [24 + X, 26 + B] }[arm] || [25 + X, 34 + B]; }
+  function maulSide(sp, arm, X, B, K) {
+    if (arm === "strike" || arm === "ground") {   // slammed down 24 px ahead, the slab on the ground at the cell's edge
+      region(sp, line(36 + X, 35 + B, 41 + X, 38 + B, 3), R.oak);
+      slab(sp, 38 + X, 37, 46, 46);
+      return [42 + X, 36];
+    }
+    const [fx, fy] = maulFist(arm, X, B);
+    const t = { rest: [10 + X, 9 + B], raise: [17 + X, 5 + B], roar: [12 + X, 6 + B], flinch: [11 + X, 10 + B] }[arm];
+    region(sp, line(fx, fy, t[0], t[1], 3), R.oak, { cast: R.oak[0] });
+    slab(sp, t[0] - 5, t[1] - 4, t[0] + 4, t[1] + 4);
+    return [t[0] - 1, t[1] - 5];
+  }
+  function maulFront(sp, arm, B, K, up, sit, D) {
+    const m = x => up ? 47 - x : x;
+    if (arm === "raise" || arm === "roar") {   // lifted high overhead in both hands
+      const lift = arm === "raise" ? 0 : 3;
+      region(sp, line(m(24), 18 + B + lift, m(24), 8 + B + lift, 3), R.oak);
+      slab(sp, 18, 1 + B + lift, 30, 8 + B + lift);
+      return [24, 0 + B + lift];
+    }
+    if (arm === "strike" || arm === "ground") { region(sp, line(24, 30 + B, 24, 38 + B, 3), R.oak); slab(sp, 18, 38, 30, 46); return [24, 37]; }
+    if (sit) { region(sp, line(m(40), 36 + D, m(43), 39 + D, 3), R.oak); slab(sp, up ? 1 : 38, 38, up ? 9 : 46, 46); return [m(42), 37]; }
+    // rest (and the charge, the hit): on the shoulder, the slab over it
+    region(sp, line(m(39), 34 + B, m(41), 13 + B, 3), R.oak, { cast: R.oak[0] });
+    slab(sp, up ? 3 : 36, 5 + B, up ? 11 : 44, 13 + B);
+    return [m(40), 4 + B];
+  }
+  // the maul's slab: grey stone lashed with rope
+  function slab(sp, x0, y0, x1, y1) {
+    region(sp, rect(x0, y0, x1, y1), STONE, { spec: (x, y) => x === x0 + 1 && y === y0 + 1, tex: (x, y, c) => ((x * 7 + y * 3) % 11 === 0 ? STONE[0] : null) });
+    const my = Math.round((y0 + y1) / 2); for (let x = x0; x <= x1; x++) { sp.set(x, my, R.burlap[x % 2 ? 1 : 2]); }
+  }
+
+  // ------------------------------------------------------------------ the frames
+  // the pose of a kind's animation frame i
+  function poseOf(kind, anim, i) {
+    const body = KIND[kind].body;
+    if (anim === "walk") return { step: [1, 0, -1, 0][i % 4], bob: i % 2 ? 0 : 1, arm: "rest" };
+    if (anim === "wind") return { lean: -1, arm: body === "archer" ? "draw" : "raise" };
+    if (anim === "strike") return { lean: 1, arm: body === "archer" ? "loose" : body === "brute" ? "strike" : "swing" };
+    if (anim === "recover") return { lean: body === "brute" ? 2 : 1, bob: 1, arm: body === "archer" ? "lower" : "ground" };
+    if (anim === "hit" || anim === "stone") return { lean: -1, head: [-1, -1], flinch: true, arm: "flinch" };
+    if (anim === "climb") return { climb: i % 2, arm: "back" };
+    if (anim === "fall") return { fall: true, arm: "flail" };
+    if (anim === "jab") return { lean: i % 2 ? 1 : -1, arm: i % 2 ? "jab1" : "jab0" };
+    if (anim === "heave") return { lean: i % 2 ? 1 : -1, arm: "heave", pull: i % 2 };
+    if (anim === "charge") return { lean: 2, bob: 1, head: [2, 3], arm: "charge" };
+    if (anim === "roar") return { lean: -1, head: [-1, -2], arm: "roar", roar: true };
+    if (anim === "sit") return { sit: true, arm: "sit" };
+    return { bob: i % 2, arm: "rest" };   // idle: a 1 px breath
+  }
+  const cache = new Map();
+  // Trolls.frame(kind, facing, anim, i, glow) -> { px, N, w, h, kind, facing, anim, i, glow, tip, canvas(), white(), stonePx(s), stone(s) }
+  //   kind: one of KINDS (anything else is a footman); facing: right | left | away | toward (anything else is right); anim: one of the
+  //   kind's ANIMS (anything else is idle; climb and fall only for the small trolls); glow: 0 or 1, the coal's and the veins' phase
+  function frame(kind, facing, anim, i, glow) {
+    if (!KIND[kind]) kind = "footman";
+    if (!DRAWING[facing]) facing = "right";
+    const A = ANIMS[kind];
+    if (!A[anim]) anim = "idle";
+    i = (i | 0) % A[anim];
+    const K = Object.assign({}, KIND[kind], { kind, glow: (KIND[kind].weapon === "staff" || KIND[kind].veins) && glow ? 1 : 0 });
+    const climbing = anim === "climb";
+    const [drawing, flip] = climbing ? ["up", false] : DRAWING[facing];
+    const key = kind + "|" + (climbing ? "away" : facing) + "|" + anim + "|" + i + "|" + K.glow;
+    if (cache.has(key)) return cache.get(key);
+    const P = poseOf(kind, anim, i);
+    const sp = BODY[K.body](drawing, P, K);
+    const N = sp.N;
+    let px = sp.px, tip = sp.tip ? [Math.max(0, Math.min(N - 1, Math.round(sp.tip[0]))), Math.max(0, Math.min(N - 1, Math.round(sp.tip[1])))] : null;
+    if (anim === "stone") px = px.map(c => c && c !== OUT ? toStone(c) : c);
+    if (flip) { px = new Array(N * N).fill(null); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) px[y * N + (N - 1 - x)] = sp.px[y * N + x]; if (anim === "stone") px = px.map(c => c && c !== OUT ? toStone(c) : c); if (tip) tip = [N - 1 - tip[0], tip[1]]; }
+    const out = { px, N, w: N, h: N, kind, facing: climbing ? "away" : facing, anim, i, glow: K.glow, tip, _c: null, _w: null, _s: [],
+      canvas() { return this._c || (this._c = toCanvas(px, N, null)); },
+      white() { return this._w || (this._w = toCanvas(px, N, () => "#ffffff")); },
+      // the stone death's ramp swap, step 1 to 4 (4 is all stone); a dithered share of the pixels each step
+      stonePx(s) { return stonePixels(px, N, s); },
+      stone(s) { s = Math.max(1, Math.min(4, s === undefined ? 4 : s | 0)); return this._s[s] || (this._s[s] = toCanvas(stonePixels(px, N, s), N, null)); } };
+    cache.set(key, out);
+    return out;
+  }
+  // a colour to the stone ramp by its lightness: the dead troll's ramps swap tone for tone
+  const LUM = c => { const v = [1, 3, 5].map(k => parseInt(c.slice(k, k + 2), 16)); return 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]; };
+  const stoneOf = new Map();
+  function toStone(c) { if (!stoneOf.has(c)) { const l = LUM(c); stoneOf.set(c, STONE[l < 70 ? 0 : l < 115 ? 1 : l < 165 ? 2 : 3]); } return stoneOf.get(c); }
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  function stonePixels(px, N, s) {
+    s = Math.max(1, Math.min(4, s === undefined ? 4 : s | 0));
+    return px.map((c, k) => { if (!c || c === OUT) return c; const x = k % N, y = (k / N) | 0; return BAYER[(y & 3) * 4 + (x & 3)] < s * 4 ? toStone(c) : c; });
+  }
+  function toCanvas(px, N, tint, H) {
+    H = H || N;
+    const c = root.document.createElement("canvas"); c.width = N; c.height = H; const g = c.getContext("2d");
+    for (let k = 0; k < N * H; k++) { const col = px[k]; if (!col) continue; g.fillStyle = tint && col !== OUT ? tint(col) : col; g.fillRect(k % N, (k / N) | 0, 1, 1); }
+    return c;
+  }
+
+  // ------------------------------------------------------------------ the things that fly, fall and lie (section 3.12)
+  // Small sprites of their own size, each { px, w, h, ox, oy, canvas() }: the page draws one with its anchor (ox, oy) on the point it
+  // stands for (a projectile's head or centre, a chunk's or a shadow's centre, a pouch's or a splash's or a rock's foot)
+  function thing(px, w, h, ox, oy, extra) { return Object.assign({ px, w, h, ox, oy, _c: null, canvas() { return this._c || (this._c = toCanvas(px, w, null, h)); } }, extra || {}); }
+  const tcache = new Map();
+  const once = (key, make) => { if (!tcache.has(key)) tcache.set(key, make()); return tcache.get(key); };
+  // projectiles turn to the nearest of 16 directions
+  const DIRS = 16, dirOf = a => ((Math.round((+a || 0) / (Math.PI * 2 / DIRS)) % DIRS) + DIRS) % DIRS;
+  // the troll arrow (7 x 3: a soot shaft, a white head, pale fletching) and the ice arrow (7 x 3: a pale shaft, a cyan head, blue-white
+  // fletching), drawn along the direction in a 13 px cell, anchored at the head; with a 1 px shadow on the ground, its footprint
+  function arrowSprite(kind, k) {
+    const W = 13, c = 6, a = k * 2 * Math.PI / DIRS, ca = Math.cos(a), sa = Math.sin(a), px = new Array(W * W).fill(null), sh = new Array(W * W).fill(null);
+    const at = (t, s) => [Math.round(c + ca * t - sa * s), Math.round(c + sa * t + ca * s)];
+    const put = (arr, t, s, col) => { const [x, y] = at(t, s); if (x >= 0 && y >= 0 && x < W && y < W) arr[y * W + x] = col; };
+    const ice = kind === "ice-arrow", SHAFT = ice ? "#c0cbdc" : OUT, HEAD = ice ? "#2ce8f5" : "#ffffff", FLETCH = ice ? "#8b9bb4" : "#c0cbdc";
+    if (k % 4 === 2) {
+      // the four diagonals are drawn by hand (rounding a turned line breaks them): pointing down and right, the fletching at the top
+      // left, the shaft, and the head an L whose corner is the point and whose arms are the barbs; mirrored for the other three
+      const mx = k === 6 || k === 10, my = k === 10 || k === 14, set = (arr, dx, dy, col) => { const x = 4 + (mx ? 5 - dx : dx), y = 4 + (my ? 5 - dy : dy); arr[y * W + x] = col; };
+      for (let d = 0; d <= 5; d++) set(sh, d, d, "#3e2731");
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1]]) set(px, dx, dy, FLETCH);
+      for (const d of [1, 2, 3, 4]) set(px, d, d, SHAFT);
+      for (const [dx, dy] of [[5, 5], [5, 4], [5, 3], [4, 5], [3, 5]]) set(px, dx, dy, HEAD);
+      const hx = 4 + (mx ? 0 : 5), hy = 4 + (my ? 0 : 5);
+      return thing(px, W, W, hx, hy, { kind, dir: k, shadow: thing(sh, W, W, hx, hy) });
+    }
+    for (let t = -3; t <= 3; t++) put(sh, t, 0, "#3e2731");
+    for (let t = -3; t <= 1; t++) put(px, t, 0, SHAFT);
+    put(px, -3, -1, FLETCH); put(px, -3, 1, FLETCH); put(px, -2, -1, FLETCH); put(px, -2, 1, FLETCH);
+    put(px, 2, 0, HEAD); put(px, 3, 0, HEAD); put(px, 2, -1, HEAD); put(px, 2, 1, HEAD);
+    const [hx, hy] = at(3, 0);
+    return thing(px, W, W, hx, hy, { kind, dir: k, shadow: thing(sh, W, W, hx, hy) });
+  }
+  // the fire bolt: a 5 x 5 coal tumbling on four frames, #f77622 and #feae34 round a #fee761 heart, with a 3 px trail of sparks behind
+  // it; anchored at its centre (its hit circle's)
+  const COAL = [".oFY.", "oFYWF", "FYWYF", "FYYFo", ".FFo."], COALPAL = { o: R.fire[0], F: R.fire[1], Y: R.fire[2], W: R.fire[3] };
+  function boltSprite(k, f) {
+    const W = 17, c = 8, a = k * 2 * Math.PI / DIRS, ca = Math.cos(a), sa = Math.sin(a), px = new Array(W * W).fill(null);
+    const put = (x, y, col) => { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < W && y < W) px[y * W + x] = col; };
+    [[4, R.fire[2]], [5.5, R.fire[1]], [7, R.fire[0]]].forEach(([d, col], j) => put(c - ca * d - sa * (j % 2 ? 0.6 : -0.6) * (f % 2 ? 1 : -1), c - sa * d + ca * (j % 2 ? 0.6 : -0.6) * (f % 2 ? 1 : -1), col));
+    for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) {
+      // the coal turned a quarter each frame
+      let sx = x, sy = y; for (let q = 0; q < (f & 3); q++) { const t = sx; sx = 4 - sy; sy = t; }
+      const ch = COAL[sy][sx]; if (ch !== ".") put(c - 2 + x, c - 2 + y, COALPAL[ch]);
+    }
+    return thing(px, W, W, c, c, { kind: "fire-bolt", dir: k, i: f & 3 });
+  }
+  // the trebuchet's stone: a 6 x 6 boulder in the field's rock ramp with a soot outline, on two tumbling frames; anchored at its centre
+  function stoneSprite(f) {
+    const sp = new Grid(8);
+    region(sp, ell(3.5, 3.5, 3, 3), STONE, { ball: [3.5, 3.5, 3], spec: (x, y) => f % 2 ? x === 5 && y === 2 : x === 2 && y === 2 });
+    if (f % 2) { sp.set(2, 4, STONE[0]); sp.set(3, 5, STONE[0]); } else { sp.set(4, 3, STONE[0]); sp.set(5, 4, STONE[0]); sp.set(3, 2, MOSS); }
+    outline(sp);
+    return thing(sp.px, 8, 8, 4, 4, { kind: "stone", i: f % 2 });
+  }
+  function projectile(kind, angle, i) {
+    const k = dirOf(angle);
+    if (kind === "fire-bolt") return once("bolt" + k + "|" + ((i | 0) & 3), () => boltSprite(k, (i | 0) & 3));
+    if (kind === "stone") return once("stone" + ((i | 0) % 2), () => stoneSprite((i | 0) % 2));
+    if (kind !== "ice-arrow") kind = "troll-arrow";
+    return once(kind + k, () => arrowSprite(kind, k));
+  }
+  const PROJECTILES = { "troll-arrow": 1, "ice-arrow": 1, "fire-bolt": 4, stone: 2 };
+  // the rock slam's chunks (and a stone's): dirt, 3 x 3 of the ground's tones; the clod, every third chunk, 4 x 4; a splinter of the
+  // drawbridge's oak; each with a soot outline, tumbling on two frames, anchored at its centre
+  function chunkSprite(kind, f) {
+    const n = kind === "clod" ? 6 : 5, sp = new Grid(n + 1), GROUND = ["#3e2731", "#733e39", "#b86f50", "#e4a672"];
+    if (kind === "splinter") region(sp, f ? line(1, 3, 4, 1, 1) : rect(1, 2, 4, 3), R.oak, { spec: (x, y) => x === 1 && y === (f ? 3 : 2) });
+    else if (kind === "clod") region(sp, f ? or(rect(1, 2, 4, 4), rect(2, 1, 3, 1)) : or(rect(1, 1, 4, 3), rect(2, 4, 4, 4)), GROUND, { spec: (x, y) => x === (f ? 2 : 1) && y === 1 });
+    else region(sp, f ? or(rect(1, 2, 3, 3), rect(2, 1, 2, 1)) : or(rect(1, 1, 3, 2), rect(2, 3, 3, 3)), GROUND, { spec: (x, y) => x === (f ? 2 : 1) && y === 1 });
+    outline(sp);
+    const N = n + 1;
+    return thing(sp.px, N, N, N >> 1, N >> 1, { kind, i: f });
+  }
+  function chunk(kind, i) { if (kind !== "clod" && kind !== "splinter") kind = "dirt"; const f = (i | 0) % 2; return once("chunk" + kind + f, () => chunkSprite(kind, f)); }
+  // a soot shadow on the ground, r 1 to 10 (a chunk's grows to 3, a stone's from 3 to 10): its core the ground's darkest tone, its rim
+  // soot; anchored at its centre
+  function shadow(r) {
+    r = Math.max(1, Math.min(10, Math.round(+r || 1)));
+    return once("shadow" + r, () => {
+      const rx = r, ry = Math.max(1, Math.round(r * 0.6)), w = 2 * rx + 1, h = 2 * ry + 1, px = new Array(w * h).fill(null);
+      const inside = (x, y) => ((x - rx) / (rx + 0.5)) ** 2 + ((y - ry) / (ry + 0.5)) ** 2 <= 1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (inside(x, y)) px[y * w + x] = inside(x - 1, y) && inside(x + 1, y) && inside(x, y - 1) && inside(x, y + 1) ? "#3e2731" : OUT;
+      return thing(px, w, h, rx, ry, { r });
+    });
+  }
+  // a pouch on the ground (section 3.11.2): 7 x 6 burlap with a soot outline, a plain tie or a gold one (tier 2 and up, the Emberback's),
+  // and a 1 px #fee761 glint at the top of its bob; anchored at its foot
+  const POUCH = ["..oTo..", ".otbto.", "oBgBBbo", "oBBBBbo", "oBBbbbo", ".ooooo."];
+  function pouch(gold, glint) {
+    gold = !!gold; glint = !!glint;
+    return once("pouch" + gold + glint, () => {
+      const pal = { o: OUT, B: R.burlap[2], b: R.burlap[1], g: glint ? "#fee761" : R.burlap[2], t: gold ? R.fire[2] : R.burlap[0], T: gold ? R.fire[3] : R.burlap[1] };
+      const px = []; for (const row of POUCH) for (const ch of row) px.push(ch === "." ? null : pal[ch]);
+      return thing(px, 7, 6, 3, 5, { gold, glint });
+    });
+  }
+  // the splash of a troll going into the moat: four frames of #2ce8f5 and #0099db, droplets thrown up and falling, rings on the water;
+  // anchored at the water's point
+  function splash(i) {
+    const f = Math.max(0, Math.min(3, i | 0));
+    return once("splash" + f, () => {
+      const w = 17, h = 15, cx = 8, cy = 13, px = new Array(w * h).fill(null), A = "#2ce8f5", Bc = "#0099db";
+      const put = (x, y, c) => { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < w && y < h) px[y * w + x] = c; };
+      const ring = (rx, c) => { for (let a = 0; a < 64; a++) { const t = a / 64 * Math.PI * 2; put(cx + Math.cos(t) * rx, cy + Math.sin(t) * rx * 0.3, c); } };
+      if (f === 0) { ring(3, Bc); for (const dx of [-2, -1, 1, 2]) put(cx + dx, cy - 2 - (Math.abs(dx) === 1 ? 1 : 0), A); put(cx, cy - 1, A); }
+      else if (f === 1) { ring(5, Bc); for (let y = cy - 7; y <= cy - 1; y++) { put(cx, y, A); if (y > cy - 6) { put(cx - 1, y, Bc); put(cx + 1, y, Bc); } } for (const [dx, dy] of [[-4, -5], [4, -5], [-3, -7], [3, -7], [0, -9]]) put(cx + dx, cy + dy, A); }
+      else if (f === 2) { ring(6, Bc); for (const [dx, dy] of [[-6, -4], [6, -4], [-4, -8], [4, -8], [-1, -10], [1, -6], [-2, -3], [2, -3]]) put(cx + dx, cy + dy, dy < -6 ? A : Bc); }
+      else { ring(7, Bc); ring(4, A); for (const [dx, dy] of [[-7, -2], [7, -2], [-3, -4], [3, -4]]) put(cx + dx, cy + dy, Bc); }
+      return thing(px, w, h, cx, cy, { i: f });
+    });
+  }
+  // the rock brute's rock, as it lies (the rock a staggered rock brute drops, the boulder a dead one leaves, the rock in a fresh crater):
+  // the boulder it carries, 14 x 12 with its outline; anchored at its foot
+  function rock() {
+    return once("rock", () => {
+      const sp = new Grid(16); boulder(sp, 1, 1); outline(sp);
+      const px = sp.px.slice(0, 16 * 14);
+      return thing(px, 16, 14, 8, 13);
+    });
+  }
+  // a kind's sprite on the knight's interface: { kind, N, FACINGS, ANIMS, frame(facing, anim, i, glow) }
+  function sprite(kind) { if (!KIND[kind]) kind = "footman"; return { kind, N: KIND[kind].N, FACINGS, DRAWING, ANIMS: ANIMS[kind], frame: (facing, anim, i, glow) => frame(kind, facing, anim, i, glow) }; }
+
+  const BODY = { footman, archer, brute };
+  root.Trolls = { OUT, R, STONE, KINDS, KIND, FACINGS, DRAWING, ANIMS, frame, sprite, poseOf, toStone, stonePixels, DIRS, dirOf, PROJECTILES, projectile, chunk, shadow, pouch, splash, rock };
+  if (typeof module !== "undefined" && module.exports) module.exports = root.Trolls;
+})(typeof window !== "undefined" ? window : globalThis);

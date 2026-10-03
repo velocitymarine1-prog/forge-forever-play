@@ -24,15 +24,26 @@ the sign, goes back to the anvil.
 **Try it in the cellar** on a new weapon's plaque, or from the menu. Walk a knight among the training dummies and swing, shoot,
 stream, lob, orbit, ward, trap and summon with anything you own. A legend strikes with its body's weapon and has one ability from
 its head's class (Volley, Quake, Whirlwind…) on the gold button above Strike, with a cooldown. Nothing bleeds, nothing is used up,
-and nothing pays. The rack on the wall holds every weapon you own.
+and nothing pays. The rack on the wall holds every weapon you own. **The door on the cellar's left wall** ("← The Troll Gate": tap the
+prompt, press E, or walk into the wall) opens the gate plate: go alone, or bring one to three sword-brothers.
+
+**The Troll Gate** (`battlegrounds.html?area=gate`), the first real Battleground. A dusk field two screens deep before a troll castle,
+played exactly like the cellar: five waves of trolls in five arenas among thorn-wire, stakes, trenches and troll outposts that send trolls
+until they are wrecked, a chapel with a stair to its roof, a watchtower with a ladder, two trebuchets worked by troll winchmen; then
+the war horn, the drawbridge, the maul brute and the rock brute, the gate to batter down (any weapon, or the Last Army's Ram lying on
+the bank), the last of them, the iron chest, and the castle. Trolls hurt here: a knight who falls is lifted by a friend, a lone knight
+gets one Second Wind, and a wipe restarts the wave at full health. Trolls, huts and the chest drop ingredients (never weapons); walk
+into the castle and they go home to the Forge's stock and pay coin and experience, leave early and they are banked unpaid. Normal is
+the only difficulty.
 
 Play: https://velocitymarine1-prog.github.io/forge-forever-play/
 
 Built for a phone held sideways, landscape only, and add it to the home screen: held upright, every page shows a turn plate, and
 if the screen won't turn (rotation lock) "My screen won't turn" turns the game for you. On a desktop: W A S D, J strikes, K swaps,
-L dodges, U plays a legend's ability, E uses the rack and the stairs, Esc opens the cellar's menu.
+L dodges, U plays a legend's ability, E uses the rack, the stairs and the door, takes up the ram and opens the chest, Esc opens the
+cellar's menu.
 
 This is a **world of one**: the pairs the seed ledger knows reveal the Forge Oracle's real results (the model wrote them once), and
 every other pair is the offline Combiner's provisional draft. Your smithy is saved in this browser. The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `ba42fa5`.
+`tools/deploy.sh` from commit `2095284`.
