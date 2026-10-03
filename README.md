@@ -38,7 +38,10 @@ the war horn, the drawbridge, the maul brute and the rock brute, the gate to bat
 the bank), the last of them, the iron chest, and the castle. Trolls hurt here: a knight who falls is lifted by a friend, a lone knight
 gets one Second Wind, and a wipe restarts the wave at full health. Trolls, huts and the chest drop ingredients (never weapons); walk
 into the castle and they go home to the Forge's stock and pay coin and experience, leave early and they are banked unpaid. Normal is
-the only difficulty.
+the only difficulty. Your health is the red bar in the top-left corner (100); it grows back, a point a second, after five seconds
+without a hit. Yellow arrows point at what to go to and use (the ram, the gate to break, the iron chest, the way into the castle, a
+fallen friend to lift), a yellow GO shows the way on between the waves, the plate in the top-right corner counts the trolls the wave
+still has, and whatever you hit shows its health over it.
 
 Play: https://velocitymarine1-prog.github.io/forge-forever-play/
 
@@ -50,4 +53,4 @@ cellar's menu.
 This is a **world of one**: the pairs the seed ledger knows reveal the Forge Oracle's real results (the model wrote them once), and
 every other pair is the offline Combiner's provisional draft. Your smithy is saved in this browser. The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `01bb4a2`.
+`tools/deploy.sh` from commit `d3a850f`.

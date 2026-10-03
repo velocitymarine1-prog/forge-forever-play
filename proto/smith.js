@@ -117,7 +117,8 @@
     if (!r || typeof r !== "object" || r.v !== 1 || !okId(r.id) || typeof r.name !== "string" || !cleanName(r.name)) return null;
     return { v: 1, id: r.id, name: cleanName(r.name), joined: typeof r.joined === "string" ? r.joined : null };
   }
-  function write(r) { const kept = store.set(KEY, JSON.stringify(r)); api.kept = kept; return r; }
+  // (build 9) on the Cloudflare copy a new name, or a rename, goes online too (proto/cloud.js)
+  function write(r) { const kept = store.set(KEY, JSON.stringify(r)); api.kept = kept; try { if (root.Cloud) root.Cloud.touch(); } catch (e) { /* kept here */ } return r; }
   function make(name, o) {
     o = o || {};
     return write({ v: 1, id: okId(o.id) ? o.id : newId(o.rand), name: cleanName(name), joined: nowIso(o.now) });

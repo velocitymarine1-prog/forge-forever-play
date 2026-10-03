@@ -7,6 +7,8 @@
 //   Level.attach(fight, opts)    the director on a level's fight (fight.director); opts.waves false keeps the camera alone (tests, scenes)
 //   Level.scaling(area, p, b)    section 3.7's counts for p human knights and b sword-brothers (brothers a quarter): factor, cap, the gate's HP
 //   Level.edgeMarks(fight, o)    who gets a mark at the view's edge (section 3.14): [{ x, y, size, dir, alarm, dot, d }], view px, at most 8
+//   Level.guide(fight, o)        what the level points the player at (design pass 18): the yellow arrows over the ram, the gate, the chest,
+//                                the way in and a fallen friend, their chevrons at the view's edge, GO between the waves, the trolls left
 //   Level.jump(fight, arenaId)   the party at an arena's rally points with the earlier arenas cleared (tests, the harness's scenes)
 // What the page and the bots read: fight.view (the camera, whole pixels), fight.engines [{ id, phase, t, T, manned, wrecked, stone, x, y }],
 // fight.chest { x, y, r, shown, open, openAt }, fight.bridge { down, fallAt, fall }, fight.gate { down, lift, stage, eyes, burst, burstDone,
@@ -163,9 +165,17 @@
     }
     enginesStep(fight, D, dt);
     gateWatch(fight, D);
+    ramReach(fight, D);
     pouchesStep(fight, D, dt);
     camera(fight, D, dt);
     freeBox(fight, D);
+  }
+  // the ram lying west of what the camera's limits let a knight reach (carried back over an arena's west edge before its wave started, and
+  // put down there) goes back to where it began, so it is never out of reach while the guide points at it (design pass 18)
+  function ramReach(fight, D) {
+    const W = fight.world, id = W.ram; if (id === null || id === undefined) return;
+    const s = W.solids[id], VK = fight.area.viewKnight || { x0: 14 }, within = ((fight.area.ram || {}).within || 16);
+    if (s && !s.gone && s.x1 + within < D.cam.left + VK.x0 - 1e-9) CB().resetRam(fight);
   }
   // each knight's movement over the last 2.0 s (the trebuchets pick the least moved) and its velocity this step (their lead)
   function tracks(fight, D, dt) {
@@ -1002,19 +1012,29 @@
   // Gate.edgeMarks draws the same list; the squire reads this one (o: { lefty, toast })
   function edgeMarks(fight, o) {
     o = o || {}; const v = fight.view; if (!v) return [];
-    const A = fight.area || {}, M = A.offscreenMarks || {}, W = v.x1 - v.x0, H = v.y1 - v.y0, within = M.within || 200, near = M.near || 64, inset = M.inset || 4;
-    const lefty = o.lefty === undefined ? fight.hand === "left" : !!o.lefty;
-    const SZ = Object.assign({ near: 5, far: 3, brute: 7, engine: 5 }, M.size || {}), top = M.top || 28, TH = M.thumbs || { x: 67, y: 118 }, band = (M.bottomBand || {})[lefty ? "left" : "right"] || (lefty ? [68, 204] : [180, 316]);
-    const cx = W / 2, cy = (A.camera || {}).aimY || 116, out = [];
+    const A = fight.area || {}, M = A.offscreenMarks || {}, W = v.x1 - v.x0, H = v.y1 - v.y0, within = M.within || 200, near = M.near || 64;
+    const SZ = Object.assign({ near: 5, far: 3, brute: 7, engine: 5 }, M.size || {}), out = [];
     const AR = fight.level && fight.level.arena && fight.level.arena.x0 !== undefined ? fight.level.arena : null, inArena = x => !AR || (x >= AR.x0 && x <= AR.x1);
     const add = (sx, sy, size, extra) => { if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) return; const dx = Math.max(0, -sx, sx - W), dy = Math.max(0, -sy, sy - H), d = Math.hypot(dx, dy); if (d > within) return; out.push(Object.assign({ sx, sy, d, size: size === "auto" ? (d <= near ? SZ.near : SZ.far) : size, alarm: false, dot: false }, extra || {})); };
     for (const f of fight.foes || []) if (!f.dead && !(f.spawn > 0) && inArena(f.x)) add(f.x - v.x0, f.y - (f.z || 0) - v.y0, f.kind === "brute" || f.kind === "rockbrute" ? SZ.brute : "auto");
     for (const e of fight.engines || []) if (e.manned && !e.wrecked) add(e.x - v.x0, e.y - v.y0, SZ.engine, { dot: true, alarm: !!e.stone });
     for (const s of ((fight.marks || {}).stone || [])) { const r = s.r || 16, sx = s.x - v.x0, sy = s.y - (s.z || 0) - v.y0; if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) add(sx, sy, SZ.engine, { alarm: true }); }
     out.sort((a, b) => a.d - b.d);
-    const placed = [];
-    for (const m of out) {
-      if (placed.length >= (M.max || 8)) break;
+    // a bone mark next to a yellow one of the guide gives way to it (design pass 18; the page passes the guide's chevrons as o.avoid)
+    const avoid = o.avoid || [], gap = (M.guideGap || 8);
+    return onEdge(fight, out, o, M.max || 8).map(p => ({ x: p.x, y: p.y, size: p.m.size, dir: p.dir, alarm: p.m.alarm, dot: p.m.dot, d: Math.round(p.m.d) })).filter(m => !avoid.some(g => Math.hypot(g.x - m.x, g.y - m.y) <= gap));
+  }
+  // the edge placement of section 3.14, for the bone marks and the guide's chevrons alike: on the line from the view's centre (192, aimY) to
+  // the point, 4 px in from the edge; never above the top row's foot (M.top, or the page's o.top under its plates), never in a thumbs' corner, on the bottom edge only in the band
+  // between the stick and the buttons (22 px up while the toast shows); a point that would fall elsewhere slides along the edge to the
+  // nearest allowed place. At most max, the nearest first (the list comes sorted), merged within 6 px: [{ x, y, dir, m }]
+  function onEdge(fight, list, o, max) {
+    o = o || {}; const v = fight.view, A = fight.area || {}, M = A.offscreenMarks || {}, W = v.x1 - v.x0, H = v.y1 - v.y0, inset = M.inset || 4;
+    const lefty = o.lefty === undefined ? fight.hand === "left" : !!o.lefty;
+    const top = typeof o.top === "number" ? Math.max(o.top, M.top || 28) : (M.top || 28), TH = M.thumbs || { x: 67, y: 118 }, band = (M.bottomBand || {})[lefty ? "left" : "right"] || (lefty ? [68, 204] : [180, 316]);   // (o.top: the page's line under its plates on this phone)
+    const cx = W / 2, cy = (A.camera || {}).aimY || 116, placed = [];
+    for (const m of list) {
+      if (placed.length >= max) break;
       const x0 = inset, x1 = W - inset, y0 = inset, y1 = H - (o.toast ? 22 : inset), ddx = m.sx - cx, ddy = m.sy - cy;
       let t = Infinity; if (ddx > 0) t = Math.min(t, (x1 - cx) / ddx); if (ddx < 0) t = Math.min(t, (x0 - cx) / ddx); if (ddy > 0) t = Math.min(t, (y1 - cy) / ddy); if (ddy < 0) t = Math.min(t, (y0 - cy) / ddy);
       let x = clamp(cx + ddx * t, x0, x1), y = clamp(cy + ddy * t, y0, y1);
@@ -1028,9 +1048,66 @@
       if ((x >= W - TH.x || x <= TH.x) && y >= TH.y) y = TH.y - 1;
       const dup = placed.find(p => Math.hypot(p.x - x, p.y - y) <= (M.merge || 6)); if (dup) continue;
       const ang = Math.atan2(y - cy, x - cx), dir = ((Math.round(ang / (TAU / 8)) % 8) + 8) % 8;
-      placed.push({ x: Math.round(x), y: Math.round(y), size: m.size, dir, alarm: m.alarm, dot: m.dot, d: Math.round(m.d) });
+      placed.push({ x: Math.round(x), y: Math.round(y), dir, m });
     }
     return placed;
+  }
+
+  // ------------------------------------------------------------------ the guide (design pass 18): what the level points the player at
+  // Pure, like the edge marks: the page draws it, a test reads it. o: { lefty, toast, seat (the player's, 0) }. Returns
+  //   arrows   [{ kind, x, y }]: a yellow arrow's tip at world (x, y) (the height already taken off): over the ram where it lies (always), the
+  //            gate during Break the gate, the chest shown and not opened, the way in once the gate is ours and the chest opened, a fallen
+  //            knight that is not the player's
+  //   edges    [{ kind, x, y, dir, d }]: the same, off the screen, as yellow chevrons placed by the edge marks' rules (the ram's only while
+  //            the gate is to be broken)
+  //   go       { y } (view px) while the way ahead is open: the next arena still ahead, no wave, no wipe, not the horn's frame; else null
+  //   left     the trolls the wave still has, alive and to come, from its start to its clear; null between the waves and in Break the gate
+  //   gate     { hp, hpMax } during Break the gate, else null
+  function guide(fight, o) {
+    o = o || {}; const out = { arrows: [], edges: [], go: null, left: null, gate: null };
+    const D = fight.director, v = fight.view, A = fight.area || {}; if (!D || !v || !fight.world) return out;
+    const W = v.x1 - v.x0, H = v.y1 - v.y0, me = fight.knights[o.seat || 0] || fight.k, G = fight.gate || {}, ch = fight.chest || {}, ar = D.arenas[D.ai];
+    const breaking = !!(ar && ar.id === 5 && ar.phase === "breakGate" && !G.burst);
+    // the arrows' points
+    const ram = fight.world.ram === null || fight.world.ram === undefined ? null : fight.world.solids[fight.world.ram];
+    if (ram && !ram.gone) out.arrows.push({ kind: "ram", x: Math.round((ram.x0 + ram.x1) / 2), y: Math.round(ram.y1 - 14) });
+    if (breaking) { const at = ((A.gate || {}).aim || {}).at || [2892, 244]; out.arrows.push({ kind: "gate", x: at[0], y: at[1] - 16 }); }   // (over the portcullis's lower half: the arch's top is under the top row when the camera is low)
+    if (ch.shown && !(ch.open === true || (ch.openAt !== undefined && ch.openAt !== null))) out.arrows.push({ kind: "chest", x: Math.round(ch.x), y: Math.round(ch.y - 13) });
+    else if (G.ours) { const Z = (A.zones || {}).exit; if (Z && Z.u) { const [x, y] = XY((Z.u[0] + Z.u[1]) / 2, (Z.v[0] + Z.v[1]) / 2); out.arrows.push({ kind: "exit", x: Math.round(x), y: Math.round(y - 30) }); } }
+    for (const k of fight.knights) if (k !== me && k.down && !k.out) out.arrows.push({ kind: "lift", x: Math.round(k.x), y: Math.round(k.y - (k.z || 0) - 20), seat: k.seat });
+    // off the screen: the gate, the chest, the way in and a fallen friend always; the ram only while the gate is to be broken
+    const off = [];
+    for (const a of out.arrows) {
+      const sx = a.x - v.x0, sy = a.y + 8 - v.y0;   // (the thing under the arrow's tip)
+      if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) continue;
+      if (a.kind === "ram" && !breaking) continue;
+      off.push({ kind: a.kind, sx, sy, d: Math.hypot(Math.max(0, -sx, sx - W), Math.max(0, -sy, sy - H)) });
+    }
+    off.sort((a, b) => a.d - b.d);
+    out.edges = onEdge(fight, off, o, (A.guide || {}).maxEdges || 4).map(p => ({ kind: p.m.kind, x: p.x, y: p.y, dir: p.dir, d: Math.round(p.m.d) }));
+    // GO: the next arena ahead and nothing to fight (not before the party has walked in, not in the horn's frame, not in a wipe)
+    const standingMe = me && !me.down && !me.out && !(me.rise > 0);
+    const GD = A.guide || {}, goY = GD.goY || [40, 104], goMin = typeof o.top === "number" ? Math.min(goY[1], Math.max(goY[0], o.top + 8)) : goY[0];
+    if (ar && ar.state === "ahead" && !D.frame && !fight.wipe && standingMe && (D.hornRetryAt === undefined || D.hornRetryAt === null)) out.go = { y: clamp(Math.round(me.y - (me.z || 0) - v.y0 - (GD.goAbove === undefined ? 20 : GD.goAbove)), goMin, goY[1]) };
+    // the trolls left in a wave: alive in its arena, its entries still to come, its standing huts' queues, the trickle, a reserve on its way,
+    // the roar's calls; the gate instead while it is to be broken
+    if (breaking) out.gate = { hp: Math.max(0, G.hp || 0), hpMax: G.hpMax || 1 };
+    else if (ar && ar.state === "live") {
+      let n = 0, others = false;
+      for (const f of fight.foes) if (!f.dead && f.arenaId === ar.id) { n++; if (f.kind !== "winchman") others = true; }
+      const toCome = ar.entries.filter(e => !e.sent);
+      n += toCome.length;
+      for (const op of (D.outpostList || Object.values(D.outposts))) if (op.live && op.arena === ar.id) for (const h of op.huts) if (h.piece && !h.piece.broken) n += h.queue.length;
+      // the trickle comes while a brute of the gate lives, so it counts from the wave's start, while they are still to come too (and stops
+      // counting when the last of them falls, as it stops coming)
+      const T = ar.trickle; if (T && T.i < T.seq.length && (!T.whileAlive || fight.foes.some(f => !f.dead && T.whileAlive.includes(f.kind) && f.arenaId === ar.id) || toCome.some(e => T.whileAlive.includes(e.kind)))) n += T.seq.length - T.i;
+      if (ar.id === 5) n += ((fight.level || {}).calls || []).length;
+      // a trebuchet's reserve on its way: scheduled, or its winchman just fallen to a shot between two of the director's steps; only while
+      // the wave has other trolls, as the director cancels the reserves without them
+      if (others || n > 0) for (const e of D.engines) if (e.spec.arena === ar.id && !e.wrecked && !e.stopped && e.crew > 0 && (e.reserveAt !== null || (e.winch && e.winch.dead))) n++;
+      out.left = n;
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ for tests and scenes: the party at an arena
@@ -1067,6 +1144,6 @@
     const v = CB().setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf)); freeBox(fight, D); return v;
   }
 
-  root.Level = { attach, scaling, counts, split, edgeMarks, jump, snap };
+  root.Level = { attach, scaling, counts, split, edgeMarks, onEdge, guide, jump, snap };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Level;
 })(typeof window !== "undefined" ? window : globalThis);

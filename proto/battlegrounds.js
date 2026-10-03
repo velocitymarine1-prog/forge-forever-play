@@ -19,6 +19,10 @@
 // gate plate, Leave the gate?, the tally, The gate is shut) are built from the cellar's frames. The way in is the door on the cellar's
 // left wall (its zone opens the gate plate, which fades to ?area=gate&brothers=n); the way home is forge-forever:from-battle, written
 // once with the satchel (ingredient ids only) and the run's finds at the clear, or banked without pay on a quit (section 3.11.5).
+// Since design pass 18 (build 10) the level tells the player what to do without words: a health plate top left (the knight's 100 HP,
+// a blow's pale chip, green while it grows back, a blink when low), the trolls left top right (or the gate's share), the guide drawn by
+// the painter from Level.guide (yellow arrows over the ram, the gate, the chest, the way in and a fallen friend, their chevrons at the
+// edge, GO at the right edge between the waves), health bars over what was hit, Dodge glowing while the knight burns.
 //
 // For the harness (tools/battle-harness.html): ?harness=1 lets time move only through TheBattlegrounds.step(ms); ?seed=n fixes the
 // fight; ?weapons=a,b picks the loadout; ?pointer=coarse|fine overrides the pointer; ?fresh=1 shows the first-visit plank again and
@@ -806,16 +810,34 @@
     for (const tr of fight.traps) drawTrap(tr, t);
     for (const k of fight.knights) if (!k.out) for (const h of k.hands) if (h.aura) drawAura(h.aura, k, t);
     scene.draw(ctx, fight, o);
+    scene.drawBars(ctx, fight, o);   // (design pass 18: over what was hit, after the field's actors)
     for (const p of fight.shots) drawShot(p, t);
     drawStreams();
     for (const f of state.fx) if (f.kind !== "crack") drawFx(f);
     for (const n of state.nums) { const q = n.t / n.life, y = n.y - FEEL.rise * Math.min(1, q * 1.4); if (q > 0.8 && (state.frames & 1) && !still) continue; C.outlined(ctx, n.s, Math.round(n.x - C.textWidth(n.s) / 2), Math.round(y), n.c); }
+    // the guide (design pass 18): what the level points at, worked out once a frame; its arrows over everything on the field, not under a
+    // plank or in a fade, as the edge marks
+    const toastOn = $("toast").classList.contains("show"), shown = !state.plank && !state.left && !(fight.wipe && $("fade").classList.contains("on"));
+    const top = markTop(), guide = state.guide = window.Level && Level.guide ? Level.guide(fight, { lefty: state.lefty, toast: toastOn, top }) : null;
+    if (shown) scene.drawGuide(ctx, guide, o);
     ctx.translate(camX, camY);
-    if (!state.plank && !state.left) { const em = (window.Level ? Level.edgeMarks : Gate.edgeMarks)(fight, { lefty: state.lefty, toast: $("toast").classList.contains("show"), marks: o.marks }); scene.drawEdgeMarks(ctx, em); if (em.length && !state.lv.edgeSeen && firstTime("edge", "Marks at the edge: trolls off the screen.")) state.lv.edgeSeen = true; }   // (dropped under a higher line, the line is tried again while marks show)
+    if (shown) { const em = (window.Level ? Level.edgeMarks : Gate.edgeMarks)(fight, { lefty: state.lefty, toast: toastOn, marks: o.marks, avoid: guide ? guide.edges : [], top }); scene.drawEdgeMarks(ctx, em); scene.drawGuideView(ctx, guide, o); if (em.length && !state.lv.edgeSeen && firstTime("edge", "Marks at the edge: trolls off the screen.")) state.lv.edgeSeen = true; }   // (dropped under a higher line, the line is tried again while marks show)
     if (state.reach) { ctx.translate(-camX, -camY); drawReach(); ctx.translate(camX, camY); }
     if (state.perf) drawPerf();
     ctx.restore();
     syncLive();
+  }
+  // the view's line under the two plates on this phone (design pass 18): the marks at the view's edge and GO keep below it, wherever the
+  // stage sits (the safe-area insets and the whole-pixel fit move it); never above the area's own top line (offscreenMarks.top)
+  // (worked out once per fit and kept: reading the plate's offsets every frame would force a layout each frame)
+  let markTopKept = null;
+  function markTop() {
+    const L = state.layout, M = AREA.offscreenMarks || {}, p = $("hpPlate");
+    if (!LEVEL || !L || !(L.s > 0) || !p || p.hidden) return M.top || 28;
+    if (markTopKept !== null && markTopKept.layout === L) return markTopKept.top;
+    const bottom = (L.pt || 0) + p.offsetTop + p.offsetHeight;   // (the plates hang at the same height; the HUD's inner box starts at the insets)
+    markTopKept = { layout: L, top: Math.max(M.top || 28, Math.ceil((bottom - L.y) / L.s) + 5) };   // (5: a mark's half size, so the whole chevron clears the plate)
+    return markTopKept.top;
   }
   // the step and frame-time readout under ?perf: the steps are timed in batches of 8 (the clock's grain is too coarse for one), so the
   // line says the mean step and the p99 of the 8-step means over the last 240 batches (ms); then the mean and p99 frame time, the
@@ -1066,7 +1088,7 @@
 
   // ------------------------------------------------------------------ the HUD
   const icon = (t, scale) => PF.canvasFor(t, { scale: scale || 2, shadow: false });
-  const hud = { held: null, other: null, pip: -1, tag: null, p: -1, c: -1, on: null, x: -1, y: -1, ab: -1 };
+  const hud = { held: null, other: null, pip: -1, tag: null, p: -1, c: -1, on: null, x: -1, y: -1, ab: -1, hint: false };
   // a legend's ability button (design pass 10) carries its head class's own weapon, drawn at 1x
   const classWeapon = c => (window.FORGE_THINGS || []).find(t => t.kind === "weapon" && t.weapon && t.weapon.visual && t.weapon.visual.base === c);
   // the ram on the Strike button (section 3.14): an iron-capped log, drawn once
@@ -1116,6 +1138,17 @@
     $("wSlow").hidden = !state.slow;
     const note = $("note"), text = LEVEL ? levelNote() : state.empty && state.loadout.length === 0 ? "Bring weapons from the Forge, or take one from the rack" : state.noteUntil > state.t ? state.noteText : "";
     note.hidden = !text; if (text) note.textContent = text;
+    if (LEVEL) placeNote();
+  }
+  // in a level the note stays under the weapon plate unless it would touch one of the two plates (design pass 18: a long line on a small
+  // phone); then it drops just under them. Measured in the HUD's own layout (offsets), so the turned game measures the same
+  function placeNote() {
+    const n = $("note"); n.style.top = "";
+    if (n.hidden) return;
+    const box = el => ({ x0: el.offsetLeft, y0: el.offsetTop, x1: el.offsetLeft + el.offsetWidth, y1: el.offsetTop + el.offsetHeight });
+    const W = n.offsetParent ? n.offsetParent.clientWidth : 0, nw = n.offsetWidth, nb = { x0: W / 2 - nw / 2, x1: W / 2 + nw / 2, y0: n.offsetTop, y1: n.offsetTop + n.offsetHeight };
+    const plates = [$("hpPlate"), $("objPlate")].filter(el => !el.hidden).map(box), touches = q => nb.x0 < q.x1 + 4 && nb.x1 > q.x0 - 4 && nb.y0 < q.y1 && nb.y1 > q.y0;
+    if (plates.some(touches)) n.style.top = (Math.max.apply(null, plates.map(q => q.y1)) + 4) + "px";
   }
   // the level's note (section 3.14): the timed line by priority, else, with an empty loadout, the level's own line until the first wave
   function levelNote() {
@@ -1126,9 +1159,66 @@
   }
   // the ability's clock sweeps while it cools (--p in 40 steps); ready, the button pulses
   function syncAbility(hand) { const q = hand.acd > 0 ? Math.round((1 - hand.acd / (hand.acdOf || 1)) * 40) / 40 : 1; if (q !== hud.ab) { hud.ab = q; const ab = $("abilityBtn"); ab.style.setProperty("--p", String(q)); ab.classList.toggle("ready", q >= 1); } }
+  // ------------------------------------------------------------------ the level's plates (design pass 18, sections 3.1 and 3.6)
+  // the health plate: a 9 x 8 heart and a 56 x 6 bar drawn at 2x, the number. A blow leaves the lost part pale for 0.4 s, then it drains
+  // at 60 HP a second; growing back the fill's two leading columns are green; at 30 or less the heart and the fill blink at 2 Hz (lit and
+  // still under less motion); down, the bar is empty and the heart grey. Redrawn only when what it shows changes
+  const HEART = [".........", "..rr.rr..", ".rlWrrrr.", ".rlrrrrR.", "..rrrRR..", "...rRR...", "....R....", "........."];
+  const HPC = { r: "#e43b44", R: "#a22633", l: "#f6757a", W: "#ffffff", k: OUT };
+  const hpv = { hp: -1, chip: 0, holdTo: 0, at: 0, key: "", heart: "", n: "" };
+  function paintRows(cv, rows, pal) { const g = cv.getContext("2d"); g.clearRect(0, 0, cv.width, cv.height); for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) { const c = pal[rows[y][x]]; if (c) { g.fillStyle = c; g.fillRect(x, y, 1, 1); } } }
+  // the heart sealed in soot (its outline added round the rows), in its colours, greyed when down, its fill pale on the blink
+  function heartRows(mode) { const W = 9, H = 8, at = (x, y) => x >= 0 && y >= 0 && x < W && y < H && HEART[y][x] !== "."; const out = [];
+    for (let y = 0; y < H; y++) { let row = ""; for (let x = 0; x < W; x++) row += at(x, y) ? (mode === "down" ? (HEART[y][x] === "W" ? "g" : "G") : mode === "blink" ? (HEART[y][x] === "R" ? "r" : "W") : HEART[y][x]) : (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1) ? "k" : "."); out.push(row); }
+    return out; }
+  function syncHealth() {
+    const plate = $("hpPlate"); if (!LEVEL) return;
+    const k = fight.k, max = k.hpMax > 0 ? k.hpMax : 100, hp = Math.max(0, Math.min(max, k.hp || 0)), t = state.t, down = !!(k.down || k.out || hp <= 0);
+    if (hpv.hp < 0) { hpv.hp = hp; hpv.chip = hp; hpv.at = t; }
+    if (hp < hpv.hp - 1e-9) { hpv.chip = Math.max(hpv.chip, hpv.hp); hpv.holdTo = t + 0.4; }   // a blow: the chip keeps what the bar showed for 0.4 s
+    hpv.hp = hp;
+    if (hpv.chip < hp) hpv.chip = hp; else if (hpv.chip > hp && t >= hpv.holdTo) hpv.chip = Math.max(hp, hpv.chip - 60 * Math.max(0, t - hpv.at));
+    hpv.at = t;
+    const IN = 54, fill = hp > 0 ? Math.max(1, Math.round(IN * hp / max)) : 0, chip = Math.max(0, Math.round(IN * hpv.chip / max) - fill);
+    const grow = !down && !!(Combat.regrowing && Combat.regrowing(k)), low = !down && hp <= (SPEC.knight.lowHp || 30), blink = low && !reduce && (Math.floor(state.t * 4) & 1) === 1;
+    const key = fill + "|" + chip + "|" + (grow ? 1 : 0) + "|" + (blink ? 1 : 0) + "|" + (down ? 1 : 0) + "|" + (low ? 1 : 0);
+    if (key !== hpv.key) {
+      hpv.key = key;
+      const g = $("hpBar").getContext("2d"); g.clearRect(0, 0, 56, 6); g.fillStyle = OUT; g.fillRect(0, 0, 56, 6);
+      for (let x = 0; x < IN; x++) for (let y = 1; y <= 4; y++) {
+        let c = x < fill ? (y === 1 ? "#f6757a" : y === 4 ? "#a22633" : "#e43b44") : x < fill + chip ? "#ead4aa" : "#3e2731";
+        if (x < fill && grow && x >= fill - 2) c = y === 1 ? "#b4e67a" : y === 4 ? "#3e8948" : "#63c74d";
+        if (x < fill && blink) c = y === 1 ? "#ffffff" : y === 4 ? "#e43b44" : "#f6757a";
+        g.fillStyle = c; g.fillRect(x + 1, y, 1, 1);
+      }
+      const hm = down ? "down" : blink ? "blink" : "lit";
+      if (hm !== hpv.heart) { hpv.heart = hm; paintRows($("hpHeart"), heartRows(hm), Object.assign({ g: "#8b9bb4", G: "#5a6988" }, HPC)); }
+      plate.classList.toggle("grow", grow); plate.classList.toggle("low", low);
+    }
+    const n = String(down ? 0 : Math.min(999, Math.ceil(hp - 1e-9)));   // (a test's unkillable knight shows 999, not a run of nines)
+    if (n !== hpv.n) { hpv.n = n; $("hpNum").textContent = n; plate.setAttribute("aria-label", "Health " + n + " of " + Math.round(max)); }
+  }
+  // the trolls-left plate: a troll's head and the count while a wave lives; a portcullis and the gate's share while it is to be broken;
+  // hidden between the waves (Level.guide's left and gate)
+  const TROLLHEAD = [".........", "..ggggg..", ".ggggggG.", ".gegggeG.", ".ggggggG.", ".gugggug.", "..gGGGg..", "...ggg...", "........."];
+  const PORTCULLIS = [".........", ".sssssss.", ".S.S.S.S.", ".s.s.s.s.", ".SSSSSSS.", ".s.s.s.s.", ".S.S.S.S.", ".s.s.s.s.", "........."];
+  const sealRows = rows => { const H = rows.length, W = rows[0].length, at = (x, y) => x >= 0 && y >= 0 && x < W && y < H && rows[y][x] !== "."; return rows.map((r, y) => Array.from(r).map((ch, x) => ch !== "." ? ch : at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1) ? "k" : ".").join("")); };
+  const obv = { mode: "", n: "", bar: -1 };
+  function syncObjective() {
+    const plate = $("objPlate"); if (!LEVEL) return;
+    const g = state.plank || state.left ? null : state.guide, mode = g && g.gate ? "gate" : g && g.left !== null && g.left !== undefined ? "trolls" : "";
+    if (mode !== obv.mode) {
+      obv.mode = mode; plate.hidden = !mode; obv.n = ""; obv.bar = -1; placeNote();
+      if (mode === "trolls") { paintRows($("objIcon"), sealRows(TROLLHEAD), { g: "#63c74d", G: "#3e8948", e: "#fee761", u: "#ead4aa", k: OUT }); $("objBar").hidden = true; $("objNum").hidden = false; }
+      if (mode === "gate") { paintRows($("objIcon"), sealRows(PORTCULLIS), { s: "#8b9bb4", S: "#5a6988", k: OUT }); $("objBar").hidden = false; $("objNum").hidden = true; }
+    }
+    if (mode === "trolls") { const n = String(g.left); if (n !== obv.n) { obv.n = n; $("objNum").textContent = n; plate.setAttribute("aria-label", n + (g.left === 1 ? " troll left" : " trolls left")); } }
+    if (mode === "gate") { const f = Math.round(26 * Math.max(0, g.gate.hp) / Math.max(1, g.gate.hpMax)); if (f !== obv.bar) { obv.bar = f; const c = $("objBar").getContext("2d"); c.fillStyle = OUT; c.fillRect(0, 0, 28, 6); for (let x = 0; x < 26; x++) for (let y = 1; y <= 4; y++) { c.fillStyle = x < f ? (y === 1 ? "#f6757a" : y === 4 ? "#a22633" : "#e43b44") : "#3e2731"; c.fillRect(x + 1, y, 1, 1); } plate.setAttribute("aria-label", "The gate: " + Math.ceil(g.gate.hp) + " of " + Math.round(g.gate.hpMax)); } }
+  }
   // what changes every frame: a legend's ability clock, the recovery clock, the charge, the held button, the prompt's place
   function syncLive() {
     const k = fight.k, hand = fight.hands[k.active];
+    if (LEVEL) { syncHealth(); syncObjective(); const burning = !!k.burn && !k.down && !k.out; if (burning !== hud.hint) { hud.hint = burning; $("dodgeBtn").classList.toggle("hint", burning); } }
     if (hand.ua) syncAbility(hand);
     if (state.noteUntil && state.t >= state.noteUntil) { state.noteUntil = 0; syncHud(); }   // the first-legend note is over
     if (LEVEL && state.lv.line && state.lv.line.kind !== "downed" && state.lv.line.until <= state.t) syncHud();   // a timed line is over
@@ -1314,7 +1404,7 @@
   })();
 
   // ------------------------------------------------------------------ boot
-  function refit() { fit(); hud.x = -1; }
+  function refit() { fit(); hud.x = -1; if (LEVEL) placeNote(); }
   window.addEventListener("resize", refit);
   window.addEventListener("orientationchange", refit);
   if (window.visualViewport) window.visualViewport.addEventListener("resize", refit);
@@ -1325,7 +1415,7 @@
     // (input(o): a plain object stands for the thumbs until changed; a function is a driver, called once a step with dt, its answer the thumbs' input)
     state, world, toasts, markSeen() { return store.set(LEVEL ? KEYS.gateSeen : KEYS.seen, "1"); }, lessons: null, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, scene, VIEW, AREA, LEVEL,
     // a level (design pass 12): the run's id, the satchel's state, the way home, the clear, the adapter over the director's state, a synthetic event
-    runId, go, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, get lv() { return state.lv; }, take(events) { take(Array.isArray(events) ? events : [events]); },
+    runId, go, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, get lv() { return state.lv; }, get guide() { return state.guide; }, take(events) { take(Array.isArray(events) ? events : [events]); },
     get fight() { return fight; }, get rack() { return rack.slice(); }, get paused() { return paused(); },
     // move time on by ms (in steps of 1/60 s); while the game is paused, time doesn't move
     step(ms) { let n = 0; const want = Math.round(ms / 1000 / STEP); for (let i = 0; i < want; i++) { if (paused()) break; tick(); n++; } flushSums(false); draw(); return n; },
@@ -1381,6 +1471,10 @@
   if (LEVEL) {
     $("firstPlank").setAttribute("aria-label", AREA.name || "The Troll Gate"); $("firstPlank").querySelector("h2").textContent = AREA.name || "The Troll Gate";
     $("firstPlank").querySelector("p").textContent = "Trolls hurt here. Fight east to the castle, and break its gate.";
+    // (design pass 18) the plates, and one line that says them once
+    game.classList.add("level"); $("hpPlate").hidden = false; placeNote();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => placeNote(), () => {});   // (the plates and the note change width once the font is in)
+    const line = document.createElement("p"); line.className = "small"; line.id = "guideLine"; line.textContent = "The red bar top left is your health: it grows back while nothing hits you. Follow the yellow arrows."; $("firstPlank").querySelector("p").after(line);
     $("firstGo").textContent = "Onto the old road";
     $("stage").setAttribute("aria-label", "The Troll Gate: a dusk field two screens deep before a troll castle; knights among trolls, wire, stakes, huts and trenches");
   }

@@ -107,7 +107,8 @@
   }
   const storeOf = s => s || (root.Smith && root.Smith.store) || local();
   function load(id, s) { if (!id) return null; let r = null; try { r = JSON.parse(storeOf(s).get(KEY_PREFIX + id) || "null"); } catch (e) { r = null; } return r && typeof r === "object" && r.v === 1 ? record(r) : null; }
-  function save(id, rec, s) { if (!id || !rec) return false; return storeOf(s).set(KEY_PREFIX + id, JSON.stringify(record(rec))); }
+  // (build 9) on the Cloudflare copy a lesson's step goes online with the rest of the player's records (proto/cloud.js)
+  function save(id, rec, s) { if (!id || !rec) return false; const ok = storeOf(s).set(KEY_PREFIX + id, JSON.stringify(record(rec))); try { if (!s && root.Cloud) root.Cloud.touch(); } catch (e) { /* kept here */ } return ok; }
   // start(id, { now, named }): a new record at the welcome, saved (Into the forge; the bench's Start the lessons over)
   function start(id, o) { o = o || {}; const r = begin(o.now, o.named); save(id, r, o.store); return r; }
   // forgetAll: every forge-forever:lessons:* goes (Erase my smithy)

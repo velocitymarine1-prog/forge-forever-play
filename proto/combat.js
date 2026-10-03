@@ -1319,6 +1319,7 @@
       } else if (o.melee && u.mods.has("guard") && facing) { dmg = amount * (1 - C.modifiers.guard.less); res = "cut"; block(); }
     }
     k.hp = Math.max(0, k.hp - dmg);
+    if (dmg > 0) { k.hitAt = fight.t; k.regenT = null; }   // the regrowth waits regen.after s from the last damage (design pass 18)
     emit(fight, { type: "hurt", amount: dmg, src: o.src || null, tick: !!o.tick, x: k.x, y: k.y }, k);
     if (!o.tick) { k.hurt = KN.hurtSafe; if (o.stagger > 0) stagger(fight, k, o.stagger); }
     if (fight.world.level && !o.tick && !o.fall) {   // a blow that lands: it knocks a climber off its ladder, and its push is an impulse
@@ -1382,8 +1383,9 @@
     const C = data(), L = C.downed.lift;
     if (fight.wipe) { fight.wipe.t -= dt; if (fight.wipe.t <= 1e-9) rally(fight); return; }
     for (const k of fight.knights) {
-      if (k.rise > 0) { k.rise -= dt; if (k.rise <= 1e-9) { k.rise = 0; k.hp = C.secondWind.hp; k.safe = C.secondWind.safe; emit(fight, { type: "rise", x: k.x, y: k.y, hp: k.hp }, k); } continue; }
-      if (!k.down) continue;
+      if (k.rise > 0) { k.rise -= dt; if (k.rise <= 1e-9) { k.rise = 0; k.hp = C.secondWind.hp; k.safe = C.secondWind.safe; emit(fight, { type: "rise", x: k.x, y: k.y, hp: k.hp }, k); } k.regenT = null; continue; }
+      if (!k.down) { regrow(fight, k, dt); continue; }
+      k.regenT = null;
       // the lifter: the nearest standing ally within 16 px that has not just been hit
       let lifter = null, best = Infinity;
       for (const a of fight.knights) { if (a === k || a.down || a.out || a.rise > 0 || a.hurt > 0) continue; const dd = dist(a.x, a.y, k.x, k.y); if (dd <= L.within && dd < best) { best = dd; lifter = a; } }
@@ -1393,6 +1395,19 @@
       if (k.down.t <= 1e-9) bleedOut(fight, k);
     }
   }
+  // health grows back (design pass 18; Isaac: "they regenerate one point of health every second after not being hit for five seconds"):
+  // a standing knight below its maximum that has taken no damage for knight.regen.after s gets regen.amount HP at once and then every
+  // regen.every s, up to its maximum. Any damage (hurt() stamps k.hitAt), going down, rising, being carried off or a wipe stops it (a wipe
+  // never reaches here), and it starts again regen.after s after the last damage. No event: the page reads k.hp, and the logs keep their shape
+  function regrow(fight, k, dt) {
+    const G = data().knight.regen;
+    if (!G || k.out || !(k.hp > 0) || k.hp >= k.hpMax || fight.t - (k.hitAt === undefined || k.hitAt === null ? -Infinity : k.hitAt) < G.after - 1e-9) { k.regenT = null; return; }
+    if (k.regenT === null || k.regenT === undefined) { k.regenT = 0; k.hp = Math.min(k.hpMax, k.hp + G.amount); return; }
+    k.regenT += dt;
+    if (k.regenT >= G.every - 1e-9) { k.regenT -= G.every; k.hp = Math.min(k.hpMax, k.hp + G.amount); }
+  }
+  // is a knight's health growing back this step (the page's plate shows it green)?
+  const knightRegrowing = k => { const G = data().knight.regen; return !!G && k.regenT !== null && k.regenT !== undefined && !k.out && !k.down && !(k.rise > 0) && k.hp > 0 && k.hp < k.hpMax; };
   // for the level's director: a wave's attempt begins (the Second Wind is back, the carried-off come back); carried-off knights come
   // back with 50 HP (at a Breather or a wave's start), at at[seat] when given; a heal (lifesteal, vampiric, the Breather) up to full HP,
   // never for a knight on the ground
@@ -1748,15 +1763,30 @@
       for (const o of W.solids) if (!o.gone && !o.thin && boxesMeet(s, o)) return null;
       for (const H of W.holes) if (H.deep && boxesMeet(s, H)) return null;
       for (const Q of W.plats) if (Q.active && boxesMeet(s, Q)) return null;
+      for (const H of W.halves || []) if (Math.max(H.ax * s.x0 + H.ay * s.y0, H.ax * s.x1 + H.ay * s.y0, H.ax * s.x0 + H.ay * s.y1, H.ax * s.x1 + H.ay * s.y1) >= H.c - 1e-9) return null;   // never in the castle's foot
       for (const b of bodies(fight)) if (b !== k && Math.hypot(clamp(b.x, s.x0, s.x1) - b.x, clamp(b.y, s.y0, s.y1) - b.y) < b.r) return null;
       return s;
     };
+    // the nearest free spot outward from the one in front of the knight, out to putWithin (96 px, design pass 18; it was 24, so a knight on
+    // the drawbridge's deck, a platform the ram may not lie on, found none, and a knight who fell there kept the ram while down)
     let spot = free(c0x, c0y);
-    for (let r = 2; !spot && r <= 24; r += 2) for (let i = 0; i < 16 && !spot; i++) { const a = i * Math.PI / 8; spot = free(c0x + Math.cos(a) * r, c0y + Math.sin(a) * r); }
+    for (let r = 2; !spot && r <= (R.putWithin || 96); r += 2) for (let i = 0; i < 16 && !spot; i++) { const a = i * Math.PI / 8; spot = free(c0x + Math.cos(a) * r, c0y + Math.sin(a) * r); }
     if (!spot) return false;
     W.ram = P.addSolid(W, Object.assign({ kind: "ram", ht: ((fight.area.propKinds || {}).ram || {}).ht || 8 }, spot)).id;
     k.carry = null; k.r = KN.r; k.strike = null;
     emit(fight, { type: "carry", what: "ram", on: false, x: (spot.x0 + spot.x1) / 2, y: (spot.y0 + spot.y1) / 2 }, k);
+    return true;
+  }
+  // the ram laid back where it began (design pass 18: the director's, when it lies out of the party's reach, west of the arena the camera
+  // keeps to); at its start rect if that is free of bodies, else nothing moves this step. Returns whether it moved
+  function resetRam(fight) {
+    const W = fight.world, R = (fight.area || {}).ram; if (!R || !R.rect || W.ram === null || W.ram === undefined) return false;
+    const s = W.solids[W.ram], [x0, y0, x1, y1] = R.rect; if (!s || s.gone || (s.x0 === x0 && s.y0 === y0)) return false;
+    const spot = { shape: "r", x0, y0, x1, y1 };
+    for (const b of bodies(fight)) if (Math.hypot(clamp(b.x, x0, x1) - b.x, clamp(b.y, y0, y1) - b.y) < b.r) return false;
+    phys().removeSolid(W, s);
+    W.ram = phys().addSolid(W, Object.assign({ kind: "ram", ht: ((fight.area.propKinds || {}).ram || {}).ht || 8 }, spot)).id;
+    emit(fight, { type: "ramBack", x: (x0 + x1) / 2, y: (y0 + y1) / 2 });
     return true;
   }
   // does a box (x0..x1, y0..y1) meet a solid's, a hole's or a platform's shape?
@@ -2901,6 +2931,13 @@
     f.spawn = C0.spawnTell || 0.6; f.act = null; f.intent = IDLE; f.brain.stuck.best = Infinity; fight.tdirty = true;
     emit(fight, { type: "spawn", foe: f.id, kind: f.kind, x: f.x, y: f.y, z: f.z, tell: f.spawn, again: true });
   }
+  // is a troll growing back now (the painter's green tip on its bar, design pass 18)? regrowStep's own test, without its side effects
+  function regrowing(fight, f) {
+    if (!f || f.dead || !(f.hp < f.hpMax) || f.noRegrow || !((f.spec || {}).regen > 0)) return false;
+    const R = trollCommon().regrowth || { after: 3.0 }, S = data().statuses, stops = (f.spec || {}).regrowthStoppedBy || ["burn"], key = { burn: "burn", chill: "slow", frozen: "freeze" };
+    for (const s of stops) if (f.st && f.st[key[s] || s]) return false;
+    return !(fight.t - f.hurtAt < R.after - 1e-9 || fight.t < (f.regrowBar || 0) - 1e-9 || (f.dotAt !== undefined && fight.t - f.dotAt < S.tick + 0.1));
+  }
   // regrowth (section 3.5): after 3.0 s without damage a troll heals at its rate, in ticks of 0.5 s shown as a small green +; none while it
   // burns and for 2 s after (the Emberback burns inside already: chill and freeze stop its instead)
   function regrowStep(fight, f, dt) {
@@ -3089,7 +3126,7 @@
 
   root.Combat = { abilityUnits, abilities, units, unitsFor, newFight, step, hold, tip, aim, animOf, weaponPose, facingOf, hitPoint, reachOf, setHand, addHand, reset, affinity, railAhead, use, rng,
     hurt, afflict, waveStart, returnKnights, healKnight, FACINGS, NUMBERS,
-    spawn, die, place, setView, targets, bodies, inView, canHit, reaches, foeShot, foeBurst, takeRam, putRam, remains, breakPiece, damage, trollKind, drawnAt,
+    spawn, die, place, setView, targets, bodies, inView, canHit, reaches, foeShot, foeBurst, takeRam, putRam, remains, breakPiece, damage, trollKind, drawnAt, regrowing: knightRegrowing, foeRegrowing: regrowing, resetRam,
     fieldClass, nextToward, fieldReach, trollSets, standing, inAttackBox, lineClear, applyStatus, bestSpot, trenchCovered, trenchEnd, wireBetween,
     mark, endMark, stamp, fire, ice, puddle, crater, chunks, throwStone, stuck, groundBits, GBIT, clearSeat, setPost, manned, roarOf, emberRoll,
     emit, inThumb, drownPuddle, fieldsReady, difficultyOf, dX };

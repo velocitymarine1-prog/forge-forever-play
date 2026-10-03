@@ -107,7 +107,8 @@
     const at = nowIso();
     const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
     const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players, grycus: gry.mem };
-    const put = d => { localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify(d)); session.savedAt = at; return true; };
+    // (build 9) on the Cloudflare copy the save then goes online too (proto/cloud.js sends it a moment later)
+    const put = d => { localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify(d)); session.savedAt = at; if (window.Cloud) Cloud.touch(); return true; };
     try { return put(data); }
     catch (e) {
       // over the quota: only the rows of owned Things are kept
@@ -1823,19 +1824,27 @@
     gryHush();
     settings.closeErase(); settings.render();
     $("setPlank").hidden = false; $("setBtn").setAttribute("aria-pressed", "true");
-    if (atBench) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
+    if (atBench && $("bench")) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
     return true;
   }
   function closeSettings() { $("setPlank").hidden = true; $("setBtn").setAttribute("aria-pressed", "false"); if (settings) settings.closeErase(); }
+  // (build 9, design pass 13) on the Cloudflare copy the bench is only for a player the server says is dev or admin: Settings mounts
+  // without it, and it is added when the server answers, or taken out of the page; everywhere else it is in Settings as before
+  const benchGated = !!(window.Cloud && Cloud.on);
+  const benchOk = () => !benchGated || Cloud.canBench();
   if (window.Settings) {
-    $("bench").hidden = false;
+    $("bench").hidden = benchGated;
     settings = Settings.mount($("setBody"), {
-      build: document.body.getAttribute("data-build") || "dev", section: $("bench"), toast,
+      build: document.body.getAttribute("data-build") || "dev", section: benchGated ? null : $("bench"), toast,
       rows: lessonOn("settingsRows") || [], onRename(r) { lessonOn("renamed", r); },   // (build 8: Skip the lessons while they run; Your name)
       onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); if (name === "forced") { turn.forced = on; fitTurn(); } },
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
       onClose: closeSettings
     });
+  }
+  if (benchGated) {
+    // (a player's page keeps the bench hidden, outside Settings: renderInfo writes into it, and in phase 1 the save is the phone's anyway)
+    Cloud.ready.then(() => { const b = $("bench"); if (!b) return; if (benchOk() && settings && settings.addSection) { b.hidden = false; settings.addSection(b); } else b.hidden = true; });
   }
   $("setBtn").addEventListener("click", () => { if ($("setPlank").hidden) openSettings(false); else closeSettings(); });
   $("homeBtn").addEventListener("click", () => goHome());
@@ -1913,6 +1922,9 @@
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTurn);
   let bootFromCellar = false, bootFresh = false;
   (async function boot() {
+    // (build 9) on the Cloudflare copy the server is asked first (4.5 s at most): it may bring this phone's game back, take a newer
+    // one from another phone, or say it was erased, before the page reads the player
+    if (window.Cloud && Cloud.on) await Cloud.ready;
     const w = params.get("world"), p = params.get("player");
     if (w) { $("worldUrl").value = w; $("smithName").value = p || "isaac"; if (await connect(w, p || "isaac")) { takeAssist(); return; } }
     // (build 8, design pass 16) who is playing: { id, name } from the player record; "menu" when there is none, so the main menu asks
@@ -1933,7 +1945,7 @@
     if (ran && ran.cleared) afterLevelChange(ran.before, ran.res);
     if (!profile.classes.length) openFirstWeapon();
     lessonOn("boot", { fromCellar: bootFromCellar, fresh: bootFresh });   // (build 8) the lessons start or resume, with what their step needs
-  })().then(left => { if (left === "left") return; session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
+  })().then(left => { if (left === "left") return; session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1" && benchOk()) openSettings(true); if (benchGated) Cloud.onNote(toast); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
   // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
   // open says what is equipped now. After an erase, or a change of less motion, elsewhere, the page boots again instead
   window.addEventListener("pageshow", async e => {

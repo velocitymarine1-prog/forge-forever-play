@@ -16,7 +16,8 @@
 <style>
 /* Forge Forever: the main menu (design pass 9, card t66; built sideways first by design pass 11, card t69; landscape only since its
    amendment 9). The game's front door: rolling mountains at dusk over the whole screen (proto/dusk.js), the title on the smithy's oak
-   sign hung from two chains, and three buttons in a column on the right. Landscape only: a phone held upright sees the turn plate, or,
+   sign hung from two chains, and three buttons in a column centred under it (on the right until 3 Oct 2026, when Isaac asked for the
+   buttons and the name plank centred on the page). Landscape only: a phone held upright sees the turn plate, or,
    with My screen won't turn, the game laid out at height x width and turned a quarter (the cellar's rule; the script sizes the root
    and sets --gw and --gh, the game's own width and height, which the CSS uses in place of vw and vh). One dark look on purpose. */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;
@@ -43,8 +44,10 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .game{position:fixed;left:0;top:0;width:100%;height:100%;overflow:hidden;transform-origin:0 0;--gw:100vw;--gh:100vh}
 /* the vista: one canvas at a whole number of device pixels per world pixel, placed to cover the game (dusk.js sizes it) */
 .vista{position:absolute;left:0;top:0;z-index:0;display:block;background:var(--soot)}
-/* the page: the sign across the top, the buttons in the right column standing on the hills */
-.menu{position:absolute;inset:0;z-index:1;display:grid;grid-template-columns:minmax(0,1fr) clamp(248px,calc(var(--gw) * .34),300px);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign sign" "vista buttons";column-gap:28px;
+/* the page: the sign across the top, the buttons (or the name plank) centred across the page in the room under it: their auto margins
+   centre them up and down, and one taller than that room stands on the bottom and rises over the sign (auto margins give way, and
+   align-self:end keeps it on the screen) */
+.menu{position:absolute;inset:0;z-index:1;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign" "buttons";row-gap:8px;
   padding:calc(14px + var(--st)) calc(16px + var(--sr)) calc(16px + var(--sb)) calc(16px + var(--sl))}
 .game.forced .menu{padding:calc(14px + var(--sr)) calc(16px + var(--sb)) calc(16px + var(--sl)) calc(16px + var(--st))}
 /* the sign: the title on an oak board hung from two chains */
@@ -55,7 +58,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .sign::before{left:10px}
 .sign::after{right:10px}
 /* the three buttons */
-.buttons{grid-area:buttons;display:grid;gap:10px;width:100%;align-self:end;margin-bottom:clamp(0px,calc((var(--gh) - 600px) * .35),160px)}
+.buttons{grid-area:buttons;display:grid;gap:10px;width:clamp(248px,calc(var(--gw) * .34),300px);max-width:100%;justify-self:center;align-self:end;margin:auto 0}
 .big{display:flex;align-items:center;gap:12px;width:100%;height:60px;padding:0 10px;background-color:transparent;cursor:pointer;
   font-family:var(--display);font-weight:700;font-size:26px;line-height:1;color:var(--parch);text-align:left}
 .big.f-ember{color:var(--soot)}
@@ -67,9 +70,9 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 /* Who's at the forge? (design pass 16, build 8): a phone with no player sees this plank in place of the three buttons: Grycus's face and
    his words at the door, a name, Into the forge (dim until the name is good, then glowing). While the field has the focus and the
    keyboard covers the screen, the plank rises into what the keyboard leaves and shrinks to the heading, the field and the button
-   (.lifted: the script places it there, following visualViewport) */
-.menu.naming{grid-template-columns:minmax(0,1fr) clamp(270px,calc(var(--gw) * .4),340px)}
-.who{grid-area:buttons;align-self:end;display:grid;gap:6px;width:100%;padding:6px 10px 10px;color:var(--ink);margin-bottom:clamp(0px,calc((var(--gh) - 600px) * .35),160px);animation:rise .3s steps(4,end)}
+   (.lifted: the script places it there, centred across what is left, following visualViewport). Centred like the buttons, a little
+   wider than they are */
+.who{grid-area:buttons;justify-self:center;align-self:end;margin:auto 0;display:grid;gap:6px;width:clamp(270px,calc(var(--gw) * .4),340px);max-width:100%;padding:6px 10px 10px;color:var(--ink);animation:rise .3s steps(4,end)}
 .who h2{margin:0;font-family:var(--display);font-weight:800;font-size:27px;line-height:1;color:var(--ink)}
 .who .speech{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 9px;align-items:center}
 .who .speech canvas{display:block;width:48px;height:48px;background:var(--stone-2);border:2px solid #3a4466;box-shadow:0 0 0 2px var(--soot)}
@@ -89,13 +92,14 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .game.tiny .who .go{min-height:40px;font-size:20px}
 .game.tiny .who .speech span{font-size:13px;line-height:1.22}
 .game.tiny .who .fld{height:34px;font-size:16px}
-.who.lifted{position:absolute;z-index:6;grid-area:auto;align-self:auto;margin:0;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:3px 10px 6px;animation:none}
+.who.lifted{position:absolute;z-index:6;grid-area:auto;justify-self:auto;align-self:auto;margin:0;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:3px 10px 6px;animation:none}
 .who.lifted h2{grid-column:1/-1;grid-row:1;font-size:21px}
 .who.lifted .speech{display:none}
 .who.lifted .fld{grid-column:1;grid-row:2}
 .who.lifted .go{grid-column:2;grid-row:2;width:auto;min-height:38px;padding:0 14px;font-size:19px}
 .who.lifted .why{grid-column:1/-1;grid-row:3;min-height:0}
 .who.lifted .why:empty{display:none}
+.menu.typing .sign{visibility:hidden}
 /* General Settings: a plank over the menu, its rows drawn by settings.js */
 .veil{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:rgba(13,10,20,.66);
   padding:calc(8px + var(--st)) calc(8px + var(--sr)) calc(8px + var(--sb)) calc(8px + var(--sl))}
@@ -144,7 +148,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .still *{animation:none!important;transition:none!important}
 </style>
 </head>
-<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="01bb4a2" data-booted="0" data-errors="0">
+<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="d3a850f" data-booted="0" data-errors="0">
 <div class="game" id="game">
   <canvas class="vista" id="vista" role="img" aria-label="Rolling mountains at dusk: the sun low behind the far range, darker ranges nearer, a black hill with pines in front"></canvas>
   <main class="menu" id="menu">
@@ -191,6 +195,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="proto/smith.js"></script>
 <script src="proto/lessons.js"></script>
 <script src="proto/settings.js"></script>
+<script src="proto/cloud.js"></script>
 <script src="proto/nav.js"></script>
 <script src="proto/main-menu.js"></script>
 </body>

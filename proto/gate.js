@@ -14,6 +14,8 @@
 //   Gate.sprites                       every standing piece's art, baked once per kind, size and variant: { px, w, h, ox, oy, canvas() }
 //   Gate.marks, Gate.telegraph         the decal stamps (lasting marks), the live marks' frames, the telegraphs by radius, length and frame
 //   Gate.edgeMark, Gate.edgeMarks      the chevrons for trolls off the screen, and who gets one (section 3.14)
+//   Gate.guideMark, sprites.arrow/go/bar  design pass 18: the yellow arrow over what to go to and use, its chevron at the view's edge, GO
+//                                      at the right edge between the waves, the health bars over hit trolls, pieces, the gate and brothers
 //   new Gate.Scene(spec)               the level on the stage: the ground and the decal canvases before the camera's translate, then every
 //                                      actor in the order of its feet with the platform groups and drawing at height (section 3.2b)
 // The pixels are made without a DOM, so node can check them (tools/test-render.js); canvases are made only when a page asks.
@@ -604,6 +606,26 @@
     if (lift) for (let y = B + 7 - lift; y < B + 7; y++) for (let x = 3; x <= 12; x++) sp.set(x, y, y === B + 7 - lift ? "#fee761" : "#120e1a");
     sp.set(7, B + 9, "#fee761"); sp.set(8, B + 9, "#fee761"); sp.set(7, B + 10, "#feae34"); sp.set(8, B + 10, "#feae34");
     return done(sp, 8, B + 13); });
+  // ---- design pass 18: the level tells the player what to do without words
+  // the yellow arrow (17 x 16 with its soot): pointing down at what to go to and use, a 5 px shaft and a 15 px head, lit from the top left
+  // (pale on its upper-left edges, orange on its lower-right), anchored at its tip; the page bobs it 3 px
+  const GOLDY = ["#feae34", "#fee761", "#fffaf0", "#ffffff"];
+  SPR.arrow = () => once("garrow", () => { const sp = G(17, 16); region(sp, (x, y) => (x >= 6 && x <= 10 && y >= 1 && y <= 5) || (y >= 6 && y <= 13 && Math.abs(x - 8) <= 13 - y), GOLDY); return done(sp, 8, 13); });
+  // GO in bold letters over a yellow arrow pointing right (the old arcade brawlers' sign that the way ahead is open), 19 x 21 with its soot,
+  // anchored at the arrow's tip
+  SPR.go = () => once("ggo", () => { const sp = G(21, 22);
+    paintChars(sp, [".yyyyy", "yy....", "yy....", "yy.yyy", "yy..yy", "yy..yy", ".yyyy."], { y: "#fee761" }, 3, 1);
+    paintChars(sp, [".yyyy.", "yy..yy", "yy..yy", "yy..yy", "yy..yy", "yy..yy", ".yyyy."], { y: "#fee761" }, 10, 1);
+    region(sp, (x, y) => (x >= 1 && x <= 13 && y >= 14 && y <= 16) || (x >= 13 && x <= 18 && Math.abs(y - 15) <= Math.min(5, 18 - x)), GOLDY);
+    return done(sp, 18, 15); });
+  // a health bar (design pass 18 section 3.7): w wide, 4 tall (soot, the light row, the dark row, soot), f inner pixels filled; red over a
+  // troll, a piece or the gate, green over a sword-brother; tip: its last filled column pale green (a troll's regrowth). Anchored at its top
+  // centre's row 1. Baked once per width, fill and kind
+  const BAR = { red: ["#e43b44", "#a22633"], green: ["#63c74d", "#3e8948"], track: "#3e2731", tip: ["#b4e67a", "#63c74d"] };
+  SPR.bar = (w, f, kind, tip) => { w = clamp(Math.round(w), 6, 48); f = clamp(Math.round(f), 0, w - 2); const k = kind === "green" ? "green" : "red";
+    return once("gbar" + w + "|" + f + "|" + k + (tip ? "t" : ""), () => { const px = new Array(w * 4).fill(OUT), C = BAR[k];
+      for (let x = 1; x < w - 1; x++) for (let y = 1; y <= 2; y++) { const n = x - 1; px[y * w + x] = n < f ? (tip && n === f - 1 ? BAR.tip[y - 1] : C[y - 1]) : BAR.track; }
+      return sprite(px, w, 4, w >> 1, 1, { bar: { w, f, kind: k, tip: !!tip } }); }); };
   // a drum tower of the gatehouse (r 16, 128 tall), painted unsheared as a standing cylinder shaded by column from the lit left, with arrow
   // loops, a crenellated top and the banners hanging from it: the castle's blue and gold, torn, and the trolls' hide over it
   SPR.drumTower = () => once("drumTower", () => { const r = 16, ht = 128, w = 2 * r + 3, cx = r + 1, cy = ht + 10, sp = G(w, cy + 10);
@@ -792,13 +814,25 @@
       return gridSprite(sp, c, c);
     });
   }
+  // the guide's chevron (design pass 18): two 7 px chevrons one behind the other, yellow with a soot edge, pointing outward in one of 8
+  // directions at what the player should go to off the screen; anchored at its tip
+  function guideMark(dir) {
+    dir = ((dir | 0) % 8 + 8) % 8;
+    return once("gmark" + dir, () => {
+      const n = 19, sp = G(n, n), c = n >> 1, h = 3;
+      const put = (ax, ay) => { const [dx, dy] = DIR8[dir], k = dx && dy ? 2 : 1; sp.set(c + Math.round((ax * dx - ay * dy) / k), c + Math.round((ax * dy + ay * dx) / k), "#fee761"); };
+      for (const back of [0, 3]) for (let i = 0; i <= h; i++) { put(-back - i, i); put(-back - i, -i); }
+      edge(sp);
+      return gridSprite(sp, c, c);
+    });
+  }
   // who gets a mark: every live troll past its spawn tell and every manned trebuchet whose screen feet are outside the view and within 200
   // px of its edge, and every trebuchet stone in flight whose ring's whole hit circle is outside the view. Pure: the squire reads it too.
   // Returns [{ x, y (view px), size, dir (0 to 7), alarm, dot, d }], at most 8, the nearest first, merged within 6 px
   function edgeMarks(fight, o) {
     o = o || {}; const v = fight.view; if (!v) return [];
     const A = fight.area || {}, M = A.offscreenMarks || {}, W = v.x1 - v.x0, H = v.y1 - v.y0, within = M.within || 200, near = M.near || 64, inset = M.inset || 4;
-    const SZ = Object.assign({ near: 5, far: 3, brute: 7, engine: 5 }, M.size || {}), top = M.top || 28, TH_ = M.thumbs || { x: 67, y: 118 }, band = (M.bottomBand || {})[o.lefty ? "left" : "right"] || (o.lefty ? [68, 204] : [180, 316]);
+    const SZ = Object.assign({ near: 5, far: 3, brute: 7, engine: 5 }, M.size || {}), top = typeof o.top === "number" ? Math.max(o.top, M.top || 28) : (M.top || 28), TH_ = M.thumbs || { x: 67, y: 118 }, band = (M.bottomBand || {})[o.lefty ? "left" : "right"] || (o.lefty ? [68, 204] : [180, 316]);
     const cx = W / 2, cy = (A.camera || {}).aimY || 116, out = [];
     // only the current arena's trolls (the director's fight.level.arena: { x0, x1 }; before an arena is set, every troll)
     const AR = fight.level && fight.level.arena && fight.level.arena.x0 !== undefined ? fight.level.arena : null, inArena = x => !AR || (x >= AR.x0 && x <= AR.x1);
@@ -1006,9 +1040,9 @@
         }, z);
       }
     }
-    // the engines, in 8 px slices, their frame from the director's state; the ram where it lies; the castle's drum towers, bridge and gate
+    // the engines, in 8 px slices, their frame from the director's state; the castle's drum towers, bridge and gate
     for (const e of A.engines || []) { const f = e.frame; const n = Math.ceil((f.y1 - f.y0) / 8); for (let j = 0; j < n; j++) act(f.x0 - 2, f.y0 - 60, f.x1 + 2, f.y1 + 2, f.y0 + 8 * j + 8, (ctx, F, o) => { const s = SPR.trebuchet(S.engineFrame(F, e, o.t), e.id === "treb4"); drawSlice(ctx, s, f.x0, f.y0, f.y1, j, n); }); }
-    if (A.ram && A.ram.rect) { const [x0, y0, x1, y1] = A.ram.rect; act(x0 - 1, y0 - 9, x1 + 2, y1 + 2, y1, (ctx, F) => { const W = F.world; if (W.ram === null || W.ram === undefined) return; const s = W.solids[W.ram]; if (!s || s.gone) return; drawAt(ctx, SPR.ram(), s.x0, s.y1); }); }
+    // (the ram is not one of these: it is drawn where it lies, every frame, with the solids a fight adds; design pass 18)
     if (A.castle) {
       const CA = A.castle, GH = CA.gatehouse;
       if (CA.fallenTower) { const [x, y] = CA.fallenTower.at; act(x - 18, y - 46, x + 18, y + 10, y, ctx => { drawAt(ctx, longShadow(16), x, y); drawAt(ctx, SPR.stump(), x, y); }); }
@@ -1244,6 +1278,10 @@
       else if (s.kind === "boulder" && s.r <= 10 && !this.A.rocks.some(r => r.x === s.x && r.y === s.y)) push(s.y, 0, c => drawAt(c, SPR.rock(10), s.x, s.y));
       else if (s.kind === "droppedRock" || (s.kind === "rockLying" && !lifted.has(s))) push(s.y, 0, c => drawAt(c, root.Trolls.rock(), s.x, s.y));
     }
+    // the Last Army's Ram where it lies, by its own box and its own foot (design pass 18: it was a piece of the map, built once with its
+    // starting box, so put down anywhere far from there it was culled from the frame while its body and its prompt stayed)
+    const RM = W.ram === null || W.ram === undefined ? null : W.solids[W.ram];
+    if (RM && !RM.gone && RM.x1 >= x0 && RM.x0 <= x1 && RM.y1 >= y0 && RM.y0 - 16 <= y1) push(RM.y1, 0, c => drawAt(c, SPR.ram(), RM.x0, RM.y1));
     // the bodies not in a platform's group (the roof's, the tower deck's) and not on the castle's wall: on the ground, in a hole, in the air,
     // on the stair, the landing or the lowered drawbridge, each by its feet and lifted by its height
     for (const b of this.bodiesOf(F)) { if (b.climbing || (b.on && this.grouped.has(b.on))) continue; if (b.foe && this.onWall(b)) continue; if (this.underDeck(F, b)) continue; if (!inV(b.x, b.y - (b.z || 0), 32)) continue; push(b.y, b.z || 0, c => this.drawOne(c, F, o, b)); }
@@ -1264,6 +1302,41 @@
     for (const a of acts) a.draw(ctx, F, o);
     return acts.length;
   };
+  // ---- the health bars (design pass 18 section 3.7), after the field's actors, in world coordinates: over a troll once hit (the wall
+  // archers too; a green tip while it regrows), a hut, tent, the watchtower or a trebuchet once hit, the gate through Break the gate, and a
+  // hurt knight that is not the player's (green). Every bar a baked sprite drawn once
+  Scene.prototype.drawBars = function (ctx, F, o) {
+    const v = this.view, inV = (x, y) => x >= v.x0 - 24 && x <= v.x0 + TW + 24 && y >= v.y0 - 24 && y <= v.y0 + 216 + 24;
+    let n = 0;
+    const bar = (x, y, w, q, kind, tip) => { const f = q > 0 ? Math.max(1, Math.round((w - 2) * Math.min(1, q))) : 0; drawAt(ctx, SPR.bar(w, f, kind, tip), x, y); n++; };
+    for (const f of F.foes || []) {
+      if (f.dead || f.spawn > 0 || !(f.hp < f.hpMax - 1e-9)) continue;
+      const big = !!BRUTES[f.kind], y = Math.round(f.y - (f.z || 0) - (f.h || 24) - (big ? 6 : 5));
+      if (inV(f.x, y)) bar(Math.round(f.x), y, big ? 18 : 12, f.hp / f.hpMax, "red", root.Combat && root.Combat.foeRegrowing ? root.Combat.foeRegrowing(F, f) : f.regrowT > 1e-9);
+    }
+    for (const p of F.pieces || []) {
+      if (p.broken || p.gone || !(p.hp < p.hpMax - 1e-9) || !PIECE_BARS[p.kind]) continue;
+      const y = Math.round(p.y - (p.ht || 24) - PIECE_BARS[p.kind]);
+      if (inV(p.x, y)) bar(Math.round(p.x), y, 20, p.hp / p.hpMax, "red");
+    }
+    // the gate's, over the portcullis's lower half with the guide's arrow under it (the arch's top is under the top row when the camera is low)
+    const G0 = F.gate || {}, gp = (F.pieces || []).find(p => p.kind === "gate");
+    if (gp && gp.active && !gp.broken && G0.down && G0.burst === null && gp.hpMax > 0) { const y = Math.round(gp.y - 36); if (inV(gp.x, y)) bar(Math.round(gp.x), y, 40, gp.hp / gp.hpMax, "red"); }
+    for (const k of F.knights) if (k !== F.k && !k.out && !k.down && !(k.rise > 0) && k.hp < k.hpMax - 1e-9) { const y = Math.round(k.y - (k.z || 0) - 30); if (inV(k.x, y)) bar(Math.round(k.x), y, 12, k.hp / k.hpMax, "green"); }
+    return n;
+  };
+  const PIECE_BARS = { hut: 8, tent: 8, engine: 8, tower: 22 };   // how far over its height a piece's bar stands
+  // ---- the guide (design pass 18; Level.guide says what): the yellow arrows in world coordinates, after everything on the field, bobbing
+  // 3 px on four frames (still under reduced motion); then, in view coordinates, the yellow chevrons at the edge and GO at the right edge,
+  // blinking 0.6 s on and 0.25 s off (steady under reduced motion)
+  const BOB = [0, 1, 3, 1];
+  Scene.prototype.drawGuide = function (ctx, g, o) { if (!g) return 0; const b = o.still ? 0 : BOB[Math.floor(o.t * 4) & 3]; for (const a of g.arrows) drawAt(ctx, SPR.arrow(), a.x, a.y - b); return g.arrows.length; };
+  Scene.prototype.drawGuideView = function (ctx, g, o) {
+    if (!g) return 0; let n = 0;
+    for (const m of g.edges) { drawAt(ctx, guideMark(m.dir), m.x, m.y); n++; }
+    if (g.go && (o.still || (o.t % 0.85) < 0.6)) { drawAt(ctx, SPR.go(), TW - 5, g.go.y); n++; }
+    return n;
+  };
   // a pouch bobs 1 px at 2 fps on its own clock with the #fee761 glint on its high frame (still under reduced motion), a gold tie for a
   // Thing of tier 2 or more (the Emberback's); drawn at (x, y - z) by its foot
   const tierOf = id => { const t = (root.FORGE_THINGS || []).find(q => q.id === id); return t && t.tier ? t.tier : 1; };
@@ -1283,6 +1356,6 @@
   Scene.prototype.drawEdgeMarks = function (ctx, list) { for (const m of list) drawAt(ctx, edgeMark(m.size, m.dir, m.alarm, m.dot), m.x, m.y); return list.length; };
 
   root.Gate = { OUT, R, SKY, PALETTE, BAYER, TW, TH, FLOOR_TOP, LIP, hash, vnoise, dith, Grid, region, outline, rect, ell, or, line, paintRows: paintRows, paint, prepare, Tiles, canvasOf, sprite, sprites: SPR, longShadow, bodyShadow,
-    marks: MK, telegraph: TG, dirOf, edgeMark, edgeMarks, Scene, trollAnim, drawAt, blit, bridgeSwing };
+    marks: MK, telegraph: TG, dirOf, edgeMark, edgeMarks, guideMark, Scene, trollAnim, drawAt, blit, bridgeSwing };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Gate;
 })(typeof window !== "undefined" ? window : globalThis);
