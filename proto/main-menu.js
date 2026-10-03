@@ -135,51 +135,8 @@
     go("forge");
     if (!leaving) renderWho();   // (?stay=1: the plank gives way to the buttons; leaving, it stays through the fade)
   });
-  // (build 9) I have a key, on the Cloudflare copy's plank: the key brings a game from another phone, and the menu's buttons follow
-  const keyBox = { el: null, field: null, why: null, go: null };
-  if (whoOn && CL) {
-    const css = document.createElement("style");
-    css.textContent = ".who .alt{display:block;width:100%;min-height:40px;padding:0 8px;background-color:transparent;cursor:pointer;font-family:var(--display);font-weight:700;font-size:18px;line-height:1;color:var(--parch)}" +
-      ".who .alt:disabled{opacity:.45;cursor:not-allowed}.who .keybox{display:grid;gap:6px}.who .keybox .fld{letter-spacing:.06em;text-transform:uppercase}";
-    document.head.appendChild(css);
-    const alt = document.createElement("button");
-    alt.type = "button"; alt.className = "alt f-iron"; alt.id = "whoKey"; alt.textContent = "I have a key";
-    $("whoGo").after(alt);
-    const box = document.createElement("div");
-    box.className = "keybox"; box.id = "whoClaim"; box.hidden = true;
-    box.innerHTML = '<input class="fld" id="whoKeyField" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="XXXX-XXXX-XXXX-XXXX" aria-label="Your key">' +
-      '<div class="why" id="whoKeyWhy" aria-live="polite"></div><button class="go f-ember" id="whoBring" type="button" disabled>Bring my game</button><button class="alt f-iron" id="whoBack" type="button">Back</button>';
-    alt.after(box);
-    Object.assign(keyBox, { el: box, field: $("whoKeyField"), why: $("whoKeyWhy"), go: $("whoBring") });
-    const nameParts = () => [field, $("whoWhy"), $("whoGo"), alt];
-    const words = () => $("whoWords").textContent;
-    let said = "";
-    const keyShape = v => /^[0-9a-z]{16}$/.test(String(v || "").toLowerCase().replace(/[\s-]/g, ""));
-    function keying(onKey) {
-      for (const el of nameParts()) el.hidden = onKey;
-      box.hidden = !onKey;
-      if (onKey) { said = words(); $("whoWords").textContent = "Back again? Show me your key, kid."; keyBox.field.value = ""; keyBox.why.textContent = ""; keyBox.go.disabled = true; if (!coarse) keyBox.field.focus(); }
-      else { if (said) $("whoWords").textContent = said; if (!coarse) field.focus(); }
-      liftWho();
-    }
-    async function bring() {
-      if (!keyShape(keyBox.field.value) || who.busy) return;
-      who.busy = true; keyBox.go.disabled = true; keyBox.why.textContent = "…";
-      const r = await CL.claim(keyBox.field.value);
-      who.busy = false;
-      if (!r.ok) { keyBox.why.textContent = r.reason || "That key didn't work."; keyBox.go.disabled = false; return; }
-      keyBox.why.textContent = "";
-      try { keyBox.field.blur(); } catch (e) { /* gone */ }
-      keying(false); renderWho();
-      toast("Welcome back, " + r.smith.name);
-    }
-    alt.addEventListener("click", () => keying(true));
-    $("whoBack").addEventListener("click", () => keying(false));
-    keyBox.field.addEventListener("input", () => { keyBox.go.disabled = !keyShape(keyBox.field.value); keyBox.why.textContent = ""; });
-    keyBox.field.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); bring(); } });
-    keyBox.go.addEventListener("click", bring);
-    keyBox.field.addEventListener("focus", () => { liftWho(); liftSoon(); });
-  }
+  // (build 11, design pass 13 revision 4) no key on the first screen: it only asks the name, as on the phone. A game moves to another
+  // phone through Settings (Play on another phone, Bring a game here)
   // the visible part of the game (in its own coordinates): what the keyboard leaves of the screen. A turned game is already sized to
   // the visual viewport by fitTurn, so it is all of it
   function band() {

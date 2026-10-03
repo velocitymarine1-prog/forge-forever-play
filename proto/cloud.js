@@ -3,6 +3,10 @@
 // else (GitHub Pages and the TestFlight app that loads it, a page opened from disk, the harnesses) Cloud.on is false, Cloud.ready
 // resolves at once and every call does nothing, so the game is exactly as it was.
 //
+// Since build 11 (revision 4) the GitHub Pages copy, which the TestFlight dev app loads, has the switch too, pointing at the Cloudflare
+// server from another site: the sign-in is then a token the phone keeps (forge-forever:cloud-token) and sends as Authorization: Bearer,
+// since a page can't keep another site's cookie. The Cloudflare copy sends it too, and keeps its cookie.
+//
 // The game keeps using localStorage as it does. This module copies the player's own records to the server and back, as one bundle:
 //   { v: 2, at, smith: { id, name, joined }, forge: <forge-forever:local:<id>>, lessons: <forge-forever:lessons:<id>>,
 //     marks: { cellarSeen, gateSeen, gateFirsts } }   or the erase marker { v: 2, erased: true, at }
@@ -26,6 +30,8 @@
   const API = meta ? String(meta.getAttribute("content") || "").replace(/\/+$/, "") : "";
   let fileUrl = false; try { fileUrl = root.location.protocol === "file:"; } catch (e) { fileUrl = true; }
   const on = !!API && !fileUrl && typeof root.fetch === "function";
+  // cross: the server is on another site (the GitHub Pages copy): no cookie, the token alone, and no keepalive send as a page closes
+  let cross = false; try { cross = /^https?:\/\//i.test(API) && new URL(API).origin !== root.location.origin; } catch (e) { cross = false; }
   const K = { smith: "forge-forever:smith", local: "forge-forever:local:", lessons: "forge-forever:lessons:", sync: "forge-forever:cloud", device: "forge-forever:device",
     note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts" };
   const WAIT = 4000, DEBOUNCE = 2000, GAP = 5000, RETRY = 30000, KEEPALIVE_MAX = 60000, AWAY = 60000;
@@ -44,6 +50,11 @@
   const parse = t => { if (!t) return null; try { return JSON.parse(t); } catch (e) { return null; } };
   const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
   function readSync() { const s = parse(get(K.sync)); return s && typeof s === "object" ? s : {}; }
+  // the sign-in token (build 11): this phone's, kept through an erase (the account stays); in the page's memory when storage is blocked
+  const TOKEN = "forge-forever:cloud-token";
+  let memToken = null;
+  function token() { try { const t = root.localStorage.getItem(TOKEN); if (t) return t; } catch (e) { /* blocked */ } return memToken; }
+  function setToken(t) { memToken = t || null; try { if (t) root.localStorage.setItem(TOKEN, t); else root.localStorage.removeItem(TOKEN); } catch (e) { /* kept in memory */ } }
   function writeSync(s) { set(K.sync, JSON.stringify(s)); }
   const record = () => (root.Smith ? root.Smith.read() : parse(get(K.smith)));
   // this phone's own mark on what it sends (kept through an erase), so a newer version on the server that this phone sent itself (the
@@ -104,6 +115,7 @@
     const t = ctl ? root.setTimeout(() => ctl.abort(), ms || 10000) : 0;
     try {
       const h = Object.assign({}, headers || {});
+      const t = token(); if (t) h.authorization = "Bearer " + t;
       let b;
       if (body && body.bytes !== undefined) { b = body.bytes; h["content-type"] = body.type; }
       else if (body !== undefined && body !== null) { b = JSON.stringify(body); h["content-type"] = "application/json"; }
@@ -145,6 +157,7 @@
     const me = await call("GET", "/me", null, WAIT);
     if (me.err || me.status === 0 || me.status >= 500 || me.status === 429) { state.status = "offline"; later(); return state; }
     if (me.status === 401) {
+      setToken(null);   // (a token that names no session is forgotten)
       const r = record();
       if (realId(r)) await adopt(r, true);   // a player made offline, or before the cloud: registered now (or signed out, or deleted)
       else state.status = "none";
@@ -226,6 +239,7 @@
     const res = await call("POST", "/smiths", { id: r.id, name: r.name, joined: r.joined || null }, WAIT);
     if (res.status === 201 && res.json) {
       take(res.json.smith);
+      if (res.json.token) setToken(res.json.token);
       writeSync({ id: r.id, rev: 0, dirty: true, registered: true });
       state.status = "online";
       touch(true);
@@ -302,7 +316,7 @@
           reload();
         }
       } else if (res.status === 401) {
-        state.smith = null; await adopt(r, false);   // signed out (or deleted) elsewhere: a deleted game reloads as the plank
+        state.smith = null; setToken(null); await adopt(r, false);   // signed out (or deleted) elsewhere: a deleted game reloads as the plank
       } else if (res.status === 413) {
         state.status = "local"; state.error = "too_big";
       } else {
@@ -318,16 +332,18 @@
     if (!on || !state.smith || sending) return;
     const sync = readSync(), r = record();
     if (!sync.dirty || !realId(r) || r.id !== state.smith.id) return;
+    if (cross) return;   // (a cross-site send as a page closes would need a preflight the browser may not wait for: the next open sends it)
     const text = JSON.stringify(collect(r.id));
     if (!text || text.length > KEEPALIVE_MAX) return;
-    try { root.fetch(API + "/save", { method: "PUT", keepalive: true, credentials: "same-origin", headers: { "content-type": "application/json", "if-match": `"${sync.rev || 0}"` }, body: text }); } catch (e) { /* the next open sends it */ }
+    const h = { "content-type": "application/json", "if-match": `"${sync.rev || 0}"` }, t = token(); if (t) h.authorization = "Bearer " + t;
+    try { root.fetch(API + "/save", { method: "PUT", keepalive: true, credentials: "same-origin", headers: h, body: text }); } catch (e) { /* the next open sends it */ }
   }
 
   // ------------------------------------------------------------------ what Settings does
   async function newKey() {
     if (!on) return { ok: false };
     await ready;
-    if (!state.smith) return { ok: false, reason: state.status === "signed-out" ? "This phone is signed out. Enter your key under I have a key." : "Your game isn't online yet. Try again when you're online." };
+    if (!state.smith) return { ok: false, reason: state.status === "signed-out" ? "This phone is signed out. Type your key under Bring a game here." : "Your game isn't online yet. Try again when you're online." };
     const r = await call("POST", "/key", null, 10000);
     return r.ok && r.json && r.json.key ? { ok: true, key: r.json.key } : { ok: false, reason: "Can't reach the forge's server. Try again when you're online." };
   }
@@ -337,6 +353,7 @@
     const r = await call("POST", "/claim", { key: String(key || "") }, 10000);
     if (!r.ok || !r.json || !r.json.smith) return { ok: false, reason: (r.json && r.json.reason) || "Can't reach the forge's server. Try again when you're online." };
     take(r.json.smith);
+    if (r.json.token) setToken(r.json.token);
     const got = r.json.save && !r.json.save.erased ? await fetchSave() : null;
     if (got) apply(got.bundle, state.smith);
     else { wipeLocal(); apply(null, state.smith); }
@@ -351,14 +368,15 @@
     const sync = readSync();
     writeSync(Object.assign(sync, { erase: true, dirty: false }));
     if (!state.smith) return;
-    try { root.fetch(API + "/save", { method: "DELETE", keepalive: true, credentials: "same-origin" }); } catch (e) { /* the next send does it */ }
+    const h = {}, t = token(); if (t) h.authorization = "Bearer " + t;
+    try { root.fetch(API + "/save", { method: "DELETE", keepalive: !cross, credentials: "same-origin", headers: h }); } catch (e) { /* the next send does it */ }
   }
   async function deleteGame() {
     if (!on) return { ok: false };
     await ready;
     const r = await call("DELETE", "/me", null, 10000);
     if (r.ok || r.status === 204 || r.status === 401) {
-      wipeLocal(); writeSync({}); state.smith = null; state.status = "none";
+      wipeLocal(); writeSync({}); setToken(null); state.smith = null; state.status = "none";
       return { ok: true };
     }
     return { ok: false, reason: "Can't reach the forge's server. Try again when you're online." };
@@ -413,7 +431,7 @@
   }
 
   root.Cloud = {
-    on, API, ready, K,
+    on, API, cross, ready, K,
     get status() { return state.status; }, get smith() { return state.smith; }, get role() { return state.smith ? state.smith.role : null; },
     get ready_() { return readyDone; },
     canBench() { return on && !!state.smith && (state.smith.role === "dev" || state.smith.role === "admin"); },

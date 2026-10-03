@@ -51,6 +51,7 @@ L dodges, U plays a legend's ability, E uses the rack, the stairs and the door, 
 cellar's menu.
 
 This is a **world of one**: the pairs the seed ledger knows reveal the Forge Oracle's real results (the model wrote them once), and
-every other pair is the offline Combiner's provisional draft. Your smithy is saved in this browser. The design passes, the engine, the
+every other pair is the offline Combiner's provisional draft. Your game is saved in this browser and online, on the forge's server,
+so it can go to another phone (Settings: Play on another phone, then Bring a game here on the other). The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `d3a850f`.
+`tools/deploy.sh` from commit `937cd54`.
