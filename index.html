@@ -64,6 +64,38 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .big:active{filter:brightness(1.18)}
 .game.tiny .big{height:52px;font-size:23px}
 .game.tiny .buttons{gap:8px}
+/* Who's at the forge? (design pass 16, build 8): a phone with no player sees this plank in place of the three buttons: Grycus's face and
+   his words at the door, a name, Into the forge (dim until the name is good, then glowing). While the field has the focus and the
+   keyboard covers the screen, the plank rises into what the keyboard leaves and shrinks to the heading, the field and the button
+   (.lifted: the script places it there, following visualViewport) */
+.menu.naming{grid-template-columns:minmax(0,1fr) clamp(270px,calc(var(--gw) * .4),340px)}
+.who{grid-area:buttons;align-self:end;display:grid;gap:6px;width:100%;padding:6px 10px 10px;color:var(--ink);margin-bottom:clamp(0px,calc((var(--gh) - 600px) * .35),160px);animation:rise .3s steps(4,end)}
+.who h2{margin:0;font-family:var(--display);font-weight:800;font-size:27px;line-height:1;color:var(--ink)}
+.who .speech{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 9px;align-items:center}
+.who .speech canvas{display:block;width:48px;height:48px;background:var(--stone-2);border:2px solid #3a4466;box-shadow:0 0 0 2px var(--soot)}
+.who .speech b{display:block;font-family:var(--data);font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--oak);line-height:1.2}
+.who .speech span{display:block;font-size:14.5px;line-height:1.28;color:var(--ink)}
+.who .fld{display:block;width:100%;height:38px;margin:0;padding:0 10px;font-family:var(--text);font-size:17px;background:var(--stone);color:var(--parch);border:2px solid var(--oak-d);border-radius:0;-webkit-user-select:text;user-select:text;-webkit-appearance:none;appearance:none}
+.who .fld::placeholder{color:var(--dim)}
+.who .fld:focus-visible{outline:3px solid var(--ice);outline-offset:1px}
+.who .why{min-height:15px;font-family:var(--data);font-size:11.5px;letter-spacing:.03em;line-height:1.25;color:var(--ink3)}
+.who .go{display:block;width:100%;min-height:48px;padding:0 8px;background-color:transparent;cursor:pointer;font-family:var(--display);font-weight:800;font-size:22px;line-height:1;color:var(--soot)}
+.who .go:disabled{opacity:.45;cursor:not-allowed}
+.who .go.glow{animation:whoglow 1.1s ease-in-out infinite}
+@keyframes whoglow{50%{box-shadow:0 0 16px 5px rgba(247,118,34,.8)}}
+.game.tiny .who{gap:4px;padding:4px 10px 8px}
+.game.tiny .who h2{font-size:23px}
+.game.tiny .who .speech canvas{width:32px;height:32px}
+.game.tiny .who .go{min-height:40px;font-size:20px}
+.game.tiny .who .speech span{font-size:13px;line-height:1.22}
+.game.tiny .who .fld{height:34px;font-size:16px}
+.who.lifted{position:absolute;z-index:6;grid-area:auto;align-self:auto;margin:0;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:3px 10px 6px;animation:none}
+.who.lifted h2{grid-column:1/-1;grid-row:1;font-size:21px}
+.who.lifted .speech{display:none}
+.who.lifted .fld{grid-column:1;grid-row:2}
+.who.lifted .go{grid-column:2;grid-row:2;width:auto;min-height:38px;padding:0 14px;font-size:19px}
+.who.lifted .why{grid-column:1/-1;grid-row:3;min-height:0}
+.who.lifted .why:empty{display:none}
 /* General Settings: a plank over the menu, its rows drawn by settings.js */
 .veil{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:rgba(13,10,20,.66);
   padding:calc(8px + var(--st)) calc(8px + var(--sr)) calc(8px + var(--sb)) calc(8px + var(--sl))}
@@ -87,9 +119,15 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .set-ask{color:var(--ink);margin-top:2px}
 .set-ask h3{margin:0 0 6px;text-align:center;font-family:var(--display);font-weight:800;font-size:26px;line-height:1;color:var(--ink)}
 .set-ask p{margin:4px 0 8px;font-size:15px;color:var(--ink);text-align:center}
-/* on a short game (a phone: 500 px or less high) the plank is wider and its rows are two columns */
+/* on a short game (a phone: 500 px or less high) the plank is wider and its rows are two columns (a little lower since build 8, which
+   added Your name and Copy my playtest notes, so a 640 x 360 phone holds them all without scrolling) */
 .game.short .plank.wide{max-width:640px}
-.game.short .wide .set-rows{grid-template-columns:repeat(2,minmax(0,1fr))}
+.game.short .wide .set-rows{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.game.short .wide .set-row{min-height:0;padding:0 8px}
+.game.short .wide h2{font-size:24px;margin-bottom:2px}
+.game.short .wide .set-btns{margin-top:6px}
+.game.short .wide .set-btns button{min-height:40px}
+.game.short .wide .set-foot{margin-top:2px}
 /* the turn plate: a phone held upright (the cellar's), fixed to the viewport, above the game */
 .turn{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:calc(18px + var(--st)) 18px calc(18px + var(--sb));text-align:center;background:rgba(24,20,37,.96)}
 .turn canvas{width:96px;height:96px}
@@ -106,7 +144,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .still *{animation:none!important;transition:none!important}
 </style>
 </head>
-<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="2095284" data-booted="0" data-errors="0">
+<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="01bb4a2" data-booted="0" data-errors="0">
 <div class="game" id="game">
   <canvas class="vista" id="vista" role="img" aria-label="Rolling mountains at dusk: the sun low behind the far range, darker ranges nearer, a black hill with pines in front"></canvas>
   <main class="menu" id="menu">
@@ -116,6 +154,13 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
       <button class="big f-iron" id="menuBattle"><canvas data-glyph="sword" aria-hidden="true"></canvas><span>Battlegrounds</span></button>
       <button class="big f-iron" id="menuSettings"><canvas data-glyph="cog" aria-hidden="true"></canvas><span>General Settings</span></button>
     </nav>
+    <form class="who f-parch" id="who" hidden novalidate autocomplete="off" aria-labelledby="whoHead">
+      <h2 id="whoHead">Who's at the forge?</h2>
+      <div class="speech" id="whoSpeech"><div><b id="whoWho">Grycus</b><span id="whoWords">Someone's at my door! Who are you? Tell me your name.</span></div></div>
+      <input class="fld" id="whoField" name="name" type="text" maxlength="16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Your name" aria-label="Your name" aria-describedby="whoWhy">
+      <div class="why" id="whoWhy" aria-live="polite"></div>
+      <button class="go f-ember" id="whoGo" type="submit" disabled>Into the forge</button>
+    </form>
   </main>
   <div class="veil" id="setVeil" hidden>
     <div class="plank f-plank wide" id="setPlank" role="dialog" aria-label="General Settings">
@@ -137,8 +182,14 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script>window.__errors = []; (function () { var note = function (m) { window.__errors.push(m); if (document.body) document.body.setAttribute("data-errors", String(window.__errors.length)); };
   window.addEventListener("error", function (e) { note(String(e.message) + " @ " + e.filename + ":" + e.lineno); });
   window.addEventListener("unhandledrejection", function (e) { note("unhandled: " + String(e.reason)); }); })();</script>
+<script src="spec/name-filter.js"></script>
+<script src="spec/lessons.js"></script>
 <script src="proto/smithy.js"></script>
 <script src="proto/dusk.js"></script>
+<script src="proto/grycus.js"></script>
+<script src="proto/naming.js"></script>
+<script src="proto/smith.js"></script>
+<script src="proto/lessons.js"></script>
 <script src="proto/settings.js"></script>
 <script src="proto/nav.js"></script>
 <script src="proto/main-menu.js"></script>

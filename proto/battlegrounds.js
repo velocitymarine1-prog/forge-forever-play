@@ -76,6 +76,13 @@
   };
   const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  // the cellar's lessons (design pass 16 section 3.5, build 8): proto/cellar-lessons.js (window.CellarLessons, loaded before this file)
+  // drives them through window.TheBattlegrounds; lessonOn(name, ...) calls one of its hooks when it is loaded, and nothing without it
+  function lessonOn(name, ...args) {
+    const CL = window.CellarLessons;
+    if (!CL || typeof CL[name] !== "function") return undefined;
+    try { return CL[name](...args); } catch (e) { (window.__errors || []).push("cellar-lessons: " + (e && e.message || e)); return undefined; }
+  }
   const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
   Smithy.installFrames();
   try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
@@ -233,6 +240,7 @@
     if (state.left) return;
     to = to === "menu" ? "menu" : "forge";
     state.left = true;
+    lessonOn("leave", to);   // (build 8) C7 ends on the way up
     if (LEVEL) sendHome(lv.done);   // a quit banks the satchel and pays nothing (section 3.11.5); after a clear the run has gone home already, and goes as a clear if it has not
     writeBack();
     try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
@@ -297,6 +305,7 @@
     const canFull = !!(document.documentElement.requestFullscreen && screen.orientation && screen.orientation.lock);
     $("tFull").hidden = !canFull;
     $("mForced").hidden = !state.forced;
+    lessonOn("fit");
     return state.layout;
   }
   function lockLandscape() { try { const o = screen.orientation; if (o && o.lock) { const p = o.lock("landscape"); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* this browser doesn't lock */ } }
@@ -408,6 +417,7 @@
     if (k.dodge > 0 || k.lunge) { state.trail.unshift([k.x, k.y]); if (state.trail.length > 9) state.trail.pop(); } else if (state.trail.length) state.trail.pop();
     flushSums(false);
     zones();
+    lessonOn("tick");
   }
 
   // ------------------------------------------------------------------ what happened: events to effects, numbers, holds and shakes
@@ -419,6 +429,7 @@
   function addFx(e, extra) { const f = Object.assign({}, e, extra || {}, { t: 0 }); f.life = f.life || LIFE[f.kind] || 0.3; if (f.el !== undefined || f.mat !== undefined) f.ramp = ramp(f.el, f.mat); state.fx.push(f); if (state.fx.length > 96) state.fx.shift(); return f; }
   function say(x, y, s, c, big) { state.nums.push({ x, y, s: String(s), c: c || INK.normal, t: 0, life: FEEL.number, big: !!big }); if (state.nums.length > 64) state.nums.shift(); }
   function take(events) {
+    lessonOn("events", events);
     for (const e of events) {
       if (LEVEL && takeLevel(e)) continue;
       if (e.type === "fx") addFx(e, e.kind === "blast" && e.small ? { life: 0.25 } : null);
@@ -673,7 +684,9 @@
   function zones() {
     const Z = AREA.zones || {}, was = state.zone, wasText = state.promptText;
     let zone = null;
+    const shutZones = lessonOn("blocked") || null;   // (build 8) the door to the Troll Gate is no zone while the cellar's lessons run
     if (state.arrive <= 0 && !fight.k.down && !fight.k.out) for (const name of (AREA.promptOrder || Object.keys(Z))) {
+      if (shutZones && shutZones.includes(name)) continue;
       if (name === "lift") { if (LEVEL && LV.lifting()) { zone = name; break; } continue; }
       if (zoneAt(Z[name])) { zone = name; break; }
     }
@@ -751,6 +764,7 @@
     // floor decals: patches, cracks, traps, the fields
     for (const p of fight.patches) drawPatch(p, t);
     for (const f of state.fx) if (f.kind === "crack") drawCrack(f);
+    lessonOn("floor", ctx);   // (build 8) the lessons' floor rings, under the actors
     for (const tr of fight.traps) drawTrap(tr, t);
     for (const h of fight.hands) if (h.aura) drawAura(h.aura, k, t);
     // actors, sorted by their feet
@@ -1309,7 +1323,7 @@
   // the harness's handle on the screen
   window.TheBattlegrounds = {
     // (input(o): a plain object stands for the thumbs until changed; a function is a driver, called once a step with dt, its answer the thumbs' input)
-    state, world, toasts, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, scene, VIEW, AREA, LEVEL,
+    state, world, toasts, markSeen() { return store.set(LEVEL ? KEYS.gateSeen : KEYS.seen, "1"); }, lessons: null, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, scene, VIEW, AREA, LEVEL,
     // a level (design pass 12): the run's id, the satchel's state, the way home, the clear, the adapter over the director's state, a synthetic event
     runId, go, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, get lv() { return state.lv; }, take(events) { take(Array.isArray(events) ? events : [events]); },
     get fight() { return fight; }, get rack() { return rack.slice(); }, get paused() { return paused(); },
@@ -1373,7 +1387,9 @@
   if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = LEVEL ? "You came without weapons from the Forge: you carry the Sword and the Bow, and your finds cannot be carried home." : "You came without weapons from the Forge, so the rack holds the twenty class weapons and the world's forged weapons."; }
   if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = LEVEL ? "E takes up what lies on the field and goes into the castle. Esc opens the menu." : "E uses the rack, the stairs and the Troll Gate's door. U: a legend's ability. Esc opens the cellar's menu."; }
   else { $("keyLine").textContent = LEVEL ? "Tap the prompt over your knight to take up what lies on the field, and to go into the castle." : "Under the rack on the wall you can take any weapon you own. The stairs lead back up. The door on the left goes to the Troll Gate."; if (LEVEL) $("keyDodge").textContent = "a roll past a blow"; }   // (the cellar's "through the bag" is the cellar's)
-  if (params.get("seen") !== "1" && (store.get(LEVEL ? KEYS.gateSeen : KEYS.seen) !== "1" || params.get("fresh") === "1")) openPlank("first");
+  // (build 8) with the cellar's lessons running, his words take the first visit's place: the plank waits, and is marked seen when they end
+  const lessons = lessonOn("boot") === true;
+  if (!lessons && params.get("seen") !== "1" && (store.get(LEVEL ? KEYS.gateSeen : KEYS.seen) !== "1" || params.get("fresh") === "1")) openPlank("first");
   draw();
   state.booted = true;
   document.body.setAttribute("data-booted", "1");

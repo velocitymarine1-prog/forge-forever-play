@@ -27,6 +27,10 @@
 // World.run (a replay once the area is in profile.cleared), a run that did not clear banks its finds by World.bank with no pay, and
 // either way the run's id goes into profile.runs in the same save, so a reload never pays or banks twice. Ingredients only, never a
 // weapon. The handoff down carries the areas cleared.
+// Since build 8 (design pass 16 with its revision 1, the first five minutes) the player record (smith.js) names the save, local:<id>: a
+// record with no save is a new player (newSmith: level 1, 60 coins, the Sword), no record sends the page to the main menu, which asks
+// the name (under ?stay=1 the dev smith boots as before), and Grycus's lessons (forge-lessons.js, through the lessonOn hooks) teach
+// the first forge and say good luck; while they run he says none of his own lines.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -77,7 +81,9 @@
   // thing is gained (not for gain(id, 0), which the cabinet uses to list a store's things); a save from before build 4 has none, and
   // those legends sort last
   const got = {};
-  function gain(id, n) { const o = own.get(id); if (o) { o.n += n || 1; } else own.set(id, { n: n || 1, seq: ++seq }); if ((n === undefined || n > 0) && !got[id]) got[id] = nowIso(); }
+  // (build 8: gain(id, 0) adds nothing, as the cabinet and a save's stock of 0 mean; it added one, so every reload gave back a used-up
+  // Fire and opening a store's cabinet gave one of every thing in it)
+  function gain(id, n) { const k = n === undefined ? 1 : n, o = own.get(id); if (o) { o.n += k; } else own.set(id, { n: k, seq: ++seq }); if ((n === undefined || n > 0) && !got[id]) got[id] = nowIso(); }
   function have(id) { const o = own.get(id); return o ? o.n : 0; }
   let profile = Progress.newProfile("isaac");
   const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false };
@@ -168,6 +174,7 @@
   // the door, or Try it in the cellar on a weapon's plaque: the weapon becomes the active hand (equipped, first in first out as always,
   // when it can be wielded; practice only when it can't), and the smith goes down
   function goDown(id) {
+    lessonOn("down", id);   // (build 8) the lessons' F6 ends here: the record moves on to the cellar's steps before the page leaves
     gryHush();
     let tryId = null;
     const t = id ? world.get(id) : null;
@@ -634,8 +641,8 @@
     say.classList.toggle("short", el.clientHeight < 260);
     if (room) { room.figure = gryFigure; if (room.redraw) room.redraw(); }
   }
-  // something stands over the room, or he is out of sight: he holds his tongue
-  function gryQuiet() { return state.forging || state.pouring || state.wallsOpen || state.room !== "forge" || session.leaving || plaqueOpen() || plankOpen() || !$("setPlank").hidden || !$("firstWeapon").hidden || !$("unlockPlaque").hidden; }
+  // something stands over the room, or he is out of sight: he holds his tongue (build 8: and while the lessons run, the lesson is his word)
+  function gryQuiet() { return state.forging || state.pouring || state.wallsOpen || state.room !== "forge" || session.leaving || plaqueOpen() || plankOpen() || !$("setPlank").hidden || !$("firstWeapon").hidden || !$("unlockPlaque").hidden || lessonOn("quiet") === true; }
   function gryShow(text, ms, then) {
     const say = $("grySay"); $("gryLine").textContent = text; say.hidden = false; gry.line = text;
     say.classList.remove("pop"); void say.offsetWidth; if (!reduce) say.classList.add("pop");
@@ -940,6 +947,7 @@
     const FX = window.ForgeFx;
     const from = FX ? [slotFrom($("slotA")), slotFrom($("slotB"))] : null;
     state.forging = true; renderSlots();
+    lessonOn("strike");   // (build 8) the lessons' F5 ends: the forging plays with no veil and no words
     gryHush(); gryPose("watch", Infinity);   // he leans in by the bellows; from the cut forge-fx draws him at the anvil
     if (FX) {
       $("room").classList.add("seq");
@@ -956,6 +964,7 @@
       endForging(); state.forging = false;
       toast(claim ? claim.error : "The forge failed"); renderSlots();
       gryAfter({ failed: true }); gryRemark(600);
+      lessonOn("failed");   // (build 8) a lesson's forge that failed goes back to Strike
       return;
     }
     if (run) {
@@ -1134,6 +1143,7 @@
     const ap = $("applyBtn"); if (ap) ap.addEventListener("click", () => { closePlaque(); state.a = null; state.b = t.id; renderSlots(); setTab("weapons"); openWalls("pick"); toast("Pick a weapon for the base"); });
     $("share").addEventListener("click", () => share(t));
     const tr = $("tryBtn"); if (tr) tr.addEventListener("click", () => goDown(t.id));
+    lessonOn("plaque", claim, view);   // (build 8) the lessons' F6: the plaque in lesson mode
   }
   function tryRow(t) { return `<button class="f-iron tryit" id="tryBtn">↓ Try it in the cellar${Progress.canEquip(t, profile, G) ? "" : "<small>practice only</small>"}</button>`; }
   function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.forms || []), ...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
@@ -1145,7 +1155,7 @@
     if (!session.equipped.includes(t.id)) { session.equipped.push(t.id); if (session.equipped.length > 2) session.equipped.shift(); }
     if (btn) btn.textContent = "Equipped"; save(); toast(`${t.name} goes to the Battlegrounds with you`);
   }
-  // Share's text in the traits words (pass 10 section 3.3.5): "Emberbrand (uncommon sword): slashes · fire · burns · burning ground · long reach. Forged from Sword + Fire. First forged by isaac. Forge Forever"
+  // Share's text in the traits words (pass 10 section 3.3.5): "Emberbane (uncommon sword): slashes · fire · burns · burning ground · long reach. Forged from Sword + Fire. First forged by isaac. Forge Forever"
   function share(t) {
     const cls = classOf(t);
     const named = t.naming && t.naming.status === "named" ? ` Named by ${t.naming.by}.` : "";
@@ -1183,7 +1193,7 @@
   const plaqueOpen = () => !$("plaque").hidden || !$("legendPlaque").hidden;
   const plankOpen = () => !$("termsPlank").hidden || !$("namePlank").hidden || !$("confirmPlank").hidden;
   function continueOn() {
-    if (!plaqueOpen() || plankOpen()) return false;
+    if (!plaqueOpen() || plankOpen() || lessonOn("pinned")) return false;   // (build 8: the lessons' plaque waits for Try it in the cellar)
     const mode = plaqueMode, t = mode === "view" ? null : session.lastClaim && session.lastClaim.thing;
     closePlaque();
     if (mode === "view") return true;
@@ -1200,7 +1210,7 @@
     continueOn();
   }, true);
   window.addEventListener("keydown", e => {
-    if ((e.key !== "Enter" && e.key !== "Escape") || !plaqueOpen() || plankOpen() || !$("setPlank").hidden) return;
+    if ((e.key !== "Enter" && e.key !== "Escape") || !plaqueOpen() || plankOpen() || !$("setPlank").hidden || lessonOn("pinned")) return;   // (build 8: Enter presses the glowing Try it)
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
     e.preventDefault(); continueOn();
   });
@@ -1483,6 +1493,7 @@
         if (!res.ok) { tag.classList.add("red"); $("chipCoins").classList.remove("shake"); void $("chipCoins").offsetWidth; $("chipCoins").classList.add("shake"); toast(res.reason || "Not sold"); setTimeout(() => tag.classList.remove("red"), 900); return; }
         toast(`Bought ${count === 1 ? "" : count + " "}${r.name} for ${res.cost} coins`);
         renderSign(); renderCart(); renderInfo();
+        lessonOn("bought", r.id, res);   // (build 8) in the lessons' F4 the bought Fire flies onto the anvil by itself
       });
       cart.appendChild(b);
     }
@@ -1703,7 +1714,7 @@
     }
     renderSlots(); renderInfo();
   }
-  $("fresh").addEventListener("click", fresh);
+  $("fresh").addEventListener("click", () => { if (!lessonOn("startOver")) fresh(); });   // (build 8: the bench's Start fresh is Start the lessons over)
   $("grant").addEventListener("click", () => grant(1, 0));
   $("grantEmber").addEventListener("click", () => grant(0, 1));
   let lootRng = PF.rng(4242);
@@ -1808,7 +1819,8 @@
   function openSettings(atBench) {
     if (state.forging || state.pouring) return false;
     if (!settings) { toast("Settings didn't load"); return false; }
-    closePlaque(); gryHush();
+    if (!lessonOn("pinned")) closePlaque();   // (build 8: the lessons' plaque stays under Settings, so the step is not lost)
+    gryHush();
     settings.closeErase(); settings.render();
     $("setPlank").hidden = false; $("setBtn").setAttribute("aria-pressed", "true");
     if (atBench) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
@@ -1819,6 +1831,7 @@
     $("bench").hidden = false;
     settings = Settings.mount($("setBody"), {
       build: document.body.getAttribute("data-build") || "dev", section: $("bench"), toast,
+      rows: lessonOn("settingsRows") || [], onRename(r) { lessonOn("renamed", r); },   // (build 8: Skip the lessons while they run; Your name)
       onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); if (name === "forced") { turn.forced = on; fitTurn(); } },
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
       onClose: closeSettings
@@ -1832,6 +1845,37 @@
 
   let toastTimer;
   function toast(m) { const el = $("toast"); el.textContent = m; el.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 3200); window.TheForge && window.TheForge.toasts.push(m); }
+
+  // ------------------------------------------------------------------ the first five minutes (design pass 16 with its revision 1, build 8)
+  // Who is playing: the player record (proto/smith.js) names the save, local:<id>, and a record with no save is a new player
+  // (newSmith); the dev smith, isaac, keeps returningSmith behind the bench's Play as the dev smith. The lessons are
+  // proto/forge-lessons.js (window.ForgeLessons, loaded before this file), which drives them through window.TheForge. lessonOn(name,
+  // ...) calls its hook of that name: who, boot, shown, quiet, pinned, strike, failed, plaque, down, bought, settingsRows, renamed,
+  // startOver. Without forge-lessons.js (an old cached page) every hook is a no-op, and service mode (?world=) never runs lessons
+  function lessonOn(name, ...args) {
+    const FL = window.ForgeLessons;
+    if (!FL || typeof FL[name] !== "function" || params.get("world")) return undefined;
+    try { return FL[name](...args); } catch (e) { (window.__errors || []).push("forge-lessons " + name + ": " + (e && e.message || e)); return undefined; }
+  }
+  // newSmith(): a new player's start (section 3.4; the numbers are spec/lessons.json's start): level 1, no XP, 60 coins, the Sword's rack
+  // the only one open and the Sword the only thing owned, equipped and on the anvil's BASE, nothing on ADD, no materials; Grycus counts
+  // as met (his welcome is the lesson's); the world of one is the ledger's alone. The profile keeps the player's id and name. Saved
+  function newSmith() {
+    const S = (window.FORGE_LESSONS || {}).start || {}, id = profile.id, name = profile.name;
+    loadLedger(ledgerAt); players.length = 0;
+    own.clear(); seq = 0; session.revealed.clear(); session.pending = [];
+    for (const k of Object.keys(got)) delete got[k];
+    profile = Progress.newProfile(id, name);
+    profile.level = S.level || 1; profile.xp = Progress.xpForLevel(profile.level); profile.coins = typeof S.coins === "number" ? S.coins : 60;
+    profile.classes = (S.classes || ["sword"]).slice();
+    for (const c of profile.classes) { const t = classWeapon(c); if (t) gain(t.id); }
+    profile.found = Array.from(own.keys()); profile.picks = Progress.picksLeft(profile);
+    session.equipped = (S.equipped || ["sword"]).filter(x => own.has(x)); session.active = 0;
+    gry.mem = GRY ? Object.assign(GRY.memory(null), { met: true, greetAt: nowIso() }) : null;
+    const base = S.base || "sword";
+    state.a = own.has(base) ? base : null; state.b = null; state.ma = null; state.mb = null;
+    save();
+  }
 
   // ------------------------------------------------------------------ boot: a returning smith (or the saved one), sword and fire on the anvil
   function returningSmith() {
@@ -1855,6 +1899,8 @@
     grycus: { get pose() { return gry.pose; }, get line() { return gry.line; }, get mem() { return gry.mem; }, get pending() { return gry.pending; }, get spot() { return gry.spot; }, get seq() { return gry.seq; },
       say: grySay, tap: gryTap, hush: gryHush, figure: gryFigure, place: gryPlace, open: gryOpen, meet: gryMeet, quiet: gryQuiet } };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderArmory(); renderInfo(); }
+  // (build 8, design pass 16) what forge-lessons.js reaches besides the above
+  Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, lessons: null });
   if (window.Nav) Nav.arrive("forge");
   lockLandscape();
   // the pour assist follows the shared Tap to pour switch; a save from before it (assist: true) sets the switch once
@@ -1865,18 +1911,29 @@
   if (window.visualViewport) window.visualViewport.addEventListener("resize", fitTurn);
   document.addEventListener("fullscreenchange", fitTurn);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTurn);
-  let bootFromCellar = false;
+  let bootFromCellar = false, bootFresh = false;
   (async function boot() {
     const w = params.get("world"), p = params.get("player");
     if (w) { $("worldUrl").value = w; $("smithName").value = p || "isaac"; if (await connect(w, p || "isaac")) { takeAssist(); return; } }
-    if (!load()) { returningSmith(); state.a = "sword"; state.b = "fire"; }
+    // (build 8, design pass 16) who is playing: { id, name } from the player record; "menu" when there is none, so the main menu asks
+    // the name and this page gives way to it (replaced in the history: a Forge with no player is never gone back to); null for the dev
+    // smith (no record under ?stay=1, the harnesses and the pictures; or no smith.js). A record with no save is a new player
+    const who = lessonOn("who");
+    if (who === "menu") { session.leaving = true; try { window.location.replace(menuUrl()); } catch (e) { window.location.href = menuUrl(); } return "left"; }
+    if (who && who.id) profile = Progress.newProfile(who.id, who.name);
+    if (!load()) {
+      if (who && who.id && who.id !== "isaac") { newSmith(); bootFresh = true; }
+      else { returningSmith(); state.a = "sword"; state.b = "fire"; }
+    }
+    if (who && who.name) profile.name = who.name;
     takeAssist();
     bootFromCellar = takeLoadoutBack();
     const ran = await takeRunBack();   // a level's run, paid or banked once (design pass 12 section 3.11.5)
     renderAll();
     if (ran && ran.cleared) afterLevelChange(ran.before, ran.res);
     if (!profile.classes.length) openFirstWeapon();
-  })().then(() => { session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
+    lessonOn("boot", { fromCellar: bootFromCellar, fresh: bootFresh });   // (build 8) the lessons start or resume, with what their step needs
+  })().then(left => { if (left === "left") return; session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1") openSettings(true); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
   // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
   // open says what is equipped now. After an erase, or a change of less motion, elsewhere, the page boots again instead
   window.addEventListener("pageshow", async e => {
@@ -1886,6 +1943,7 @@
     if (window.Settings) { session.assistTap = Settings.isOn("pour"); turn.forced = Settings.isOn("forced"); }
     lockLandscape(); fitTurn();
     const took = takeLoadoutBack(), ran = await takeRunBack();
+    lessonOn("shown", { fromCellar: took });   // (build 8) the lessons as the other pages left them (the cellar moves them on)
     if (!took && !ran) return;
     renderAll();
     if (ran && ran.cleared) afterLevelChange(ran.before, ran.res);

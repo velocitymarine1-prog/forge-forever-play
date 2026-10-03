@@ -3,10 +3,15 @@
 // erase the smithy the same way. Each page gives it a host element and callbacks; the page's own CSS frames the rows (.set-row,
 // .set-danger, .set-extra, .set-btns, .set-foot, .set-ask). Plain script, defines window.Settings. Storage is a convenience: every
 // read and write is in a try/catch, and a page works without it.
+// Since build 8 (design pass 16), on a page that loads smith.js: the row Your name: Mara, which renames (the same field and rules as
+// the menu's "Who's at the forge?"), and with lessons.js too, Copy my playtest notes (the lines of section 3.8, copied, and shown so
+// they can be selected where copying is not allowed). Erase my smithy also forgets the player record and every player's lessons, so
+// the next open asks the name again. The two sub-planks' field and notes have a little CSS of their own (#set-css).
 (function (root) {
   "use strict";
   const KEYS = { lefty: "forge-forever:left-handed", forced: "forge-forever:forced-landscape", motion: "forge-forever:less-motion", pour: "forge-forever:tap-to-pour",
-    erased: "forge-forever:erased", to: "forge-forever:to-cellar", from: "forge-forever:from-cellar", seen: "forge-forever:cellar-seen" };
+    erased: "forge-forever:erased", to: "forge-forever:to-cellar", from: "forge-forever:from-cellar", seen: "forge-forever:cellar-seen",
+    smith: "forge-forever:smith", lessons: "forge-forever:lessons:" };   // (build 8: the player record, and the prefix of each player's lessons)
   // ?nostore=1 (the checks) makes storage act as if the browser blocked it
   let blockedStore = false; try { blockedStore = new URLSearchParams(root.location.search).get("nostore") === "1"; } catch (e) { blockedStore = false; }
   const store = {
@@ -32,25 +37,41 @@
   const byName = name => SWITCHES.find(s => s.name === name) || null;
   function isOn(name) { const s = byName(name); return !!s && store.get(s.key) === "1"; }
   function setOn(name, on) { const s = byName(name); if (!s) return false; if (s.write) return store.set(s.key, s.write(on)); return on ? store.set(s.key, "1") : store.del(s.key); }
-  // erase(): the saves of every world of one, the handoffs and the first-visit mark go; the four switches stay; the time is kept
+  // erase(): the saves of every world of one, the handoffs and the first-visit mark go, and (build 8) the player record and every
+  // player's lessons, the visit's copies too; the four switches stay; the time is kept
   function erase() {
     const removed = [];
-    try { for (let i = root.localStorage.length - 1; i >= 0; i--) { const k = root.localStorage.key(i); if (k && k.indexOf("forge-forever:local:") === 0) removed.push(k); } } catch (e) { /* no storage */ }
-    for (const k of removed.concat([KEYS.to, KEYS.from, KEYS.seen])) store.del(k);
+    try { for (let i = root.localStorage.length - 1; i >= 0; i--) { const k = root.localStorage.key(i); if (k && (k.indexOf("forge-forever:local:") === 0 || k.indexOf(KEYS.lessons) === 0)) removed.push(k); } } catch (e) { /* no storage */ }
+    for (const k of removed.concat([KEYS.to, KEYS.from, KEYS.seen, KEYS.smith])) store.del(k);
+    try { if (root.Smith) root.Smith.clear(); if (root.Lessons) root.Lessons.forgetAll(); } catch (e) { /* the keys above are gone anyway */ }
     const kept = store.set(KEYS.erased, new Date().toISOString());
     return { removed, kept };
   }
   const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
+  // (build 8) the CSS of the two sub-planks' field and notes, written once into the page: the pages' palette and type
+  const CSS = ".set-field{display:block;width:100%;height:38px;margin:2px 0 4px;padding:0 10px;font-family:var(--text,Alegreya,Georgia,serif);font-size:17px;background:var(--stone,#231c2e);color:var(--parch,#ead4aa);border:2px solid var(--oak-d,#3e2731);border-radius:0;-webkit-user-select:text;user-select:text;-webkit-appearance:none;appearance:none}" +
+    ".set-field::placeholder{color:var(--dim,#8a7d6e)}.set-why{min-height:15px;margin:0 0 6px;font-family:var(--data,'Pixelify Sans',monospace);font-size:11.5px;letter-spacing:.03em;color:var(--ink3,#a22633);text-align:center}" +
+    ".set-notes-text{display:block;width:100%;height:128px;margin:2px 0 4px;padding:6px 8px;resize:none;font-family:var(--data,'Pixelify Sans',monospace);font-size:11.5px;line-height:1.5;background:var(--soot,#181425);color:var(--parch,#ead4aa);border:2px solid var(--oak-d,#3e2731);border-radius:0;-webkit-user-select:text;user-select:text;white-space:pre}";
+  function addCSS(doc) { if (!doc || doc.getElementById("set-css")) return; const st = doc.createElement("style"); st.id = "set-css"; st.textContent = CSS; (doc.head || doc.documentElement).appendChild(st); }
+  const Sm = () => root.Smith || null, Ls = () => root.Lessons || null;
+
   // mount(host, o): the rows into host. o = { build, rows (elements placed before Erase), section (an element placed after the rows),
-  // toast(m), onChange(name, on), onErase({ removed, kept }), onClose() }. Returns { render, openErase, closeErase, asking }.
+  // toast(m), onChange(name, on), onErase({ removed, kept }), onClose(), onRename(record) }. Returns { render, openErase, closeErase,
+  // asking, host }; closeErase closes whichever question or sub-plank is open (Erase, Your name, the notes)
   function mount(host, o) {
     if (!host || !host.ownerDocument) return null;
     o = o || {};
     const doc = host.ownerDocument;
     const say = m => { if (typeof o.toast === "function") o.toast(m); };
-    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your weapons, level and coins in this browser</i><span></span></button></div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Everything you own, your level, coins and embers, and all you forged in this browser. The Forge starts again as it does for a new smith. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>`;
+    if (Sm()) addCSS(doc);
+    const you = Sm() ? `<button type="button" class="set-row f-iron" data-you="1" hidden><b>Your name</b><i></i><span>Rename</span></button>` : "";
+    const copy = Sm() && Ls() ? `<button type="button" class="set-row f-iron" data-notes="1" hidden><b>Copy my playtest notes</b><i>Your lessons, to paste in a message</i><span>Copy</span></button>` : "";
+    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}${you}${copy}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your name, weapons, level and coins here</i><span></span></button></div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Your name and your lessons, everything you own, your level, coins and embers, and all you forged in this browser. Grycus will ask who you are again. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>` +
+      (you ? `<form class="set-ask set-you f-parch" hidden role="dialog" aria-label="Your name" novalidate autocomplete="off"><h3>Your name</h3><input class="set-field" type="text" maxlength="16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="Your name" aria-label="Your name"><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="submit" class="f-ember set-rename" disabled>Rename</button><button type="button" class="f-iron set-unrename">Keep it</button></div></form>` : "") +
+      (copy ? `<div class="set-ask set-notes f-parch" hidden role="dialog" aria-label="Your playtest notes"><h3>Your playtest notes</h3><textarea class="set-notes-text" readonly rows="6" aria-label="Your playtest notes"></textarea><div class="set-btns"><button type="button" class="f-ember set-copy">Copy</button><button type="button" class="f-iron set-notes-done">Done</button></div></div>` : "");
     const rows = host.querySelector(".set-rows"), extra = host.querySelector(".set-extra"), btns = host.querySelector(".set-btns"), foot = host.querySelector(".set-foot"), ask = host.querySelector(".set-ask");
+    const youAsk = host.querySelector(".set-you"), notesAsk = host.querySelector(".set-notes");
     const eraseRow = rows.querySelector("[data-erase]");
     for (const el of (o.rows || [])) if (el) rows.insertBefore(el, eraseRow);
     if (o.section) { extra.appendChild(o.section); extra.hidden = false; }
@@ -65,14 +86,60 @@
         b.classList.toggle("set-phone", s.name === "motion" && still);
         b.querySelector("span").textContent = s.name === "motion" && still ? "on · phone" : on ? "on" : "off";
       }
+      // (build 8) Your name: Mara, and Copy my playtest notes once there are lessons to note
+      const p = Sm() ? Sm().read() : null, yr = rows.querySelector("[data-you]"), nr = rows.querySelector("[data-notes]");
+      if (yr) { yr.hidden = !p; if (p) { yr.querySelector("b").textContent = "Your name: " + p.name; yr.querySelector("i").textContent = "Your code " + Sm().code(p.id); } }
+      if (nr) nr.hidden = !(p && Ls().load(p.id));
       foot.textContent = "Saved in this browser · build " + (o.build || "dev");
     }
     let asking = false;
-    function openErase() { asking = true; rows.hidden = true; extra.hidden = true; btns.hidden = true; foot.hidden = true; ask.hidden = false; const first = ask.querySelector("button"); if (first && !media("(pointer: coarse)")) first.focus(); }
-    function closeErase() { asking = false; rows.hidden = false; extra.hidden = !o.section; btns.hidden = false; foot.hidden = false; ask.hidden = true; }
+    function openAsk(el) { asking = true; rows.hidden = true; extra.hidden = true; btns.hidden = true; foot.hidden = true; for (const a of [ask, youAsk, notesAsk]) if (a) a.hidden = a !== el; }
+    function openErase() { openAsk(ask); const first = ask.querySelector("button"); if (first && !media("(pointer: coarse)")) first.focus(); }
+    function closeErase() { asking = false; rows.hidden = false; extra.hidden = !o.section; btns.hidden = false; foot.hidden = false; for (const a of [ask, youAsk, notesAsk]) if (a) a.hidden = true; }
+    // Your name: the same field and rules as the menu's plank; Rename lights for a good name that is not the one already kept
+    const fld = youAsk && youAsk.querySelector(".set-field"), why = youAsk && youAsk.querySelector(".set-why"), ren = youAsk && youAsk.querySelector(".set-rename");
+    function checkRename() {
+      const p = Sm() && Sm().read(); if (!fld || !p) return false;
+      const w = Sm().checkSmithName(fld.value, root.FORGE_NAME_FILTER || null), same = Sm().cleanName(fld.value) === p.name;
+      ren.disabled = !!w || same; why.textContent = fld.value.trim() ? w : "";
+      return !w && !same;
+    }
+    function openRename() { const p = Sm().read(); if (!p) return; fld.value = p.name; checkRename(); openAsk(youAsk); if (!media("(pointer: coarse)")) { fld.focus(); fld.select(); } }
+    if (youAsk) {
+      fld.addEventListener("input", checkRename);
+      youAsk.addEventListener("submit", e => {
+        e.preventDefault(); if (!checkRename()) return;
+        const r = Sm().rename(fld.value);
+        try { fld.blur(); } catch (err) { /* gone */ }
+        closeErase(); render();
+        if (r) say(Sm().kept ? "Your name is " + r.name + " now" : "Your name is " + r.name + " for this visit: this browser won't keep it");
+        if (typeof o.onRename === "function") o.onRename(r);
+      });
+      youAsk.querySelector(".set-unrename").addEventListener("click", closeErase);
+    }
+    // Copy my playtest notes: the lines go to the clipboard and show, selected where a browser will not copy them for a page
+    function notesText() {
+      const p = Sm().read(), rec = p ? Ls().load(p.id) : null;
+      return Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty") });
+    }
+    function copyNotes() {
+      const ta = notesAsk.querySelector(".set-notes-text"), text = ta.value;
+      const pick = () => { try { ta.focus({ preventScroll: true }); ta.select(); ta.setSelectionRange(0, text.length); } catch (e) { /* shown anyway */ } };
+      const fallback = () => { pick(); let ok = false; try { ok = !!(doc.execCommand && doc.execCommand("copy")); } catch (e) { ok = false; } say(ok ? "Copied your playtest notes" : "Select the notes and copy them"); };
+      // (a browser that never answers is as one that said no: after 1.5 s the notes are selected instead)
+      let answered = false; const once = f => () => { if (answered) return; answered = true; f(); };
+      try { if (root.navigator && root.navigator.clipboard && root.navigator.clipboard.writeText) { root.navigator.clipboard.writeText(text).then(once(() => say("Copied your playtest notes")), once(fallback)); root.setTimeout(once(fallback), 1500); return; } } catch (e) { /* the fallback */ }
+      fallback();
+    }
+    if (notesAsk) {
+      notesAsk.querySelector(".set-copy").addEventListener("click", copyNotes);
+      notesAsk.querySelector(".set-notes-done").addEventListener("click", closeErase);
+    }
     rows.addEventListener("click", e => {
       const b = e.target.closest("button"); if (!b || !rows.contains(b)) return;
       if (b.hasAttribute("data-erase")) { openErase(); return; }
+      if (b.hasAttribute("data-you")) { openRename(); return; }
+      if (b.hasAttribute("data-notes")) { notesAsk.querySelector(".set-notes-text").value = notesText(); openAsk(notesAsk); copyNotes(); return; }
       const name = b.getAttribute("data-switch"); if (!name) return;
       if (name === "motion" && phoneStill()) { say("Your phone's settings ask for less motion"); return; }
       const on = !isOn(name);
@@ -89,7 +156,7 @@
       if (typeof o.onErase === "function") o.onErase(r);
     });
     render();
-    return { render, openErase, closeErase, get asking() { return asking; }, host };
+    return { render, openErase, closeErase, openRename: youAsk ? openRename : null, notes: copy ? notesText : null, get asking() { return asking; }, host };
   }
 
   root.Settings = { KEYS, SWITCHES, store, reduce, phoneStill, isOn, setOn, erase, mount, version: 1 };

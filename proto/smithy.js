@@ -465,7 +465,9 @@
 
   // ------------------------------------------------------------------ the UI glyphs (design pass 9, built by card t69): four 16 x 16
   // drawings as rows of palette letters, by the pixel rules (a soot outline, ramps lit from the top left, one highlight): the house
-  // (the main menu), the anvil (the Forge), the sword (the Battlegrounds) and the cog (settings)
+  // (the main menu), the anvil (the Forge), the sword (the Battlegrounds) and the cog (settings). Since build 8 (design pass 16) two
+  // more for the lessons: the pointer (gold, pointing down; lessons.js turns it to point up, left or right) and the ghost thumb (a pale
+  // fingertip with its nail, which the cellar slides over its stick zone)
   const GPAL = { o: "#181425", 1: "#262b44", 2: "#3a4466", 3: "#5a6988", 4: "#8b9bb4", 5: "#c0cbdc", a: "#3e2731", b: "#733e39", c: "#b86f50", d: "#e4a672",
     p: "#ead4aa", q: "#fffaf0", P: "#c28569", r: "#a22633", e: "#e43b44", f: "#f77622", y: "#feae34", h: "#fee761" };
   const GLYPHS = {
@@ -540,6 +542,44 @@
       ".offo...o.......",
       "..oo............",
       "................",
+    ],
+    // (build 8, design pass 16) the lessons' pointer: a gold arrow pointing down, its tip on row 11 so it can bob 4 px toward the ring
+    pointer: [
+      ".....oooooo.....",
+      ".....ohyyfo.....",
+      ".....ohyyfo.....",
+      ".....ohyyfo.....",
+      ".....ohyyfo.....",
+      "..oooohyyfoooo..",
+      "..ohhhyyyyfffo..",
+      "...ohyyyyyyfo...",
+      "....ohyyyyfo....",
+      ".....ohyyfo.....",
+      "......ohyo......",
+      ".......oo.......",
+      "................",
+      "................",
+      "................",
+      "................",
+    ],
+    // (build 8, design pass 16) the cellar's ghost thumb: a pale fingertip seen from above, its nail at the top
+    thumb: [
+      "................",
+      "................",
+      "......oooo......",
+      "....oooqqooo....",
+      "...ooqdddqqoo...",
+      "..ooqqdddqqqoo..",
+      "..oppppppppppo..",
+      ".ooppppppppppoo.",
+      ".oppppppppppppo.",
+      ".oppppppppppppo.",
+      ".ooppppppppppoo.",
+      "..oppppppppppo..",
+      "..ooppppppppoo..",
+      "...ooppppppoo...",
+      "....oooppooo....",
+      "......oooo......",
     ],
   };
   // glyph(canvas, name, scale): draws the glyph into the canvas at a whole scale (the canvas is sized 16 x scale); CSS shows it at 16 x scale px

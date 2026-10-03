@@ -1,7 +1,11 @@
 # Forge Forever · the first playable
 
 One game in three pages, in the browser. It opens on the **main menu** (the title over rolling mountains at dusk): Forge,
-Battlegrounds, General Settings.
+Battlegrounds, General Settings. A phone that has never played is asked its name first (**Who's at the forge?**), and Grycus
+walks the new knight through the first five minutes: the first forge (one Fire from the Trader's Cart onto his old Sword makes
+Emberbane), the Training Cellar's lessons shouted from the stairs, "Good luck, kid" with a purse and a crate, and Into the wild onto
+the Troll Gate. **Skip the lessons** is on his first line and in Settings; **Copy my playtest notes** in Settings gives a tester's
+step times and stray taps to paste into a message.
 
 **The Forge** (`forge.html`). The smithy fills the screen wall to wall: the arch down to the Training Cellar on the left under the
 tool rack, the open door through to the Armory on the right, the hearth and the anvil between them. By the bellows stands **Grycus**,
@@ -46,4 +50,4 @@ cellar's menu.
 This is a **world of one**: the pairs the seed ledger knows reveal the Forge Oracle's real results (the model wrote them once), and
 every other pair is the offline Combiner's provisional draft. Your smithy is saved in this browser. The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `2095284`.
+`tools/deploy.sh` from commit `01bb4a2`.

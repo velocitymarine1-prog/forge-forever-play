@@ -406,7 +406,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 </head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="2095284" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="01bb4a2" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -508,7 +508,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <!-- the developer's bench (design passes 2 to 6), moved into Settings under Developer by design pass 11; settings.js places it -->
 <div class="bench" id="bench" hidden>
   <div class="k">Developer · the bench</div>
-  <button class="f-iron" id="fresh">Start fresh: choose a first weapon</button>
+  <button class="f-iron" id="fresh">Start the lessons over</button>
+  <button class="f-iron" id="cellarLessons">Skip to the cellar lessons</button>
+  <button class="f-iron" id="devSmith">Play as the dev smith</button>
   <div class="row"><button class="f-iron" id="run">Come back from a run</button><input class="f-stone" id="runLevel" type="number" min="1" max="60" value="3" aria-label="Level of the run"><label><input type="checkbox" id="runBoss"> boss</label><label><input type="checkbox" id="runGold"> gold chest</label><label><input type="checkbox" id="runRare"> rare enemy</label></div>
   <div class="row"><button class="f-iron" id="grant">Grant a level</button><button class="f-iron" id="grantEmber">Grant an Ember</button></div>
   <div class="row"><label for="benchParty">Party size (the bench's bots as knights, down the door as bench.party)</label><input class="f-stone" id="benchParty" type="number" min="1" max="4" value="1" aria-label="Party size"></div>
@@ -532,6 +534,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="spec/abilities.js"></script>
 <script src="spec/drops.js"></script>
 <script src="spec/grycus.js"></script>
+<script src="spec/lessons.js"></script>
 <script src="proto/combiner.js"></script>
 <script src="proto/naming.js"></script>
 <script src="proto/progress.js"></script>
@@ -545,6 +548,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="proto/grycus.js"></script>
 <script src="proto/settings.js"></script>
 <script src="proto/nav.js"></script>
+<script src="proto/smith.js"></script>
+<script src="proto/lessons.js"></script>
+<script src="proto/forge-lessons.js"></script>
 <script src="proto/the-forge.js"></script>
 </body>
 </html>
