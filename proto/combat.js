@@ -1398,16 +1398,18 @@
   // health grows back (design pass 18; Isaac: "they regenerate one point of health every second after not being hit for five seconds"):
   // a standing knight below its maximum that has taken no damage for knight.regen.after s gets regen.amount HP at once and then every
   // regen.every s, up to its maximum. Any damage (hurt() stamps k.hitAt), going down, rising, being carried off or a wipe stops it (a wipe
-  // never reaches here), and it starts again regen.after s after the last damage. No event: the page reads k.hp, and the logs keep their shape
+  // never reaches here), and it starts again regen.after s after the last damage. No event: the page reads k.hp, and the logs keep their shape.
+  // Revision 1 (Isaac, 4 October 2026: "let's not have the brothers regenerate"): a sword-brother never does, unless regen.brothers says so
+  const regrows = (G, k) => !!G && (full(k) || G.brothers === true);
   function regrow(fight, k, dt) {
     const G = data().knight.regen;
-    if (!G || k.out || !(k.hp > 0) || k.hp >= k.hpMax || fight.t - (k.hitAt === undefined || k.hitAt === null ? -Infinity : k.hitAt) < G.after - 1e-9) { k.regenT = null; return; }
+    if (!regrows(G, k) || k.out || !(k.hp > 0) || k.hp >= k.hpMax || fight.t - (k.hitAt === undefined || k.hitAt === null ? -Infinity : k.hitAt) < G.after - 1e-9) { k.regenT = null; return; }
     if (k.regenT === null || k.regenT === undefined) { k.regenT = 0; k.hp = Math.min(k.hpMax, k.hp + G.amount); return; }
     k.regenT += dt;
     if (k.regenT >= G.every - 1e-9) { k.regenT -= G.every; k.hp = Math.min(k.hpMax, k.hp + G.amount); }
   }
   // is a knight's health growing back this step (the page's plate shows it green)?
-  const knightRegrowing = k => { const G = data().knight.regen; return !!G && k.regenT !== null && k.regenT !== undefined && !k.out && !k.down && !(k.rise > 0) && k.hp > 0 && k.hp < k.hpMax; };
+  const knightRegrowing = k => { const G = data().knight.regen; return regrows(G, k) && k.regenT !== null && k.regenT !== undefined && !k.out && !k.down && !(k.rise > 0) && k.hp > 0 && k.hp < k.hpMax; };
   // for the level's director: a wave's attempt begins (the Second Wind is back, the carried-off come back); carried-off knights come
   // back with 50 HP (at a Breather or a wave's start), at at[seat] when given; a heal (lifesteal, vampiric, the Breather) up to full HP,
   // never for a knight on the ground
