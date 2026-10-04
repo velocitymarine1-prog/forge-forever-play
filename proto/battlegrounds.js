@@ -579,6 +579,14 @@
   const fullKnight = k => k.kind !== "brother";
   const okRun = r => !!(r && typeof r === "object" && typeof r.id === "string");
   const runsOf = d => (Array.isArray(d.runs) ? d.runs : d.run ? [d.run] : []).filter(okRun);
+  // this world's runs still waiting for the Forge in the key, in order (as sendHome keeps them)
+  function waitingRuns() {
+    const me = state.handoff && state.handoff.world;
+    let prev = null; try { prev = JSON.parse(store.get(KEYS.battle)); } catch (e) { prev = null; }
+    if (!me || !prev || typeof prev !== "object" || prev.v !== 1) return [];
+    const mine = prev.others && typeof prev.others === "object" && prev.others[me] && typeof prev.others[me] === "object" ? runsOf(prev.others[me]) : [];
+    return prev.world === me ? mine.concat(runsOf(prev)) : mine;
+  }
   function sendHome(cleared) {
     if (lv.sent) return lv.sent;
     const run = { id: runId, area: AREA.id, level: AREA.level || 1, boss: !!AREA.boss, replay: clearedBefore, cleared: !!cleared, things: lv.things.slice(), finds: Object.assign({}, lv.finds),
@@ -1370,10 +1378,27 @@
     row.replaceChildren();
     for (const id of Object.keys(counts)) { const t = ingredient(id); if (!t) continue; const d = document.createElement("div"); d.className = "find"; d.title = t.name; d.appendChild(icon(t, 2)); const s = document.createElement("span"); s.textContent = t.name + (counts[id] > 1 ? " ×" + counts[id] : ""); d.appendChild(s); if (!found.has(id)) { const n = document.createElement("i"); n.textContent = "NEW"; d.appendChild(n); } row.appendChild(d); }
     if (!L.things.length) row.insertAdjacentHTML("beforeend", '<div class="none">Nothing dropped this time.</div>');
-    const pay = window.Coin && Coin.runPay ? Coin.runPay(AREA.level || 1, !!AREA.boss, clearedBefore, L.finds) : null, smith = (handoff && handoff.smith) || {};
-    $("tallyPay").textContent = !carried ? (sent.why === "visiting" ? "You came without the Forge, so nothing is paid." : "The finds could not be saved, so nothing is paid.") : pay ? pay.xp + " XP and " + pay.coins + " coins" + (clearedBefore ? " (a replay)" : "") + (L.finds.iron_chests || L.finds.rare_enemies ? " · the Forge rolls for a Legend Ember" : "") : "";
-    const up = carried && pay && window.Progress && typeof smith.xp === "number" && typeof smith.level === "number" ? Progress.levelFor(smith.xp + pay.xp) : null;
-    $("tallyLevel").hidden = !(up && up > smith.level); if (up && up > smith.level) $("tallyLevel").textContent = "Level " + up + "!";
+    // (build 12, design pass 19) the tally says what the Forge will pay. The runs still waiting for the Forge count: after Again a second
+    // clear is a replay (38 XP, not 250), and its XP comes on top of theirs; the level before is worked out from the XP by the rules
+    // (a handoff written before the new curve carries an old level). Nothing here may stop the tally from opening: with a page and
+    // scripts from two builds while a deploy is fresh, the pay line is left out
+    const smith = (handoff && handoff.smith) || {};
+    let pay = null, replay = clearedBefore, up = null, was = null;
+    try {
+      const done = new Set(Object.keys(smith.cleared || {}).filter(a => smith.cleared[a]));
+      let xp = typeof smith.xp === "number" ? smith.xp : null;
+      for (const r of waitingRuns()) {
+        if (r.id === runId || r.cleared !== true) continue;
+        const p = Coin.runPay(Math.max(1, r.level | 0), !!r.boss, !!r.replay || done.has(r.area), r.finds || {});
+        if (xp !== null) xp += p.xp;
+        done.add(r.area);
+      }
+      replay = done.has(AREA.id);
+      pay = window.Coin && Coin.runPay ? Coin.runPay(AREA.level || 1, !!AREA.boss, replay, L.finds) : null;
+      if (carried && pay && window.Progress && xp !== null) { was = Progress.levelFor(xp); up = Progress.levelFor(xp + pay.xp); }
+    } catch (e) { pay = null; up = null; }
+    $("tallyPay").textContent = !carried ? (sent.why === "visiting" ? "You came without the Forge, so nothing is paid." : "The finds could not be saved, so nothing is paid.") : pay ? pay.xp + " XP and " + pay.coins + " coins" + (replay ? " (a replay)" : "") + (L.finds.iron_chests || L.finds.rare_enemies ? " · the Forge rolls for a Legend Ember" : "") : "";
+    $("tallyLevel").hidden = !(up && up > was); if (up && up > was) $("tallyLevel").textContent = "Level " + up + "!";
   }
   $("tallyForge").addEventListener("click", () => leave("forge"));
   $("tallyAgain").addEventListener("click", again);

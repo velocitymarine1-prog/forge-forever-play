@@ -16,8 +16,10 @@ glowing billet in slow, heavy blows until the world answers; the result comes ou
 never scrolls (the rarity on its own coloured band, what it does in words, the stats in a column of their own, who forged it first,
 TAP ANYWHERE TO CONTINUE). A weapon and an ingredient, two weapons (the left one is the base and takes one gift), two ingredients.
 From level 25 the Crucible melts two rare weapons and a Legend Ember into a legend, and the first smith to pour one may name it.
-Legend Embers are found, never bought: bosses, chests and rare enemies in the Battlegrounds drop them. The house on the sign goes
-back to the menu; the cog opens Settings.
+Legend Embers are found, never bought: bosses, chests and rare enemies in the Battlegrounds drop them. **Every forge pays XP** by
+the rarity of what it makes (common 5, uncommon 8, rare 12, epic 25, legendary 50), shown rising into the Lv chip on the sign; only
+forging two weapons into something you already have pays nothing. Clearing the Troll Gate pays 250 XP (38 on a replay). Tap the Lv
+chip to see how far the next level is. The house on the sign goes back to the menu; the cog opens Settings.
 
 **The Armory** (through its door in the smithy, or ARMORY on the sign) is a room of its own: a hall drawn like the smithy, with every
 weapon you hold standing on oak shelves, a bay for each class, lit by lamps. Drag it sideways to walk it; tap a weapon for its
@@ -54,4 +56,4 @@ This is a **world of one**: the pairs the seed ledger knows reveal the Forge Ora
 every other pair is the offline Combiner's provisional draft. Your game is saved in this browser and online, on the forge's server,
 so it can go to another phone (Settings: Play on another phone, then Bring a game here on the other). The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `0573791`.
+`tools/deploy.sh` from commit `9cf9234`.

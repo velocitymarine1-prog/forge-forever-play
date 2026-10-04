@@ -86,7 +86,7 @@
   function gain(id, n) { const k = n === undefined ? 1 : n, o = own.get(id); if (o) { o.n += k; } else own.set(id, { n: k, seq: ++seq }); if ((n === undefined || n > 0) && !got[id]) got[id] = nowIso(); }
   function have(id) { const o = own.get(id); return o ? o.n : 0; }
   let profile = Progress.newProfile("isaac");
-  const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false };
+  const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, noPayToastShown: false, backPay: null, levelSaved: null, loadFailed: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false };
   const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
     room: "forge", page: "armory", hallX: { armory: 0, legends: 0 }, lastCabKind: null, hold: null, wallsOpen: false, picking: false };
   const svc = { url: null, player: null, smiths: 0, spare: null };
@@ -102,7 +102,8 @@
   // drafts of a world of one, the page's linked rows, the bench's week of other smiths), the kinds the page founded, and those smiths.
   // Without them a weapon the page forged was lost on reload, and going down to the cellar and back is a reload.
   function save() {
-    if (svc.url || session.erased) return false;
+    // (build 12) nor over a save that is there but could not be read (session.loadFailed): the page runs unsaved until it is opened again
+    if (svc.url || session.erased || session.loadFailed) return false;
     const stock = {}; for (const [id, o] of own) stock[id] = o.n;
     const at = nowIso();
     const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
@@ -116,13 +117,27 @@
       catch (e2) { return false; /* no storage: the page still works */ }
     }
   }
+  // (build 12) a save that is there and whole but cannot be taken in (the page and its scripts from two builds while a deploy is
+  // fresh, a script that did not load) sets session.loadFailed: boot then writes nothing over it, and save() is refused for the
+  // visit. Before, any error in here read as "no save", and a new smith was saved over the player's game. A save that is not JSON,
+  // or has no profile, is no save, as before
   function load() {
+    let raw = null, d = null;
+    try { raw = localStorage.getItem("forge-forever:" + worldKey()); d = raw ? JSON.parse(raw) : null; } catch (e) { return false; }
+    if (!d || !d.profile) return false;
     try {
-      const raw = localStorage.getItem("forge-forever:" + worldKey());
-      if (!raw) return false;
-      const d = JSON.parse(raw);
-      if (!d || !d.profile) return false;
       profile = Object.assign(Progress.newProfile(d.profile.id), d.profile);
+      // (build 12, design pass 19 section 3.5) a save made under the old XP rules (no xpRules) keeps its XP, its level follows the new
+      // curve, and each Battleground level it cleared is paid the difference once (+200 for the Troll Gate); it is marked xpRules: 2,
+      // and boot saves it, says so once and runs the level-up it brings (session.levelSaved is the level the save had). With an older
+      // progress.js still cached (no backPay), or the numbers not loaded, the save is left as it was, unmarked, for a later opening
+      if (!(d.profile.xpRules >= 2)) {
+        delete profile.xpRules;
+        if (d.profile.xpRules !== undefined) profile.xpRules = d.profile.xpRules;
+        try { if (typeof Progress.backPay === "function") { session.backPay = Progress.backPay(profile); session.levelSaved = Math.max(1, d.profile.level | 0); } }
+        catch (e) { session.backPay = null; (window.__errors || []).push("back pay: " + (e && e.message || e)); }
+      }
+      try { profile.level = Progress.levelFor(profile.xp | 0); } catch (e) { /* the numbers are not loaded: the saved level stands */ }
       // the page's own rows go back into the world before the stock, so what it forged is known again
       for (const e of (d.rows || [])) { const r = e && e.r; if (!r || !e.k || rows.has(e.k)) continue; if (r.thing && r.thing.id) { if (!world.has(r.thing.id)) world.set(r.thing.id, r.thing); else r.thing = world.get(r.thing.id); } rows.set(e.k, r); }
       for (const k of (d.kinds || [])) if (k && k.key && !kinds.some(x => x.key === k.key)) kinds.push(k);
@@ -139,7 +154,7 @@
       session.savedAt = d.at || null;
       gry.mem = GRY ? GRY.memory(d.grycus) : null;   // (a save from before build 6 has none: he meets the player)
       return true;
-    } catch (e) { return false; }
+    } catch (e) { session.loadFailed = true; (window.__errors || []).push("load: " + (e && e.message || e)); return false; }
   }
 
   // ------------------------------------------------------------------ the seam with the Battlegrounds (design pass 7 section 3.9)
@@ -548,12 +563,55 @@
   }
 
   // ------------------------------------------------------------------ the sign bar
+  // where the player stands (design pass 19 section 3.4.4): the Lv chip's title, its label and the toast a tap on it shows
+  function levelLine() {
+    const L = Progress.levelFor(profile.xp);
+    if (L >= Progress.MAX_LEVEL) return `Lv ${L} · Champion of the Forge`;
+    if (typeof Progress.xpToNext !== "function") return `Lv ${L}`;   // (an older progress.js still cached)
+    return `Lv ${L} · ${(profile.xp - Progress.xpForLevel(L)).toLocaleString()} of ${Progress.xpToNext(L).toLocaleString()} XP to Lv ${L + 1}`;
+  }
+  // a forge's XP by the rules (0 with an older progress.js still cached: the forge itself must never fail for it)
+  function forgePay(o) { try { return Progress.forgeXp(o) | 0; } catch (e) { return 0; } }
+  // what stands on the anvil or in the molds must be in hand: an ingredient or a forged weapon the player holds at least one of (one
+  // weapon may sit in both slots, as always), a class weapon of an open rack always. Returns the first thing that is not, or null.
+  // Without this a plaque closed by the cog left the used-up things on the anvil, and Strike forged them again from nothing
+  function notInHand(ids) { for (const id of ids) { const t = world.get(id); if (!t || !own.has(id) || have(id) < 1) return t || { id, name: id }; } return null; }
+  // "+N XP" rising into the Lv chip when a forge pays (section 3.4.1); under less motion it stands in place for 1.2 s. The amount is
+  // what the forge added to the profile, so it reads the same with the world service; nothing for a forge that paid nothing
+  let riseTimer = null;
+  function xpRise(n) {
+    const el = $("xpRise");
+    if (!el || !(n > 0)) return;
+    el.textContent = `+${n.toLocaleString()} XP`;
+    el.classList.remove("go", "hold"); void el.offsetWidth;
+    el.classList.add(reduce ? "hold" : "go");
+    clearTimeout(riseTimer); riseTimer = setTimeout(() => el.classList.remove("go", "hold"), reduce ? 1200 : 950);
+    window.TheForge.rises.push(el.textContent);
+  }
+  // what a forge or a pour paid (section 3.4): the rise as the plaque comes up; a level gained waits for the plaque to close (afterPlaque);
+  // the first forge in a visit that paid nothing because two weapons made a thing already had says why, once, after the shelf toast
+  const NO_PAY_LINE = "Two weapons pay XP only for something new";
+  const owed = { level: null, why: false, hold: false };
+  function forgePaid(xpBefore, levelBefore, guarded) {
+    const paid = profile.xp - xpBefore;
+    xpRise(paid);
+    if (profile.level > levelBefore) owed.level = { before: levelBefore };
+    if (paid <= 0 && guarded && !session.noPayToastShown) owed.why = true;
+    return paid;
+  }
+  // the plaque has closed: the level-up runs once the closing tap's own work is done (so its "Level N" is the toast that stays, and the
+  // racks to open and the Crucible's wake come with it), and the why-line follows the shelf toast by 1.8 s
+  function afterPlaque() {
+    if (owed.hold) return;   // (Settings is opening over the page: what is owed waits until it closes)
+    if (owed.level) { const up = owed.level; owed.level = null; Promise.resolve().then(() => afterLevelChange(up.before, null)); }
+    if (owed.why) { owed.why = false; session.noPayToastShown = true; setTimeout(() => toast(NO_PAY_LINE), 1800); }
+  }
   function renderSign() {
     profile.level = Progress.levelFor(profile.xp);
     const next = profile.level < 50 ? Progress.xpForLevel(profile.level + 1) : profile.xp, prev = Progress.xpForLevel(profile.level);
     $("lvl").textContent = "Lv " + profile.level;
     $("xpbar").style.width = (profile.level >= 50 ? 100 : Math.round(100 * (profile.xp - prev) / Math.max(1, next - prev))) + "%";
-    $("chipLevel").title = profile.level >= 50 ? "Level 50: Champion of the Forge" : `Level ${profile.level} · ${profile.xp} XP · next at ${next}`;
+    $("chipLevel").title = levelLine(); $("chipLevel").setAttribute("aria-label", levelLine());
     $("coins").textContent = profile.coins.toLocaleString();
     const n = profile.firsts.weapons.length;
     $("firsts").textContent = n;
@@ -943,6 +1001,8 @@
   async function forge() {
     if (!state.a || !state.b || state.forging || state.station !== "anvil") return;
     const A = world.get(state.a), B = world.get(state.b);
+    { const gone = notInHand([state.a, state.b]);   // (build 12) nothing is forged from a thing no longer in hand
+      if (gone) { if (state.a === gone.id) state.a = null; if (state.b === gone.id) state.b = null; renderSlots(); toast(`You're out of ${gone.name}`); return; } }
     closePlaque(); if (state.room === "armory") closeArmory(); closeWalls();   // (the walls close first, and the room re-lays out at once, so the slots are measured where the player saw them)
     const hadClass = new Set(racks().map(r => r.c));
     const FX = window.ForgeFx;
@@ -958,6 +1018,8 @@
     } else { room.heat = 1; $("state").textContent = "Grycus swings…"; }
     const think = setTimeout(() => { if (state.forging) $("state").textContent = "The fire is thinking…"; }, 3000);
     const wait = FX ? null : new Promise(res => setTimeout(res, reduce ? 300 : 1500));
+    // (build 12, design pass 19) the forge's XP: what the player had ever held is read before the forge adds its result to `found`
+    const xp0 = profile.xp, lv0 = Progress.levelFor(profile.xp), hadBefore = new Set(profile.found), twoWeapons = F.isWeapon(A) && F.isWeapon(B);
     const claim = await World.forge(A.id, B.id, "anvil");
     clearTimeout(think);
     if (!claim || claim.error) {
@@ -979,12 +1041,20 @@
     const key = F.keyText(kase, base.id, added.id);
     session.revealed.add(key);
     gryAfter({ status: claim.status, tier: claim.thing.tier, weapon: F.isWeapon(claim.thing) });   // (saved with the forge below)
-    if (!svc.url) { consume([A.id, B.id]); gain(thing.id); if (!profile.found.includes(thing.id)) profile.found.push(thing.id); save(); }
+    // in the world of one the forge pays here, in its own save: by the rarity of what it made, when it used up an ingredient or made
+    // something the player never had; two weapons into a thing already had pay nothing (with a service, POST /forge paid by the same rule)
+    if (!svc.url) {
+      consume([A.id, B.id]); gain(thing.id); if (!profile.found.includes(thing.id)) profile.found.push(thing.id);
+      profile.xp += forgePay({ tier: thing.tier, usesUp: !twoWeapons, isNew: !hadBefore.has(thing.id) });
+      save();
+    }
     else gain(thing.id);
+    profile.level = Progress.levelFor(profile.xp);
     session.lastClaim = claim;
     const cls = classOf(thing);
     claim.newRack = !!(cls && !hadClass.has(cls));
     showPlaque(claim, base, added);
+    claim.xp = forgePaid(xp0, lv0, twoWeapons && claim.status !== "pending");
     if (claim.newRack) { toast("A new rack goes up: " + plural(cls)); state.glow = cls; }
     $("state").textContent = claim.status === "pending" ? "Pending: the world will settle it" : claim.status === "first" ? "First forged" : claim.status === "rediscovered" ? "Already in the world" : "A known recipe";
     renderSign();
@@ -1024,6 +1094,8 @@
     if (state.station !== "crucible" || state.pouring || !state.ma || !state.mb) return;
     const A = world.get(state.ma), B = world.get(state.mb);
     if (Crucible.crucibleCheck(A, B, profile, G, true)) { renderSlots(); return; }
+    { const gone = notInHand([state.ma, state.mb]);   // (build 12) nor poured from a weapon no longer in hand
+      if (gone) { if (state.ma === gone.id) state.ma = null; if (state.mb === gone.id) state.mb = null; renderSlots(); toast(`You no longer have ${gone.name}`); return; } }
     state.pouring = true; closePlaque(); renderSlots();
     closeWalls();
     gryHush(); gryPose("watch", Infinity);
@@ -1031,6 +1103,7 @@
     $("phone").classList.add("pouring"); room.heat = 1;
     sparks(16, ["#fee761", "#f77622", "#ffffff", "#fff6c8"]);
     const molds = [$("moldA"), $("moldB")];
+    const xp0 = profile.xp, lv0 = Progress.levelFor(profile.xp);   // (build 12) a pour uses up a Legend Ember, so it always pays, by the legend's rarity
     const answer = World.forge(A.id, B.id, "crucible");
     for (const [cls, ms, line] of PHASES) {
       $("state").textContent = line;
@@ -1054,12 +1127,18 @@
     const thing = claim.thing;
     session.revealed.add(F.keyText("fuse", A.id, B.id));
     gryAfter({ pour: true });
-    if (!svc.url) { consume([A.id, B.id]); profile.embers = Math.max(0, profile.embers - G.fuse.embers); gain(thing.id); if (!profile.found.includes(thing.id)) profile.found.push(thing.id); save(); }
+    if (!svc.url) {
+      consume([A.id, B.id]); profile.embers = Math.max(0, profile.embers - G.fuse.embers); gain(thing.id); if (!profile.found.includes(thing.id)) profile.found.push(thing.id);
+      profile.xp += forgePay({ tier: thing.tier, usesUp: true, isNew: true });
+      save();
+    }
     else gain(thing.id);
+    profile.level = Progress.levelFor(profile.xp);
     session.lastClaim = claim;
     state.ma = null; state.mb = null;
     const hadLegends = racks().some(r => r.c === "legendary");
     showLegend(claim, A, B);
+    claim.xp = forgePaid(xp0, lv0, false);
     if (claim.status === "first") { $("phone").classList.add("burst"); sparks(22, ["#feae34", "#fee761", "#ffffff"]); setTimeout(() => $("phone").classList.remove("burst"), 1600); }
     if (!hadLegends) { state.glow = "legendary"; toast("The Legendary rack takes its first legend"); }
     $("state").textContent = claim.status === "pending" ? "Pending: the world will settle it" : claim.status === "first" ? "First forged" : "A known legend";
@@ -1187,7 +1266,8 @@
     return fit[0];
   }
   // closing the plaque (a tap anywhere, Apply, the station, the Armory, Settings) also ends the forging's overlay, unless a forge is running
-  function closePlaque() { $("plaque").hidden = true; $("legendPlaque").hidden = true; plaqueMode = null; plaqueThing = null; if (!state.forging) endForging(); }
+  // (build 12) and what a paying forge left for after its plaque: the level-up, the line that says why a forge paid nothing
+  function closePlaque() { const was = !$("plaque").hidden || !$("legendPlaque").hidden; $("plaque").hidden = true; $("legendPlaque").hidden = true; plaqueMode = null; plaqueThing = null; if (!state.forging) endForging(); if (was) afterPlaque(); }
   // Tap anywhere to continue: after a forge or a pour the plaque closes, the anvil empties, the new thing's shelf item is marked to glow
   // and a toast says where it hangs; from the Armory (view mode) the plaque closes back to the Armory as it was, its class still open.
   // Nothing while the terms, naming or confirm plank is open
@@ -1571,15 +1651,18 @@
     $("unlockLater").addEventListener("click", () => { el.hidden = true; renderSign(); });
     el.hidden = false;
   }
-  function afterLevelChange(before, res) {
+  // (build 12, design pass 19) `wait` holds the level's toasts back that long: a run brought home says what it paid first ("Home with a
+  // clear: 250 XP, …"), and since a clear now lifts the level nearly every time, "Level N" follows it instead of replacing it at once
+  const AFTER_HOME_MS = 1800;
+  function afterLevelChange(before, res, wait) {
     renderSign();
-    const woke = res ? res.crucible_woke : (before < G.fuse.level && profile.level >= G.fuse.level);
-    if (profile.level > before) toast(`Level ${profile.level}` + (profile.level >= 50 ? ": Champion of the Forge" : ""));
+    const woke = res ? res.crucible_woke : (before < G.fuse.level && profile.level >= G.fuse.level), ms = wait > 0 ? wait : 0;
+    if (profile.level > before) { const line = `Level ${profile.level}` + (profile.level >= 50 ? ": Champion of the Forge" : ""); if (ms) setTimeout(() => toast(line), ms); else toast(line); }
     const picks = Progress.picksLeft(profile);
     if (picks > 0 && profile.classes.length) openUnlock();
     if (woke) {
       room.setCrucible("lit");
-      setTimeout(() => { toast("The Crucible wakes: melt two rare weapons into a legend"); if (!profile.embers) setTimeout(() => toast(EMBER_WHERE), 1800); }, picks > 0 ? 400 : 0);
+      setTimeout(() => { toast("The Crucible wakes: melt two rare weapons into a legend"); if (!profile.embers) setTimeout(() => toast(EMBER_WHERE), 1800); }, ms + (picks > 0 ? 400 : 0));
       state.glow = "legendary";
       renderSign();
       if (state.view === "wall") renderWall();
@@ -1677,6 +1760,7 @@
   // Esc leaves the Armory when nothing stands over it (a plaque, a plank and Settings take the key first)
   window.addEventListener("keydown", e => { if (e.key !== "Escape" || e.defaultPrevented || state.room !== "armory" || plaqueOpen() || plankOpen() || !$("setPlank").hidden) return; if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return; e.preventDefault(); closeArmory(); });
   // the ★ chip counts the smith's firsts; in the Armory they carry the star
+  $("chipLevel").addEventListener("click", () => toast(levelLine()));   // (build 12) where the player stands: "Lv 3 · 45 of 110 XP to Lv 4"
   $("chipFirsts").addEventListener("click", () => { const n = profile.firsts.weapons.length; toast(n ? `${n} weapon${n === 1 ? "" : "s"} you forged first in the world: ${n === 1 ? "it carries" : "they carry"} a ★ in the Armory` : "No weapon forged first in the world yet: a first carries a ★ in the Armory"); });
   function viewWeapon(t) {
     const claim = { thing: t, status: t.oracle && t.oracle.provisional && svc.url ? "pending" : "known", kind: t.hybrid ? kinds.find(k => k.id === t.hybrid.kind) || null : null };
@@ -1733,7 +1817,7 @@
     const nc = got.map(classOf).find(c => c && !hadClass.has(c));
     toast(`Back from level ${level}${boss ? "'s boss" : ""}: ${res.pay.coins} coins, ${res.pay.xp} XP${res.pay.ember ? ", a Legend Ember" : ""}, ${got.map(t => t.name).join(", ")}`);
     if (nc) state.glow = nc;
-    afterLevelChange(before, res);
+    afterLevelChange(before, res, AFTER_HOME_MS);
     setTab("weapons"); renderSlots(); renderInfo();
   });
   $("fill").addEventListener("click", () => {
@@ -1820,6 +1904,7 @@
   function openSettings(atBench) {
     if (state.forging || state.pouring) return false;
     if (!settings) { toast("Settings didn't load"); return false; }
+    owed.hold = true;   // (build 12) a level-up owed after the plaque waits for Settings to close, so its racks never open under it
     if (!lessonOn("pinned")) closePlaque();   // (build 8: the lessons' plaque stays under Settings, so the step is not lost)
     gryHush();
     settings.closeErase(); settings.render();
@@ -1827,7 +1912,7 @@
     if (atBench && $("bench")) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
     return true;
   }
-  function closeSettings() { $("setPlank").hidden = true; $("setBtn").setAttribute("aria-pressed", "false"); if (settings) settings.closeErase(); }
+  function closeSettings() { $("setPlank").hidden = true; $("setBtn").setAttribute("aria-pressed", "false"); if (settings) settings.closeErase(); if (owed.hold) { owed.hold = false; if (!plaqueOpen()) afterPlaque(); } }
   // (build 9, design pass 13) on the Cloudflare copy the bench is only for a player the server says is dev or admin: Settings mounts
   // without it, and it is added when the server answers, or taken out of the page; everywhere else it is in Settings as before
   const benchGated = !!(window.Cloud && Cloud.on);
@@ -1901,7 +1986,7 @@
     profile.found = Array.from(own.keys());
     profile.picks = Progress.picksLeft(profile);
   }
-  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], toast, hold: startHold, release: endHold, World,
+  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], rises: [], toast, levelLine, xpRise, hold: startHold, release: endHold, World,
     save, load, goDown, writeHandoff, takeLoadoutBack, takeRunBack, lastRun: null, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
     openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
     showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine,
@@ -1921,6 +2006,8 @@
   document.addEventListener("fullscreenchange", fitTurn);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTurn);
   let bootFromCellar = false, bootFresh = false;
+  const AREA_NAMES = { "castle-gate": "the Troll Gate" };
+  function backPayLine(paid) { const a = paid.areas; return `Back pay for ${a.length === 1 ? AREA_NAMES[a[0]] || "a level cleared" : a.length + " levels cleared"}: +${paid.xp.toLocaleString()} XP`; }
   (async function boot() {
     // (build 9) on the Cloudflare copy the server is asked first (4.5 s at most): it may bring this phone's game back, take a newer
     // one from another phone, or say it was erased, before the page reads the player
@@ -1934,7 +2021,9 @@
     if (who === "menu") { session.leaving = true; try { window.location.replace(menuUrl()); } catch (e) { window.location.href = menuUrl(); } return "left"; }
     if (who && who.id) profile = Progress.newProfile(who.id, who.name);
     if (!load()) {
-      if (who && who.id && who.id !== "isaac") { newSmith(); bootFresh = true; }
+      // (build 12) a save that is there but could not be read is not written over: the page shows a smith for the visit, unsaved
+      // (save() refuses), and says so; the next opening reads the save again
+      if (who && who.id && who.id !== "isaac") { newSmith(); bootFresh = !session.loadFailed; }
       else { returningSmith(); state.a = "sword"; state.b = "fire"; }
     }
     if (who && who.name) profile.name = who.name;
@@ -1942,7 +2031,21 @@
     bootFromCellar = takeLoadoutBack();
     const ran = await takeRunBack();   // a level's run, paid or banked once (design pass 12 section 3.11.5)
     renderAll();
-    if (ran && ran.cleared) afterLevelChange(ran.before, ran.res);
+    // (build 12, design pass 19 section 3.5) a save from the old XP rules was back-paid and marked in load(): it is saved now (and so
+    // goes online marked). The toasts come one after another, 1.8 s apart: what a run brought home, the back pay, then the level the
+    // new curve, the back pay and the run lift the save to (once, from the level the save had), with its racks to open and the
+    // Crucible's wake
+    {
+      let n = ran ? 1 : 0;
+      const moved = !!session.backPay && session.levelSaved !== null && profile.level > session.levelSaved;
+      if (session.backPay) {
+        save();
+        if (session.backPay.xp > 0) { const line = backPayLine(session.backPay); if (n) setTimeout(() => toast(line), n * AFTER_HOME_MS); else toast(line); n++; }
+      }
+      if (moved) afterLevelChange(session.levelSaved, null, n * AFTER_HOME_MS);
+      else if (ran && ran.cleared) afterLevelChange(ran.before, ran.res, AFTER_HOME_MS);
+    }
+    if (session.loadFailed) toast("Your game could not be opened just now. Close the game and open it again.");
     if (!profile.classes.length) openFirstWeapon();
     lessonOn("boot", { fromCellar: bootFromCellar, fresh: bootFresh });   // (build 8) the lessons start or resume, with what their step needs
   })().then(left => { if (left === "left") return; session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1" && benchOk()) openSettings(true); if (benchGated) Cloud.onNote(toast); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
@@ -1958,7 +2061,7 @@
     lessonOn("shown", { fromCellar: took });   // (build 8) the lessons as the other pages left them (the cellar moves them on)
     if (!took && !ran) return;
     renderAll();
-    if (ran && ran.cleared) afterLevelChange(ran.before, ran.res);
+    if (ran && ran.cleared) afterLevelChange(ran.before, ran.res, AFTER_HOME_MS);
     gryHush(); gryOpen(took);   // (his way-up lines are the cellar's: dummies and straw; a level's run home gets the ordinary opening)
     const eq = $("equipBtn"), t = plaqueThing;
     if (eq && t && plaqueOpen()) eq.textContent = equipLabel(t);

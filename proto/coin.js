@@ -7,10 +7,17 @@
   // and rare enemy), which the caller rolls with its own random numbers. `finds` is { gold_chests, iron_chests, rare_enemies,
   // quest_embers }, each a count, missing means 0; `drops` is the drop table (window.FORGE_DROPS unless given; none pays no Embers)
   const EMBER_NOT_SOLD = "Legend Embers aren't sold: bosses, chests and rare enemies drop them";
+  // XP since build 12 (design pass 19, revision 1): a cleared level's XP is Progress.clearXp(level) (250 for level 1, 10 % more a
+  // level), a replay's Progress.replayXp(level) (15 % of it), and a boss level pays its level's XP, not doubled. Coins are as they
+  // were: 20 + 8 n, three times that for a boss, half on a replay. Progress is looked up when called, so the pages' script order
+  // does not matter
+  const progress = () => root.Progress || (typeof module !== "undefined" && module.exports && typeof require === "function" ? require("./progress.js") : null);
   function runPay(level, boss, replay, finds, drops) {
-    let xp = 40 + 10 * level, coins = 20 + 8 * level;
-    if (boss) { xp *= 2; coins *= 3; }
-    if (replay) { xp = Math.floor(xp / 2); coins = Math.floor(coins / 2); }
+    const P = progress();
+    const xp = replay ? P.replayXp(level) : P.clearXp(level);
+    let coins = 20 + 8 * level;
+    if (boss) coins *= 3;
+    if (replay) coins = Math.floor(coins / 2);
     const E = ((drops || root.FORGE_DROPS || {})["legend-ember"]) || {}, f = finds || {}, chances = [];
     const sure = (boss && !replay ? (E.boss_first || 0) : 0) + (f.quest_embers | 0);
     if (boss && replay && E.boss_again) chances.push(E.boss_again);

@@ -184,6 +184,9 @@
     const o = F.own.get(fire);
     if (o && o.n > 0) o.n -= 1; else F.profile.coins = Math.max(0, F.profile.coins - BUY().coins);
     F.gain(E);
+    // (build 12, design pass 19) and its XP, as the forge itself pays: Emberbane's rarity, a Fire used up (8 XP), so skipping ends where
+    // finishing does
+    if (window.Progress && Progress.forgeXp) { F.profile.xp += Progress.forgeXp({ tier: F.world.get(E).tier, usesUp: true, isNew: !F.profile.found.includes(E) }); F.profile.level = Progress.levelFor(F.profile.xp); }
     if (!F.profile.found.includes(E)) F.profile.found.push(E);
     const hands = [BASE(), E].filter(x => F.own.has(x));
     F.session.equipped = hands; F.session.active = Math.max(0, hands.indexOf(E));
