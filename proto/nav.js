@@ -4,15 +4,22 @@
 // history, so the browser restores it as it was left; any other page is pushed, with a note in the URL's hash (#from=forge) that tells
 // the new page which page is behind it. The page keeps that note in its own history entry (history.state.ffFrom) and takes it out of
 // the address, so a reload, or the page restored from the back-forward cache, still knows. Plain script, defines window.Nav.
+//
+// Since design pass 22 (card t76) a level is a page of its own to this rule, never the cellar. The Battlegrounds page is two places (the
+// Training Cellar, and a level under ?area=): it arrives as "cellar" or as "level". Nobody goes "to the level" through go() (a level is
+// opened by its own buttons), so a page reached from a level holds the note #from=level, that note matches no trip, and the trip is
+// pushed. Before this, a level signed itself "cellar": home from the Troll Gate, the Forge's door and Try it in the cellar (and the
+// menu's Battlegrounds) went back one entry in the history, onto the level, and the level started over.
 (function (root) {
   "use strict";
-  const PAGES = ["menu", "forge", "cellar"];
+  const PAGES = ["menu", "forge", "cellar", "level"];
+  const NOTE = new RegExp("(?:^#|&)from=(" + PAGES.join("|") + ")(?=&|$)");   // the note in the address, one of the names above
   let me = null, from = null, went = null;
-  // arrive(name): on load. Returns the page right behind this one ("menu", "forge", "cellar") or null
+  // arrive(name): on load. Returns the page right behind this one ("menu", "forge", "cellar", "level") or null
   function arrive(name) {
     me = name;
     const st = root.history.state && typeof root.history.state === "object" ? root.history.state : {};
-    const m = /(?:^#|&)from=(menu|forge|cellar)(?=&|$)/.exec(root.location.hash);
+    const m = NOTE.exec(root.location.hash);
     if (m) {
       from = m[1];
       const rest = root.location.hash.replace(/(^#|&)from=[a-z]+/, "$1").replace(/^#&/, "#").replace(/^#$/, "");

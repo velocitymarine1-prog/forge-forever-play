@@ -23,6 +23,10 @@
 // a blow's pale chip, green while it grows back, a blink when low), the trolls left top right (or the gate's share), the guide drawn by
 // the painter from Level.guide (yellow arrows over the ram, the gate, the chest, the way in and a fallen friend, their chevrons at the
 // edge, GO at the right edge between the waves), health bars over what was hit, Dodge glowing while the knight burns.
+// Since design pass 22 (card t76) the page tells nav.js which of its two places it is ("cellar", or "level" under ?area=), so a page
+// reached from a level never goes back "to the cellar" onto the level; and a level's place in the history is good for one run: left by
+// one of the game's own ways out it is marked spent (history.state.ffSpent), and a spent level shown again boots the cellar; Again
+// starts its run in the same entry (a replace).
 //
 // For the harness (tools/battle-harness.html): ?harness=1 lets time move only through TheBattlegrounds.step(ms); ?seed=n fixes the
 // fight; ?weapons=a,b picks the loadout; ?pointer=coarse|fine overrides the pointer; ?fresh=1 shows the first-visit plank again and
@@ -35,6 +39,31 @@
   const Combos = window.Combos && PF && PF.swingFor ? window.Combos : null;   // design pass 20: the melee combos' drawing (proto/combos.js)
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
+  // (design pass 22, card t76) a level begins only by a step taken on purpose (the gate plate's Go, Again, Into the wild, a link) or by a
+  // reload of a run in progress. Its place in the history is spent once that run is left by one of the game's own ways out (spend(),
+  // below), and a spent level shown again (nav.js going back, the phone's own back or forward, a tab brought back, this page restored
+  // from the back-forward cache and reloading itself) is the cellar: the level and its brothers are taken out of what the page reads,
+  // and out of the address together with the mark, so the entry is a cellar's from here on (a reload stays in the cellar, and Go on the
+  // gate plate opens a fresh level from it). Before this, home from the Troll Gate, "to the cellar" could land on the level again
+  const spent = (function spentLevel() {
+    let st = null; try { st = window.history.state; } catch (e) { st = null; }
+    if (!st || typeof st !== "object" || st.ffSpent !== true) return false;
+    params.delete("area"); params.delete("brothers");
+    const rest = Object.assign({}, st), q = params.toString(); delete rest.ffSpent;
+    // (where the address cannot be rewritten the mark still comes off, so it never outlives the boot that read it: a mark left on an
+    // address that still names the level would boot the cellar again when the gate plate's Go asks for that same address)
+    try { window.history.replaceState(rest, "", location.pathname + (q ? "?" + q : "") + location.hash); }
+    catch (e) { try { window.history.replaceState(rest, ""); } catch (e2) { /* a sandboxed frame keeps its entry; the page boots the cellar all the same */ } }
+    return true;
+  })();
+  // the mark: every way out of a level to another page calls it as it leaves (leave to the Forge or the menu, the shut plank's and a
+  // boot error's ↑ Forge). Again does not: its run takes this entry (see again()). A way on to another level added later (design pass
+  // 21's On to the Great Hall) marks it too when it pushes, or replaces as Again does. The cellar's entry is never marked
+  function spend() {
+    if (!wantLevel) return false;
+    try { const st = window.history.state && typeof window.history.state === "object" ? window.history.state : {}; window.history.replaceState(Object.assign({}, st, { ffSpent: true }), ""); return true; }
+    catch (e) { return false; }   // (a sandboxed frame: the entry stays as it is, and nav.js's own rule still holds)
+  }
   // the area: the cellar, or a level the query names (the Troll Gate's spec and painter must be loaded for it; a level that can't be read
   // shows "The gate is shut", never a blank stage: section 3.15)
   const wantLevel = params.get("area") === "gate";
@@ -43,7 +72,7 @@
   if (wantLevel) window.addEventListener("error", function bootShut() {
     if (document.body.getAttribute("data-booted") === "1") return;
     try {
-      const up = () => { window.location.href = document.body.getAttribute("data-forge") || "the-forge.html"; };
+      const up = () => { spend(); window.location.href = document.body.getAttribute("data-forge") || "the-forge.html"; };
       for (const id of ["shutForge", "upBtn", "homeBtn", "tForge", "tHome"]) { const b = $(id); if (b) b.addEventListener("click", up); }
       $("shutVeil").hidden = false; $("fade").classList.remove("on");
       if (!window.TheBattlegrounds) window.TheBattlegrounds = { state: { booted: true, shut: true, left: false }, AREA: null, LEVEL: false, shut: true, bootError: true, toasts: [], fit() {}, get paused() { return true; }, step() { return 0; } };
@@ -93,7 +122,7 @@
   const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
   Smithy.installFrames();
   try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
-  if (window.Nav) Nav.arrive("cellar");
+  if (window.Nav) Nav.arrive(wantLevel ? "level" : "cellar");   // (design pass 22: a level is not the cellar to nav.js, readable or shut)
   if (harness || reduce) document.documentElement.classList.add("still");
 
   // ------------------------------------------------------------------ the weapons: what came down from the Forge, or a visit
@@ -223,7 +252,7 @@
     if (window.console && shutBy) window.console.warn("Forge Forever: the Troll Gate could not be read: " + (shutBy.message || shutBy));
     fit();
     $("shutVeil").hidden = false; state.plank = "shut"; state.shut = true;
-    const up = () => { if (state.left) return; state.left = true; $("fade").classList.add("on"); const url = document.body.getAttribute("data-forge") || "the-forge.html"; state.leftTo = url; state.went = window.Nav ? Nav.go("forge", url, { stay }) : { to: "forge", url, how: "push" }; if (!stay && !window.Nav) window.location.href = url; };
+    const up = () => { if (state.left) return; state.left = true; spend(); $("fade").classList.add("on"); const url = document.body.getAttribute("data-forge") || "the-forge.html"; state.leftTo = url; state.went = window.Nav ? Nav.go("forge", url, { stay }) : { to: "forge", url, how: "push" }; if (!stay && !window.Nav) window.location.href = url; };
     $("shutForge").addEventListener("click", up); $("upBtn").addEventListener("click", up); $("homeBtn").addEventListener("click", up); $("tForge").addEventListener("click", up); $("tHome").addEventListener("click", up);
     window.TheBattlegrounds = { state, world, toasts: [], AREA, LEVEL: false, shut: true, fit, get paused() { return true; }, step() { return 0; } };
     state.booted = true;
@@ -248,6 +277,7 @@
     if (state.left) return;
     to = to === "menu" ? "menu" : "forge";
     state.left = true;
+    spend();   // (design pass 22) a level that is left is spent: the history never starts it again
     lessonOn("leave", to);   // (build 8) C7 ends on the way up
     if (LEVEL) sendHome(lv.done);   // a quit banks the satchel and pays nothing (section 3.11.5); after a clear the run has gone home already, and goes as a clear if it has not
     writeBack();
@@ -279,8 +309,12 @@
     const run = () => { state.leftTo = url; state.went = { to: "gate", url, how: "push" }; if (!stay) window.location.href = url; };
     if (reduce || harness) run(); else setTimeout(run, 260);
   }
-  // Again, from the tally: the same level with the same brothers (a new seed); the run that just ended has gone home already
-  function again() { if (state.left) return; state.left = true; $("fade").classList.add("on"); const url = levelUrl(brothersN); const run = () => { state.leftTo = url; state.went = { to: "gate", url, how: "push" }; if (!stay) window.location.href = url; }; if (reduce || harness) run(); else setTimeout(run, 260); }
+  // Again, from the tally: the same level with the same brothers (a new seed); the run that just ended has gone home already.
+  // (design pass 22) The new run takes this one's place in the history (a replace), so a visit to a level is one entry however often it
+  // is played, spent when the level is left for the Forge or the menu. It is not marked here: the entry is the next run's. (With the
+  // address unchanged, as it is from the gate plate, a browser keeps the entry and its state for the page that loads: a mark set here
+  // made the next run boot the cellar. Found by tools/drive-phone.js's act before it shipped)
+  function again() { if (state.left) return; state.left = true; $("fade").classList.add("on"); const url = levelUrl(brothersN); const run = () => { state.leftTo = url; state.went = { to: "gate", url, how: "replace" }; if (stay) return; try { window.location.replace(url); } catch (e) { window.location.href = url; } }; if (reduce || harness) run(); else setTimeout(run, 260); }
   // restored from the back-forward cache: the handoff may be another one, so start again
   window.addEventListener("pageshow", e => { if (e.persisted) { state.left = false; window.location.reload(); } });
   window.addEventListener("pagehide", () => { if (!state.left) writeBack(); });
@@ -1549,7 +1583,8 @@
     // (input(o): a plain object stands for the thumbs until changed; a function is a driver, called once a step with dt, its answer the thumbs' input)
     state, world, toasts, markSeen() { return store.set(LEVEL ? KEYS.gateSeen : KEYS.seen, "1"); }, lessons: null, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, scene, VIEW, AREA, LEVEL,
     // a level (design pass 12): the run's id, the satchel's state, the way home, the clear, the adapter over the director's state, a synthetic event
-    runId, go, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, get lv() { return state.lv; }, get guide() { return state.guide; }, take(events) { take(Array.isArray(events) ? events : [events]); },
+    runId, go, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, spent, get lv() { return state.lv; },   // (spent: this page booted the cellar from a spent level, design pass 22)
+    get guide() { return state.guide; }, take(events) { take(Array.isArray(events) ? events : [events]); },
     get fight() { return fight; }, get rack() { return rack.slice(); }, get paused() { return paused(); },
     // move time on by ms (in steps of 1/60 s); while the game is paused, time doesn't move
     step(ms) { let n = 0; const want = Math.round(ms / 1000 / STEP); for (let i = 0; i < want; i++) { if (paused()) break; tick(); n++; } flushSums(false); draw(); return n; },
