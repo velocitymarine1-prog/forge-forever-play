@@ -3,6 +3,9 @@
 // else (GitHub Pages and the TestFlight app that loads it, a page opened from disk, the harnesses) Cloud.on is false, Cloud.ready
 // resolves at once and every call does nothing, so the game is exactly as it was.
 //
+// Since build 16 (design pass 23) the game is on GitHub Pages only, and the server is the backend on Cloudflare: an address in the
+// fragment, #handoff=<ticket>, is a player coming from the old Cloudflare copy's moving page, claimed before the page reads the player.
+// Pages opened in the checks' test mode (?stay=1) keep the cloud off, so the checks never leave a player online.
 // Since build 11 (revision 4) the GitHub Pages copy, which the TestFlight dev app loads, has the switch too, pointing at the Cloudflare
 // server from another site: the sign-in is then a token the phone keeps (forge-forever:cloud-token) and sends as Authorization: Bearer,
 // since a page can't keep another site's cookie. The Cloudflare copy sends it too, and keeps its cookie.
@@ -29,7 +32,8 @@
   const meta = doc && doc.querySelector ? doc.querySelector('meta[name="ff-cloud"]') : null;
   const API = meta ? String(meta.getAttribute("content") || "").replace(/\/+$/, "") : "";
   let fileUrl = false; try { fileUrl = root.location.protocol === "file:"; } catch (e) { fileUrl = true; }
-  const on = !!API && !fileUrl && typeof root.fetch === "function";
+  let testPage = false; try { testPage = new URLSearchParams(root.location.search).get("stay") === "1"; } catch (e) { testPage = false; }
+  const on = !!API && !fileUrl && !testPage && typeof root.fetch === "function";
   // cross: the server is on another site (the GitHub Pages copy): no cookie, the token alone, and no keepalive send as a page closes
   let cross = false; try { cross = /^https?:\/\//i.test(API) && new URL(API).origin !== root.location.origin; } catch (e) { cross = false; }
   const K = { smith: "forge-forever:smith", local: "forge-forever:local:", lessons: "forge-forever:lessons:", sync: "forge-forever:cloud", device: "forge-forever:device",
@@ -152,8 +156,33 @@
     return bundle ? { bundle, rev } : null;
   }
 
+  // ------------------------------------------------------------------ (build 16) a player coming from the old Cloudflare copy
+  // takeHandoff(): the ticket in the address's fragment, taken out of the address at once (history.replaceState), or null
+  function takeHandoff() {
+    let h = ""; try { h = root.location.hash || ""; } catch (e) { return null; }
+    const m = /(?:^#|&)handoff=([A-Za-z0-9_-]{16,64})(?=&|$)/.exec(h);
+    if (!m) return null;
+    const rest = h.replace(/(^#|&)handoff=[^&]*/, "$1").replace(/^#&/, "#").replace(/^#$/, "");
+    try { root.history.replaceState(root.history.state, "", root.location.pathname + root.location.search + rest); } catch (e) { /* kept in the address; spent anyway */ }
+    return m[1];
+  }
+  // claimHandoff(ticket): this phone becomes the player who came across (their game, a new token); false when the ticket is spent or late
+  async function claimHandoff(ticket) {
+    const r = await call("POST", "/claim", { handoff: ticket }, WAIT);
+    if (!r.ok || !r.json || !r.json.smith) return false;
+    if (r.json.token) setToken(r.json.token);
+    take(r.json.smith);
+    const got = r.json.save && !r.json.save.erased ? await fetchSave() : null;
+    if (got) apply(got.bundle, state.smith); else { wipeLocal(); apply(null, state.smith); }
+    writeSync({ id: state.smith.id, rev: got ? got.rev : (r.json.save ? r.json.save.rev : 0), dirty: false, registered: true });
+    note("Welcome back, " + state.smith.name + ". Your game moved here.");
+    return true;
+  }
+
   // ------------------------------------------------------------------ opening: who this phone is, and whose records are newer
   async function start() {
+    const ticket = takeHandoff();
+    if (ticket && await claimHandoff(ticket)) { state.status = "online"; changed = true; return state; }
     const me = await call("GET", "/me", null, WAIT);
     if (me.err || me.status === 0 || me.status >= 500 || me.status === 429) { state.status = "offline"; later(); return state; }
     if (me.status === 401) {
