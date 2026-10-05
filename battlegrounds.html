@@ -172,6 +172,14 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .brothers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
 .brothers button{min-height:38px;background-color:transparent;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--parch)}
 .brothers button[aria-pressed="true"],#gateAlone[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
+/* the castle plate's levels (design pass 21 section 3.10): menu rows; the selected one lit as a chosen brother is, a locked one dimmed */
+.levels{display:grid;gap:5px}
+.levels button[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
+.levels button:disabled{filter:grayscale(1) brightness(.6);cursor:default}
+#gateLevels span.won{color:var(--brass)}
+#gateLevels button[aria-pressed="true"] span.won{color:var(--hot)}
+/* (the smallest phones, 320 px on the short side: the rows a little lower, so the plate never scrolls) */
+@media (max-height:340px),(max-width:340px){#gateLevels button{min-height:0;padding:0 8px;font-size:15px}#gatePlank #gateLine{margin-bottom:2px}}
 #tallyPlank{max-width:520px}
 #tallyPlank h2{letter-spacing:.04em}
 .finds{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 2px;min-height:40px}
@@ -266,13 +274,15 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
       </div>
     </div>
   </div>
-  <!-- the level's planks (design pass 12, section 3.14): the gate plate opened from the door on the cellar's left wall; Leave the gate?; the tally
-       of a clear; The gate is shut when the level's spec can't be read -->
+  <!-- the level's planks (design pass 12, section 3.14): the gate plate opened from the door on the cellar's left wall (since design pass 21
+       the castle plate: the castle's levels as rows over its buttons); Leave the gate?; the tally of a clear; The gate is shut when the level's
+       spec can't be read (each in the level's own words since design pass 21) -->
   <div class="veil" id="gateVeil" hidden>
-    <div class="plank f-plank" id="gatePlank" role="dialog" aria-label="The Troll Gate">
-      <h2 id="gateTitle">The Troll Gate</h2>
+    <div class="plank f-plank" id="gatePlank" role="dialog" aria-label="The castle">
+      <h2 id="gateTitle">The castle</h2>
       <p class="small" id="gateLine">Normal</p>
       <div class="menu">
+        <div class="levels" id="gateLevels" role="group" aria-label="The castle's levels"><button class="f-iron" id="lvGate" data-area="gate" aria-pressed="true">The Troll Gate<span></span></button><button class="f-iron" id="lvHall" data-area="hall" aria-pressed="false">The Great Hall<span></span></button></div>
         <button class="f-ember" id="gateAlone" style="color:var(--soot)">Go alone<span style="color:var(--soot)"></span></button>
         <p class="small" style="margin:4px 0 0">Bring sword-brothers</p>
         <div class="brothers"><button class="f-iron" id="gateB1">1</button><button class="f-iron" id="gateB2">2</button><button class="f-iron" id="gateB3">3</button></div>
@@ -298,7 +308,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
       <div class="finds" id="tallyFinds"></div>
       <p id="tallyPay"></p>
       <p class="small" id="tallyLevel" hidden></p>
-      <div class="pbtns"><button class="f-iron" id="tallyForge">Back to the Forge</button><button class="f-ember primary" id="tallyAgain">Again</button></div>
+      <div class="pbtns"><button class="f-iron" id="tallyForge">Back to the Forge</button><button class="f-iron" id="tallyNext" hidden>On to the Great Hall</button><button class="f-ember primary" id="tallyAgain">Again</button></div>
     </div>
   </div>
   <div class="veil" id="shutVeil" hidden>
@@ -328,6 +338,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="spec/combat.js"></script>
 <script src="spec/cellar.js"></script>
 <script src="spec/gate.js"></script>
+<script src="spec/hall.js"></script>
 <script src="spec/trolls.js"></script>
 <script src="spec/abilities.js"></script>
 <script src="spec/drops.js"></script>
@@ -350,6 +361,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="proto/trolls.js"></script>
 <script src="proto/cellar.js"></script>
 <script src="proto/gate.js"></script>
+<script src="proto/hall.js"></script>
 <script src="proto/physics.js"></script>
 <script src="proto/combat.js"></script>
 <script src="proto/level.js"></script>

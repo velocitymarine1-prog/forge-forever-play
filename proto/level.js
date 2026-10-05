@@ -31,6 +31,25 @@
   const standing = k => !k.down && !k.out && !(k.rise > 0);
   const emit = (fight, e) => CB().emit(fight, e);
   const dX = (fight, key) => CB().dX(fight, key);
+  // design pass 21: the director reads any level. The Troll Gate's castle front (the horn, the bridge, the portcullis, the gate, the burst,
+  // the wall archers) runs only where the area has a castle block, in its arena (castle.arena, 5 on the gate); the level ends when the
+  // arena of A.end clears (the castle's arena when no end is given); a palisade's troll gates are its doors (palisades[i].doors, or the
+  // gate's stake names); a door may stand on a surface ({ on, at, hold })
+  const castleArena = A => A && A.castle ? (A.castle.arena === undefined ? 5 : A.castle.arena) : null;
+  const isCastle = (A, ar) => !!ar && castleArena(A) !== null && ar.id === castleArena(A);
+  const endArena = A => A && A.end && A.end.arena !== undefined ? A.end.arena : castleArena(A);
+  const castleDoor = A => A && A.castle ? (A.castle.door || "gate") : null;
+  const isPalisadeDoor = (A, name) => /^stake/.test(name) || ((A && A.palisades) || []).some(p => (p.doors || []).includes(name));
+  const doorPoints = entry => Array.isArray(entry) ? entry : (entry && entry.at) || [];
+  // rooms (design pass 21 section 3.2): a world may hold rooms side by side; the camera keeps to the room the party is in (its own camera
+  // x and y ranges), set at the start (the room holding the knights' start) and by a passage. A level with no rooms is one room, the world
+  const roomOf = fight => { const A = fight.area || {}, L = fight.level || {}; return (A.rooms || []).find(r => r.id === L.room) || null; };
+  const camYRange = fight => { const RM = roomOf(fight); return RM && RM.camY ? RM.camY : (((fight.area || {}).camera || {}).y || [0, 216]); };
+  // the outpost the castle's Break the gate sends from (the gate's Gallows Post, outpost 3)
+  function castleOutpost(fight, D, ar) {
+    const groups = (((ar && ar.wave) || {}).breakGate || {}).groups || [], g = groups.find(q => typeof q.from === "string" && /^outpost\d+/.test(q.from));
+    return D.outposts[g ? (g.from.replace("outpost", "") | 0) : 3] || null;
+  }
 
   // ------------------------------------------------------------------ scaling (section 3.7)
   // count = round(base x factor), factor = 1 + 0.6 x (p_eff - 1), p_eff = p + 0.25 x b, in integer thousandths so that 5 x 1.3 is 6.5 and
@@ -61,7 +80,7 @@
         else if (t === "engine") W.engines++;
       }
       let n = Object.values(W.kinds).reduce((s, v) => s + v, 0) + Object.values(W.fixed).reduce((s, v) => s + v, 0) + W.outposts.reduce((s, g) => s + g.n, 0) + W.trickles.reduce((s, g) => s + g.n, 0) + W.engines;
-      if (w.arena === 5) { n += S.wall.n + roar * Object.values(W.fixed).reduce((s, v) => s + v, 0); out.in5 = n; } else out.before5 += n;
+      if (w.arena === castleArena(A)) { n += S.wall.n + roar * Object.values(W.fixed).reduce((s, v) => s + v, 0); out.in5 = n; } else out.before5 += n;
       out.reserves += W.engines * (crew - 1);
       W.n = n; out.waves.push(W);
     }
@@ -92,6 +111,7 @@
       const w = (A.waves || []).find(q => q.arena === ar.id) || null;
       D.arenas.push({ id: ar.id, i, spec: ar, wave: w, state: "ahead", delay: 0, t: 0, entries: [], groups: [], trolls: [], started: false, cleared: false, attempt: 0, phase: null, trickle: null, breakGate: null, retryPhase: false, undropped: [], seenN: 0 });
     });
+    if (A.rooms && A.rooms.length) { const k0 = fight.knights[0], R0 = A.rooms.find(r => k0 && k0.x >= r.x0 && k0.x < r.x1) || A.rooms[0]; fight.level.room = R0.id; }
     D.cam = { xf: ((A.camera || {}).start || [0, 0])[0], yf: ((A.camera || {}).start || [0, 0])[1], left: 0, right: 0 };
     limits(fight, D);
     C.setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf));
@@ -107,12 +127,13 @@
     fight.engines = D.engines;
     for (const e of A.engines || []) D.engines.push(newEngine(fight, D, e));
     // the castle front (section 3.4): the bridge raised, the portcullis down, the eyes in the arch, no chest yet
-    const CH = A.chest || {}, at = CH.at ? XY(CH.at.u, CH.at.v) : [2880, 256];
+    const CH = A.chest || {}, at = CH.at ? (Array.isArray(CH.at) ? CH.at : XY(CH.at.u, CH.at.v)) : [2880, 256];
     fight.bridge = { down: false, fallAt: null, fall: 0, rattleAt: null, landed: null };
     fight.gate = { down: true, lift: 0, stage: 0, eyes: true, burst: null, burstDone: false, ours: false, glint: false, hp: null, hpMax: null, dropAt: null };
     fight.chest = { x: at[0], y: at[1], r: CH.r || 6, shown: false, open: false, openAt: null, solid: null };
     fight.pouches = D.pouches;
     fight.level.chest = fight.chest; fight.level.gateOpen = false; fight.level.postAwake = false; fight.level.calls = fight.level.calls || [];
+    { const k0 = fight.knights[0], R0 = (A.rooms || []).find(r => k0 && k0.x >= r.x0 && k0.x < r.x1) || (A.rooms || [])[0]; fight.level.room = R0 ? R0.id : null; fight.level.passage = null; }
     fight.level.respawn = (g, f) => respawn(g, D, f);
     // the drops' streams: one a seat (A.4 rng.drops, then the seat's own step), so every knight's loot is its own
     const RN = (root.FORGE_COMBAT || {}).rng || {}, c0 = parseInt(RN.drops || "0x6c6f6f74", 16) >>> 0, c1 = parseInt(RN.dropsSeat || "0x9e3779b9", 16) >>> 0;
@@ -145,6 +166,7 @@
     const lead = fight.knights[0], want = lead.x + (trigger - mean) + 12, bank = s.hornLine ? (((fight.area.moat || {}).u || [2580])[0] - 16) + g.y : Infinity;   // on the bank: u <= the moat's edge less 16
     g.x = Math.min(Math.max(g.base, want), bank);
   }
+  const groupBox = (fight, b) => { const F = fight.floor; return { x0: Math.max(F.x0, b.x0), x1: Math.min(F.x1, b.x1), y0: Math.max(F.y0, b.y0), y1: Math.min(F.y1, b.y1) }; };   // a group's own box (design pass 21: a troll kept to its post)
   const arenaBox = (fight, ar) => { const F = fight.floor; return { x0: Math.max(F.x0, ar.spec.x0), x1: Math.min(F.x1, ar.spec.x1), y0: F.y0, y1: F.y1 }; };
   const rallyOf = (fight, ar) => fight.knights.map(k => [ar.spec.rally, (ar.spec.rallyY || [])[k.seat] !== undefined ? ar.spec.rallyY[k.seat] : (ar.spec.rallyY || [212])[0]]);
 
@@ -169,6 +191,37 @@
     pouchesStep(fight, D, dt);
     camera(fight, D, dt);
     freeBox(fight, D);
+    if (fight.area.passages) { const P = passageOpen(fight, D); fight.level.passage = P ? P.id : null; }
+  }
+  // passages (design pass 21 section 3.3): a door from the party's room into the next, open once the arena it names is clear (never in a
+  // wipe). Level.pass(fight, id) (the step's input.pass): the pouches still on the ground go into the satchels, every knight stands at its
+  // landing point by seat (a downed one lies there), the room changes, the camera snaps to the party, and the next wave starts by the
+  // camera's rule
+  function passageOpen(fight, D) {
+    const A = fight.area, room = fight.level.room;
+    if (fight.wipe) return null;
+    for (const P of A.passages || []) {
+      if (P.from !== room) continue;
+      const w = P.when || {}, ar = w.cleared !== undefined ? D.arenas.find(a => a.id === w.cleared) : null;
+      if (ar ? ar.cleared : w.cleared === undefined) return P;
+    }
+    return null;
+  }
+  function pass(fight, D, id) {
+    const C = CB(), A = fight.area, PS = (A.passages || []).find(p => p.id === id);
+    const open = passageOpen(fight, D);
+    if (!PS || !open || open.id !== id) return false;
+    for (const q of D.pouches.slice()) take(fight, D, q);
+    fight.level.room = PS.to;
+    for (const k of fight.knights) { if (k.out) continue; const at = (PS.land || [])[k.seat] || (PS.land || [])[0]; if (!at) continue; C.place(fight, k, at[0], at[1]); C.clearSeat(fight, k); }
+    fight.level.rally = fight.knights.map(k => ((PS.land || [])[k.seat] || (PS.land || [])[0] || [k.x, k.y]).slice(0, 2));
+    limits(fight, D);
+    D.cam.xf = clamp(D.cam.xf, D.cam.left, D.cam.right);
+    snap(fight);
+    fight.level.passage = null;
+    emit(fight, { type: "passage", id, from: PS.from, to: PS.to });
+    setArena(fight, D, null); if (D.arenas[D.ai]) setGoal(fight, D, D.arenas[D.ai]);
+    return true;
   }
   // the ram lying west of what the camera's limits let a knight reach (carried back over an arena's west edge before its wave started, and
   // put down there) goes back to where it began, so it is never out of reach while the guide points at it (design pass 18)
@@ -196,6 +249,7 @@
     const C = CB(), A = fight.area;
     // the party leaves (the page's finish steps once with exit: true, on seat 0's input or on the keyed container): the chest opens if it
     // was not, and every pouch on the ground or in flight lands in its knight's satchel in this very step, its pickup event with it
+    { const pid = input && (input.pass || (inputOf(input, 0) || {}).pass); if (pid) pass(fight, D, pid); }
     if (input && (input.exit || (inputOf(input, 0) || {}).exit)) { if (fight.chest.shown && !fight.chest.open) openChest(fight, D, 0, true); for (const q of D.pouches.slice()) take(fight, D, q); }
     for (const k of fight.knights) {
       const inp = inputOf(input, k.seat);
@@ -217,7 +271,7 @@
   function camera(fight, D, dt) {
     const A = fight.area, CA = A.camera || {}, C = CB(), cam = D.cam, vw = fight.vw, vh = fight.vh;
     const counted = fight.knights.filter(k => full(k) && standing(k));
-    const aimXd = CA.aimX === undefined ? 176 : CA.aimX, G = CA.aimXGate || { east: 2560, aimX: 96 }, DZ = CA.deadY || [84, 148], LN = CA.lean || { max: 32, maxDown: 14, within: 240 }, sp = CA.speed || 96;
+    const aimXd = CA.aimX === undefined ? 176 : CA.aimX, G = CA.aimXGate || null, DZ = CA.deadY || [84, 148], LN = CA.lean || { max: 32, maxDown: 14, within: 240 }, sp = CA.speed || 96;
     const VK = A.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 };
     let tx = cam.xf, ty = cam.yf;
     if (counted.length) {
@@ -226,19 +280,20 @@
       let lx = 0, ly = 0, n = 0;
       for (const f of fight.foes) { if (f.dead || !f.brain || f.brain.target === null) continue; const k = fight.knights[f.brain.target]; if (!k || dist(f.x, f.y, k.x, k.y) > LN.within) continue; lx += f.x; ly += f.y - (f.z || 0); n++; }
       if (n) { lx = clamp(lx / n - mx, -LN.max, LN.max); ly = clamp(ly / n - my, -LN.max, LN.maxDown); } else { lx = 0; ly = 0; }
-      tx = mx - (mx >= G.east ? G.aimX : aimXd) + lx;
+      tx = mx - (G && mx >= G.east ? G.aimX : aimXd) + lx;
       const fy = my - cam.yf, w0 = DZ[0] - ly, w1 = DZ[1] - ly;   // the window, shifted by the lean (down: the knights sit higher on the screen)
       if (fy < w0) ty = my - w0; else if (fy > w1) ty = my - w1; else ty = cam.yf;
     }
     if (D.frame) { tx = Math.max(tx, (CA.hornFrame || {}).xMin || 2604); ty = clamp(ty, ((CA.hornFrame || {}).y || [100, 146])[0], ((CA.hornFrame || {}).y || [100, 146])[1]); }
-    tx = clamp(tx, cam.left, cam.right); ty = clamp(ty, (CA.y || [0, 216])[0], (CA.y || [0, 216])[1]);
+    const YR = camYRange(fight);
+    tx = clamp(tx, cam.left, cam.right); ty = clamp(ty, YR[0], YR[1]);
     cam.xf += clamp(tx - cam.xf, -sp * dt, sp * dt);
     cam.yf += clamp(ty - cam.yf, -sp * dt, sp * dt);
     // the yield: no counted knight is ever moved by the view (inside the limits). It keeps the feet 2 px inside the box: a knight's own move
     // is clamped to the box of the last step's camera before this step's camera is read, so at the box's very edge (the lean's window shifted
     // 14 px down meets it) a knight walking out would be stopped by the box while the camera never followed
     yieldCam(fight, D, true);
-    cam.xf = clamp(cam.xf, cam.left, cam.right); cam.yf = clamp(cam.yf, (CA.y || [0, 216])[0], (CA.y || [0, 216])[1]);
+    cam.xf = clamp(cam.xf, cam.left, cam.right); cam.yf = clamp(cam.yf, YR[0], YR[1]);
     const x0 = Math.round(cam.xf), y0 = Math.round(cam.yf);
     if (x0 !== fight.view.x0 || y0 !== fight.view.y0) C.setView(fight, x0, y0);
   }
@@ -259,7 +314,7 @@
   // the camera's limits allow, so its dodge or walk is never stopped by the view it happens to be in, and the camera yields to it (above);
   // none during the horn's frame or with two or more counted knights (the view's box then, as before)
   function freeBox(fight, D) {
-    const A = fight.area, CA = A.camera || {}, VK = A.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 }, F = fight.floor, Y = CA.y || [0, 216], L = fight.level;
+    const A = fight.area, CA = A.camera || {}, VK = A.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 }, F = fight.floor, Y = camYRange(fight), L = fight.level;
     const counted = fight.knights.filter(k => full(k) && standing(k));
     if (D.frame || counted.length !== 1) { L.freeBox = null; L.freeSeat = null; return; }
     L.freeSeat = counted[0].seat;
@@ -274,6 +329,7 @@
     const next = D.arenas.find(ar => !ar.cleared);
     if (next) right = next.spec.camX ? next.spec.camX[next.spec.camX.length - 1] : next.spec.x0;
     D.cam.left = clamp(left, X[0], X[1]); D.cam.right = clamp(Math.max(right, D.cam.left), X[0], X[1]);
+    const RM = roomOf(fight); if (RM && RM.camX) { D.cam.left = clamp(D.cam.left, RM.camX[0], RM.camX[1]); D.cam.right = clamp(Math.max(D.cam.right, D.cam.left), RM.camX[0], RM.camX[1]); }
   }
 
   // ------------------------------------------------------------------ the waves (section 3.6)
@@ -299,12 +355,41 @@
     if (ar.state === "delay") { ar.delay -= dt; if (ar.delay <= 1e-9) { if (ar.retryPhase) resumePhase(fight, D, ar); else startWave(fight, D, ar); } return; }
     if (ar.state !== "live") return;
     ar.t += dt;
-    if (ar.id === 5 && !fight.bridge.down) return;   // nothing comes out before the bridge lands (the castle's step)
+    if (isCastle(fight.area, ar) && !fight.bridge.down) return;   // nothing comes out before the bridge lands (the castle's step)
+    phasesStep(fight, D, ar);
     release(fight, D, ar, dt);
     hutsStep(fight, D, ar, dt);
     trickleStep(fight, D, ar, dt);
-    if (ar.id === 5) castlePhases(fight, D, ar);
+    if (isCastle(fight.area, ar)) castlePhases(fight, D, ar);
     if (arenaDone(fight, D, ar)) clearArena(fight, D, ar);
+  }
+  // a wave's phases (design pass 21: the hall's Pack): each starts once, on the first of its triggers: { roar: tag } a roar this step from a
+  // troll of the arena with that group tag or kind, { dead: tag } every troll of the wave's own groups with that tag or kind sent and dead,
+  // { after: s } s after the wave began, { alive: n } the wave's own entries all in and n or fewer of its trolls alive. Its groups are
+  // door groups, their delays counted from the phase's start; its name shows as a wave's
+  const tagOf = (g, kind) => (g && g.spec && g.spec.tag) || kind;
+  function phasesStep(fight, D, ar) {
+    const PH = (ar.wave || {}).phases; if (!PH || !PH.length) return;
+    ar.phaseDone = ar.phaseDone || {};
+    for (const ph of PH) {
+      if (ar.phaseDone[ph.id] || !phaseTriggered(fight, D, ar, ph)) continue;
+      ar.phaseDone[ph.id] = true;
+      const g0 = ar.groups.length, e0 = ar.entries.length;
+      buildGroups(fight, D, ar, ph.groups || [], true);
+      for (const g of ar.groups.slice(g0)) g.delay = (g.spec.delay || 0) + ar.t;
+      for (const e of ar.entries.slice(e0)) e.phase = ph.id;
+      emit(fight, { type: "phase", id: ph.id, name: ph.name || "", line: ph.line || null, art: ph.art || null, arena: ar.id });
+    }
+  }
+  function phaseTriggered(fight, D, ar, ph) {
+    const own = ar.entries.filter(e => !e.phase), is = (e, name) => e.kind === name || tagOf(e.g, null) === name;
+    for (const w of [].concat(ph.when || [])) {
+      if (w.after !== undefined && ar.t >= w.after - 1e-9) return true;
+      if (w.roar !== undefined && (fight.events || []).some(ev => ev.type === "roar" && fight.foes.some(f => f.id === ev.foe && f.arenaId === ar.id && (f.kind === w.roar || tagOf(f.group, null) === w.roar)))) return true;
+      if (w.dead !== undefined) { const m = own.filter(e => is(e, w.dead)); if (m.length && m.every(e => e.sent && e.troll && e.troll.dead)) return true; }
+      if (w.alive !== undefined && own.length && own.every(e => e.sent) && fight.foes.filter(f => !f.dead && f.arenaId === ar.id && !f.pastCap).length <= w.alive) return true;
+    }
+    return false;
   }
   // the wave begins: its name, the attempt (the Second Wind back, the carried-off back at the rally), its groups scaled and split, the
   // Emberback's roll, the engine of the wave manned
@@ -340,7 +425,7 @@
     ar.groups = ar.groups.concat(groups);
     // the door entries in release order (group order, then each troll), the Emberback replacing the middle club footman (waves 2 to 5)
     const entries = [];
-    for (const g of groups) if (g.type === "door" || g.type === "deck" || g.type === "wall") for (let j = 0; j < g.n; j++) entries.push({ g, j, kind: g.kind, door: j, waitT: 0, sent: false, troll: null });
+    for (const g of groups) if (g.type === "door" || g.type === "deck" || g.type === "wall") for (let j = 0; j < g.n; j++) entries.push(g.spec.pastCap ? { g, j, kind: g.kind, door: j, waitT: 0, sent: false, troll: null, pastCap: true } : { g, j, kind: g.kind, door: j, waitT: 0, sent: false, troll: null });
     if (!breakGate) {
       const foot = entries.filter(e => e.g.type === "door" && e.kind === "footman");
       if (foot.length && CB().emberRoll(fight, ar.i + 1)) foot[Math.floor((foot.length - 1) / 2)].kind = "emberback";
@@ -385,7 +470,7 @@
   // the door points of a group's `from` (a name or names of gate.json's doors); the gate's arch and the deck are their own
   function doorsOf(fight, g) {
     const A = fight.area, names = Array.isArray(g.spec.from) ? g.spec.from : [g.spec.from], out = [];
-    for (const name of names) for (const p of (A.doors || {})[name] || []) out.push({ name, p });
+    for (const name of names) { const E = (A.doors || {})[name]; for (const p of doorPoints(E)) out.push(Array.isArray(E) ? { name, p } : { name, p, on: E.on || null, hold: !!E.hold }); }
     return out;
   }
   // the release: a squad of at most 4 due entries every 2.5 s (a hut's footman a squad of one, through the same gate), never over the alive
@@ -398,15 +483,21 @@
     // the entries picked for the squads so far keep trying their doors
     for (const e of ar.entries) if (e.picked && !e.sent) tryDoor(fight, D, ar, e, dt, DW);
     for (const e of ar.entries) if (!e.picked && e.g.type === "wall" && ar.t >= e.g.delay - 1e-9) { e.picked = true; e.pickedAt = fight.t; tryDoor(fight, D, ar, e, dt, DW); }   // the wall archers take their breaches outside the squads: they come through no door
+    // past the cap (design pass 21: the hall's wolves): their own cap, scaling.wolfAlive [base, per extra human], no squads
+    if (ar.entries.some(e => e.pastCap && !e.picked)) {
+      const WA = (fight.area.scaling || {}).wolfAlive || [6, 2], capW = WA[0] + WA[1] * Math.max(0, D.p - 1);
+      let alive = fight.foes.filter(f => !f.dead && f.arenaId === ar.id && f.pastCap).length + ar.entries.filter(e => e.pastCap && e.picked && !e.sent).length;
+      for (const e of ar.entries) { if (!e.pastCap || e.picked || ar.t < e.g.delay - 1e-9 || alive >= capW) continue; e.picked = true; e.pickedAt = fight.t; alive++; tryDoor(fight, D, ar, e, dt, DW); }
+    }
     if (D.squadT > 0) return;
     const room = D.scale.cap * dX(fight, "aliveCap") - aliveIn(fight, D, ar);
     if (room < 1) return;
-    const due = ar.entries.filter(e => !e.picked && ar.t >= e.g.delay - 1e-9).slice(0, Math.min(R.squad || 4, Math.floor(room)));
+    const due = ar.entries.filter(e => !e.picked && !e.pastCap && ar.t >= e.g.delay - 1e-9).slice(0, Math.min(R.squad || 4, Math.floor(room)));
     if (!due.length) return;
     for (const e of due) { e.picked = true; e.pickedAt = fight.t; tryDoor(fight, D, ar, e, dt, DW); }
     D.squadT = R.every || 2.5;
   }
-  function aliveIn(fight, D, ar) { let n = 0; for (const f of fight.foes) if (!f.dead && f.arenaId === ar.id && !f.pastCap) n++; for (const e of ar.entries) if (e.picked && !e.sent) n++; return n; }
+  function aliveIn(fight, D, ar) { let n = 0; for (const f of fight.foes) if (!f.dead && f.arenaId === ar.id && !f.pastCap) n++; for (const e of ar.entries) if (e.picked && !e.sent && !e.pastCap) n++; return n; }
   function tryDoor(fight, D, ar, e, dt, DW) {
     const g = e.g;
     if (g.type === "wall") { const slot = wallSlot(fight, D, e); if (slot) spawnAt(fight, D, ar, e, slot); return; }
@@ -436,10 +527,10 @@
   // floor; the arch's point on the deck; the rest at the point, on free floor
   function spawnDoor(fight, D, ar, e, d, forced) {
     const A = fight.area, F = fight.floor, K = CB().trollKind(e.kind), r = (K.body || {}).r || 7;
-    let x = d.p[0], y = clamp(d.p[1], F.y0, F.y1), on = null;
-    if (/^stake/.test(d.name)) { const pal = (A.palisades || []).find(s => x >= s.x0 - 1 && x <= s.x1 + 16 + r + 2); if (pal) x = pal.x0 - r - 2; }
-    if (d.name === "gate") { const B = fight.world.plats.find(P => P.when === "bridgeDown"); on = B ? B.id : null; }
-    spawnAt(fight, D, ar, e, { x, y, on, name: d.name, point: d.p, forced });
+    let x = d.p[0], y = clamp(d.p[1], F.y0, F.y1), on = d.on || null;
+    if (isPalisadeDoor(A, d.name)) { const pal = (A.palisades || []).find(s => x >= s.x0 - 1 && x <= s.x1 + 16 + r + 2); if (pal) x = pal.x0 - r - 2; }
+    if (d.name === castleDoor(A)) { const B = fight.world.plats.find(P => P.when === "bridgeDown"); on = B ? B.id : null; }
+    spawnAt(fight, D, ar, e, { x, y, on, hold: !!d.hold, name: d.name, point: d.p, forced });
   }
   function spawnAt(fight, D, ar, e, at) {
     const C = CB(), P = PH(), W = fight.world, DW = common().doorWait || { shoveWithin: 16, shove: 12 }, g = e.g;
@@ -447,12 +538,29 @@
     const f = C.spawn(fight, e.kind, at.x, at.y, o);
     if (!f) return false;   // at caps.foes: it waits
     e.sent = true; e.troll = f; g.sent++; g.trolls.push(f); ar.trolls.push(f);
-    f.arenaId = ar.id; f.box = at.fixed ? null : arenaBox(fight, ar); f.group = g; f.door = at.name || null; f.pastCap = !!e.pastCap;
+    f.arenaId = ar.id; f.box = at.fixed ? null : (g.spec && g.spec.box ? groupBox(fight, g.spec.box) : arenaBox(fight, ar)); f.group = g; f.door = at.name || null; f.pastCap = !!e.pastCap;
     f.drop = { source: e.source || (g.type === "deck" ? "towerArcher" : e.kind), solo: g.total, scaled: g.scaled };
+    if (g.spec && g.spec.formation) formationOf(fight, D, ar, g, f, e);
     if (!at.fixed && !at.on) { W.list = C.bodies(fight); if (P.caught(W, f) || P.groundAt(W, f.x, f.y).deep) { P.freePoint(W, f); } }
     // a troll stepping in shoves every knight within 16 px of where it steps 12 px away (no damage, no stagger)
     for (const k of fight.knights) if (!k.out && dist(k.x, k.y, f.x, f.y) <= (DW.shoveWithin || 16) + 1e-9) { const d = dist(k.x, k.y, f.x, f.y), ux = d > 1e-6 ? (k.x - f.x) / d : -1, uy = d > 1e-6 ? (k.y - f.y) / d : 0; P.push(W, k, ux, uy, DW.shove || 12); emit(fight, { type: "shoved", seat: k.seat, by: f.id, x: k.x, y: k.y }); }
     return true;
+  }
+  // a formation (design pass 21 section 3.6: troll knights in a line, three abreast as a shield wall): the group's trolls take spots on a
+  // line across its facing, `gap` apart, centred on the group's door points; the line's centre walks toward the standing knights at `speed`
+  // from its trolls' arrival, facing them (the spec's face is its first facing) (combat.js formStep walks each troll to its spot); it
+  // breaks for good when a knight comes within holdWithin of a member, a member is hit, or 12 s have passed
+  const FACE = { west: Math.PI, east: 0, north: -Math.PI / 2, south: Math.PI / 2 };
+  function formationOf(fight, D, ar, g, f, e) {
+    const FS = g.spec.formation, a = FACE[FS.face] !== undefined ? FACE[FS.face] : Math.PI;
+    if (!g.form) {
+      const pts = doorsOf(fight, g).map(d => d.p), cx = pts.reduce((s, p) => s + p[0], 0) / Math.max(1, pts.length), cy = pts.reduce((s, p) => s + p[1], 0) / Math.max(1, pts.length);
+      const t0 = fight.t + (f.spawn || 0);   // the line walks from its trolls' arrival (their spawn tell)
+      g.form = { kind: FS.kind || "line", a, cx: Math.abs(Math.cos(a)) > 0.5 ? f.x : cx, cy: Math.abs(Math.cos(a)) > 0.5 ? cy : f.y, gap: FS.gap || 24, speed: FS.speed || 30, holdWithin: FS.holdWithin || 56, t0, lastT: t0, until: t0 + (FS.time || 12), n: g.n, broken: false };
+    }
+    const G = g.form;
+    f.form = { group: G, off: (e.j - (G.n - 1) / 2) * G.gap };
+    f.face = a;
   }
   // a wall archer's breach: the slots in the castle's order, every second one to stand an ice archer, fixed on its sill at z 16
   function wallSlot(fight, D, e) {
@@ -502,7 +610,7 @@
   function callsStep(fight, D) {
     const L = fight.level, ar = D.arenas[D.ai];
     if (!L.calls || !L.calls.length) return;
-    if (!ar || ar.id !== 5 || ar.phase !== "gatekeepers" || !fight.bridge.down) { L.calls.length = 0; return; }
+    if (!ar || !isCastle(fight.area, ar) || ar.phase !== "gatekeepers" || !fight.bridge.down) { L.calls.length = 0; return; }
     for (const c of L.calls.slice()) {
       if (D.t < c.at - 1e-9 && fight.t < c.at - 1e-9) continue;
       L.calls.splice(L.calls.indexOf(c), 1);
@@ -515,9 +623,10 @@
   // reserve is still to come for its engine (with the wave's other trolls dead the reserves are cancelled)
   function arenaDone(fight, D, ar) {
     if (ar.entries.some(e => !e.sent)) return false;
+    if (((ar.wave || {}).phases || []).some(ph => !(ar.phaseDone || {})[ph.id])) return false;   // a phase still to come
     if (ar.trickle && ar.trickle.i < ar.trickle.seq.length && (!ar.trickle.whileAlive || fight.foes.some(f => !f.dead && ar.trickle.whileAlive.includes(f.kind) && f.arenaId === ar.id))) return false;
     for (const op of (D.outpostList || Object.values(D.outposts))) if (op.live && op.arena === ar.id) for (const h of op.huts) if (h.piece && !h.piece.broken && h.queue.length) return false;
-    if (ar.id === 5 && ar.phase !== "lastStand") return false;
+    if (isCastle(fight.area, ar) && ar.phase !== "lastStand") return false;
     const live = fight.foes.filter(f => !f.dead && f.arenaId === ar.id);
     const others = live.some(f => f.kind !== "winchman");
     for (const e of D.engines) if (e.spec.arena === ar.id && !e.wrecked) { if (!others) { e.reserveAt = null; e.crew = 0; } else if (e.reserveAt !== null || (e.winch && !e.winch.dead)) return false; }
@@ -533,7 +642,11 @@
       const s = W.solids[W.palisades[ar.spec.palisade]];
       if (s && !s.gone) { P.removeSolid(W, s); P.addCover(W, { kind: "fallenPalisade", shape: "r", x0: s.x0, y0: s.y0, x1: s.x1 + 24, y1: s.y1, on: null }); emit(fight, { type: "palisade", id: ar.spec.palisade, x0: s.x0, x1: s.x1, y0: s.y0, y1: s.y1 }); }
     }
-    if (ar.id === 5) { fight.gate.ours = true; fight.level.gateOpen = true; emit(fight, { type: "gateOurs", x: fight.chest.x, y: fight.chest.y }); magnet(fight, D); }
+    if (ar.id === endArena(A)) {   // the level is won: the gate is ours (the castle's arena), or a level's own end (A.end): its chest shown, its event
+      const E = A.end || {};
+      if (isCastle(A, ar)) fight.gate.ours = true; else if ((A.chest || {}).shownFrom === "end" && !fight.chest.shown) showChest(fight, D);
+      fight.level.gateOpen = true; emit(fight, { type: E.event || "gateOurs", x: fight.chest.x, y: fight.chest.y }); magnet(fight, D);
+    }
     else {
       emit(fight, { type: "onward", arena: ar.id, next: ar.id + 1 });
       if (ar.spec.breather) breather(fight, D);
@@ -564,7 +677,7 @@
   function retry(fight, D) {
     const C = CB(), ar = D.arenas[D.ai];
     if (!ar || ar.state !== "live" && ar.state !== "delay") return;
-    const last = ar.id === 5 && ar.phase === "lastStand";
+    const last = isCastle(fight.area, ar) && ar.phase === "lastStand";
     // every troll of the arena alive leaves quietly; after the burst the trolls that were left stand again at 1 HP instead (section 3.8)
     for (const f of fight.foes.slice()) if (f.arenaId === ar.id && !f.dead) { if (last && !f.fixed) { f.hp = Math.min(f.hp, 1); f.act = null; continue; } unspawn(fight, D, f); }
     // a standing hut sends its whole share again (section 3.8); the wrecked stay wrecked
@@ -572,7 +685,7 @@
     fight.level.calls.length = 0;
     // a standing engine's crew is whole again, with a winchman at its post
     for (const e of D.engines) if (e.spec.arena === ar.id && !e.wrecked) { e.crew = e.K.crew || 3; e.sent = 0; e.reserveAt = null; e.waitT = 0; if (!e.winch || e.winch.dead) manEngine(fight, D, e, true); }
-    if (ar.id === 5 && ar.phase && ar.phase !== "gatekeepers") {
+    if (isCastle(fight.area, ar) && ar.phase && ar.phase !== "gatekeepers") {
       // Break the gate, or the last of them, again (A.2 retry.breakGate.keep): the gate's damage, the brutes dead and the bridge down stay,
       // nothing of the gatekeepers' wave is rebuilt; during Break the gate the wall archers stand again (after the burst they are drowned)
       ar.entries = ar.entries.filter(e => e.g.type === "wall" ? ar.phase === "breakGate" : (e.sent && e.troll && e.troll.dead));
@@ -581,9 +694,9 @@
       ar.retryPhase = true; ar.state = "delay"; ar.delay = (ar.wave.start || {}).delay || 2;
       return;
     }
-    ar.entries = []; ar.groups = []; ar.trickle = null;
+    ar.entries = []; ar.groups = []; ar.trickle = null; ar.phaseDone = {};
     ar.state = "delay"; ar.delay = (ar.wave.start || {}).delay || 2;
-    if (ar.id === 5) { raiseBridge(fight, D); ar.phase = null; ar.state = "ahead"; D.hornRetryAt = D.t + (((((fight.area.waves || [])[4] || {}).retry || {}).gatekeepers || {}).hornAfter || 3); }   // "horn: 3 s after the fade lifts"
+    if (isCastle(fight.area, ar)) { raiseBridge(fight, D); ar.phase = null; ar.state = "ahead"; D.hornRetryAt = D.t + ((((ar.wave || {}).retry || {}).gatekeepers || {}).hornAfter || 3); }   // "horn: 3 s after the fade lifts"
   }
   // Break the gate or the last of them again after a wipe (section 3.8's Wave 5 retry row): the phase's own line again, nothing of the
   // gatekeepers' wave rebuilt; the wall archers come to their breaches again at once (Break the gate), the Gallows share in full
@@ -591,7 +704,7 @@
     const BG = (ar.wave || {}).breakGate || {}, LS = (ar.wave || {}).lastStand || {}, p = gatePiece(fight);
     ar.retryPhase = false; ar.state = "live"; ar.t = 0; ar.attempt++;
     fight.level.rally = rallyOf(fight, ar); setArena(fight, D, ar);
-    if (ar.phase === "breakGate") { const op = D.outposts[3]; if (op) { op.live = true; for (const h of op.huts) h.t = op.every; } emit(fight, { type: "breakGate", name: BG.name || "BREAK THE GATE", hp: p ? p.hp : null, x: p ? p.x : 2892, y: p ? p.y : 244, attempt: ar.attempt }); }
+    if (ar.phase === "breakGate") { const op = castleOutpost(fight, D, ar); if (op) { op.live = true; for (const h of op.huts) h.t = op.every; } emit(fight, { type: "breakGate", name: BG.name || "BREAK THE GATE", hp: p ? p.hp : null, x: p ? p.x : 2892, y: p ? p.y : 244, attempt: ar.attempt }); }
     else emit(fight, { type: "lastOfThem", name: LS.name || "THE LAST OF THEM", attempt: ar.attempt });
     D.squadT = 0;
   }
@@ -612,13 +725,13 @@
     const C = CB(), P = PH(), W = fight.world, A = fight.area, ar = D.arenas.find(a => a.id === f.arenaId) || D.arenas[D.ai];
     const g = f.group, doors = g && g.type === "door" ? doorsOf(fight, g) : [], F = fight.floor, r = f.r || 7;
     let best = null, bd = Infinity;
-    const cands = doors.length ? doors : Object.entries(A.doors || {}).flatMap(([name, pts]) => pts.map(p => ({ name, p }))).filter(d => ar && d.p[0] >= ar.spec.x0 - 8 && d.p[0] <= ar.spec.x1 + 8);
+    const cands = doors.length ? doors : Object.entries(A.doors || {}).flatMap(([name, pts]) => doorPoints(pts).map(p => ({ name, p }))).filter(d => ar && d.p[0] >= ar.spec.x0 - 8 && d.p[0] <= ar.spec.x1 + 8);
     for (const d of cands) { const dd = dist(d.p[0], d.p[1], f.x, f.y); if (dd < bd) { bd = dd; best = d; } }
     if (!best) return;
     let x = best.p[0], y = clamp(best.p[1], F.y0 + r, F.y1 - r);
-    if (/^stake/.test(best.name)) { const pal = (A.palisades || []).find(s => x >= s.x0 - 1 && x <= s.x1 + 16 + r + 2); if (pal) x = pal.x0 - r - 2; }
+    if (isPalisadeDoor(A, best.name)) { const pal = (A.palisades || []).find(s => x >= s.x0 - 1 && x <= s.x1 + 16 + r + 2); if (pal) x = pal.x0 - r - 2; }
     if (ar) x = clamp(x, Math.max(F.x0, ar.spec.x0) + r + 2, Math.min(F.x1, ar.spec.x1) - r - 2);
-    C.place(fight, f, x, y, best.name === "gate" ? (W.plats.find(Q => Q.when === "bridgeDown") || {}).id : undefined);
+    C.place(fight, f, x, y, best.name === castleDoor(A) ? (W.plats.find(Q => Q.when === "bridgeDown") || {}).id : (best.on || undefined));
     W.list = C.bodies(fight); if (P.caught(W, f)) P.freePoint(W, f);
     f.spawn = common().spawnTell || 0.6; f.act = null; f.intent = null; if (f.brain) f.brain.stuck.best = Infinity; fight.tdirty = true;
     emit(fight, { type: "spawn", foe: f.id, kind: f.kind, x: f.x, y: f.y, z: f.z, tell: f.spawn, again: true, from: best.name });
@@ -634,8 +747,8 @@
   }
   function castleStep(fight, D, dt) {
     const ar = D.arenas[D.ai], B = fight.bridge, G = fight.gate, A = fight.area, L = (A.bridge || {}).lower || { rattle: 1.5, retryRattle: 0.5, fall: 0.5, shake: 3 };
-    if (D.hornRetryAt !== undefined && D.hornRetryAt !== null && D.t >= D.hornRetryAt - 1e-9 && ar && ar.id === 5 && ar.state === "ahead") { D.hornRetryAt = null; horn(fight, D, ar, (ar.wave.start || {}).delay || 3); }
-    if (!ar || ar.id !== 5 || !ar.started || B.down) return;
+    if (D.hornRetryAt !== undefined && D.hornRetryAt !== null && D.t >= D.hornRetryAt - 1e-9 && ar && isCastle(A, ar) && ar.state === "ahead") { D.hornRetryAt = null; horn(fight, D, ar, (ar.wave.start || {}).delay || 3); }
+    if (!ar || !isCastle(A, ar) || !ar.started || B.down) return;
     // after the wave starts: the rattle (the portcullis lifting), then the fall, then the landing
     if (ar.state !== "live") return;
     const rattle = D.horn && D.horn.retry ? (L.retryRattle || 0.5) : (L.rattle || 1.5);
@@ -672,14 +785,14 @@
     emit(fight, { type: "shake", amp: L.shake || 3, time: ((root.FORGE_COMBAT || {}).feel || {}).shakeT || 0.12 });
     C.fieldsReady(fight, true);
     const ar = D.arenas[D.ai]; if (ar) ar.t = 0;
-    for (const e of D.engines) if (e.spec.arena === 5) e.active = true;
+    for (const e of D.engines) if (e.spec.arena === castleArena(A)) e.active = true;
   }
   function raiseBridge(fight, D) {
     const P = PH(), W = fight.world, B = fight.bridge, G = fight.gate, deck = W.plats.find(Q => Q.when === "bridgeDown");
     if (deck && deck.active) { for (const b of W.list) if (b.on === deck.id) { b.on = null; } P.setPlatform(W, deck.id, false); }
     B.down = false; B.fallAt = null; B.fall = 0; B.rattleAt = null; B.landed = null;
     G.down = true; G.lift = 0; D.frame = false;
-    for (const e of D.engines) if (e.spec.arena === 5) e.active = false;
+    for (const e of D.engines) if (e.spec.arena === castleArena(fight.area)) e.active = false;
     CB().fieldsReady(fight, true);
     emit(fight, { type: "bridgeUp" });
   }
@@ -708,7 +821,7 @@
     emit(fight, { type: "breakGate", name: BG.name || "BREAK THE GATE", hp: p ? p.hp : null, x: p ? p.x : 2892, y: p ? p.y : 244 });
     emit(fight, { type: "shake", amp: DR.shake || 2, time: ((root.FORGE_COMBAT || {}).feel || {}).shakeT || 0.12 });
     buildGroups(fight, D, ar, BG.groups || [], true);
-    const op = D.outposts[3]; if (op) { op.live = true; for (const h of op.huts) h.t = op.every; }
+    const op = castleOutpost(fight, D, ar); if (op) { op.live = true; for (const h of op.huts) h.t = op.every; }
     if (p && p.hp <= 0) burst(fight, D, ar);   // kept from a retry: the damage stands
   }
   // the gate's damage stages (75, 50, 25 %) and a 1 px shake a hit; the burst when its HP reaches 0
@@ -735,7 +848,7 @@
     emit(fight, { type: "shake", amp: BU.shake || 3, time: ((root.FORGE_COMBAT || {}).feel || {}).shakeT || 0.12 });
     const deck = W.plats.find(Q => Q.when === "bridgeDown"), moat = W.holes.find(H => H.kind === "moat"), foot = ((A.castle || {}).foot || {}).u || 2648;
     for (const f of fight.foes.slice()) {
-      if (f.dead || f.arenaId !== 5) continue;
+      if (f.dead || f.arenaId !== castleArena(A)) continue;
       if (f.fixed) {   // a wall archer: into the moat
         if (moat) { const v = f.x + f.y, u = (moat.u0 + moat.u1) / 2; f.x = (u + v) / 2; f.y = (v - u) / 2; } f.z = 0; f.fixed = false;
         C.drownPuddle(fight, f); C.die(fight, f, "DROWNED"); continue;
@@ -746,9 +859,9 @@
       emit(fight, { type: "status", d: f.i, status: "stun", stacks: null, foe: f.id });
       emit(fight, { type: "cracked", foe: f.id, kind: f.kind, x: f.x, y: f.y, hp: f.hp });
     }
-    for (const op of (D.outpostList || Object.values(D.outposts))) if (op.arena === 5) { op.live = false; for (const h of op.huts) h.queue.length = 0; }
+    for (const op of (D.outpostList || Object.values(D.outposts))) if (op.arena === castleArena(A)) { op.live = false; for (const h of op.huts) h.queue.length = 0; }
     if (ar.trickle) ar.trickle.i = ar.trickle.seq.length;
-    for (const e of D.engines) if (e.spec.stopOn === "burst" || e.spec.arena === 5) { e.active = false; e.stopped = true; e.reserveAt = null; e.crew = 0; }
+    for (const e of D.engines) if (e.spec.stopOn === "burst" || e.spec.arena === castleArena(A)) { e.active = false; e.stopped = true; e.reserveAt = null; e.crew = 0; }
     fight.level.calls.length = 0;
     emit(fight, { type: "lastOfThem", name: ((ar.wave || {}).lastStand || {}).name || "THE LAST OF THEM" });
     showChest(fight, D);
@@ -756,7 +869,7 @@
   // the chest on the deck at u 2624, v 3136, or the nearest point of the deck 6 px clear of every body (rings of 2 px); solid r 6, ht 10
   function showChest(fight, D) {
     const C = CB(), P = PH(), W = fight.world, A = fight.area, CH = A.chest || {}, ch = fight.chest, deck = W.plats.find(Q => Q.when === "bridgeDown");
-    const clear = CH.bodyClear || 6, at0 = CH.at ? XY(CH.at.u, CH.at.v) : [ch.x, ch.y];
+    const clear = CH.bodyClear || 6, at0 = CH.at ? (Array.isArray(CH.at) ? CH.at : XY(CH.at.u, CH.at.v)) : [ch.x, ch.y];
     W.list = C.bodies(fight);
     // a spot keeps to the deck's middle (within 8 u-units of its centre line), so a knight's lane of 12 px stays open on both sides of the
     // chest: a spot nearer a side closes that lane, and with the gate's foot a step east a body between them is wedged for good
@@ -766,7 +879,8 @@
     for (let R = 2; !spot && R <= 96; R += 2) for (let i = 0; i < 16 && !spot; i++) { const a = i * TAU / 16, x = at0[0] + Math.cos(a) * R, y = at0[1] + Math.sin(a) * R; if (free(x, y)) spot = [x, y]; }   // along the deck's middle, as far as its length
     if (!spot) spot = at0;
     ch.x = spot[0]; ch.y = spot[1]; ch.shown = true; ch.open = false; ch.openAt = null;
-    ch.solid = P.addSolid(W, { kind: "chest", shape: "c", x: ch.x, y: ch.y, r: ch.r, ht: ((A.propKinds || {}).chest || {}).ht || 10 }).id;
+    if (CH.on && W.platBy[CH.on]) { ch.on = CH.on; ch.z = P.platZ(W.platBy[CH.on], ch.x, ch.y); }   // (design pass 21) a chest standing on a surface (the hall's dais)
+    ch.solid = P.addSolid(W, { kind: "chest", shape: "c", x: ch.x, y: ch.y, r: ch.r, base: ch.z || 0, ht: ((A.propKinds || {}).chest || {}).ht || 10 }).id;
     // a deck too crowded for any clear spot (a party of four on its middle): the chest stands at its spot and the bodies on it step aside
     W.list = C.bodies(fight); for (const b of W.list) if (!b.on || b.on === (deck && deck.id)) { if (P.caught(W, b)) P.freePoint(W, b); }
     emit(fight, { type: "chest", x: ch.x, y: ch.y });
@@ -891,7 +1005,7 @@
       const h = huts.slice().sort((a, b) => dist(a.x, a.y, E.post.x, E.post.y) - dist(b.x, b.y, E.post.x, E.post.y))[0], K = C.trollKind(E.K.operator || "winchman"), r = (K.body || {}).r || 7;
       at = { x: h.x, y: h.y + h.r + r + 1, name: "hut" };
     } else {
-      const pts = (A.doors || {})[from] || [], DW = common().doorWait || { near: 48, max: 1.5 };
+      const pts = doorPoints((A.doors || {})[from]), DW = common().doorWait || { near: 48, max: 1.5 };
       if (!pts.length) { E.reserveAt = null; return; }
       let d = pts.find(p => !blocked(fight, p, DW)) || null;
       if (!d) { E.waitT = (E.waitT || 0) + dt; if (E.waitT < (DW.max || 1.5) - 1e-9) return; d = pts[0]; }
@@ -1016,7 +1130,7 @@
     const SZ = Object.assign({ near: 5, far: 3, brute: 7, engine: 5 }, M.size || {}), out = [];
     const AR = fight.level && fight.level.arena && fight.level.arena.x0 !== undefined ? fight.level.arena : null, inArena = x => !AR || (x >= AR.x0 && x <= AR.x1);
     const add = (sx, sy, size, extra) => { if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) return; const dx = Math.max(0, -sx, sx - W), dy = Math.max(0, -sy, sy - H), d = Math.hypot(dx, dy); if (d > within) return; out.push(Object.assign({ sx, sy, d, size: size === "auto" ? (d <= near ? SZ.near : SZ.far) : size, alarm: false, dot: false }, extra || {})); };
-    for (const f of fight.foes || []) if (!f.dead && !(f.spawn > 0) && inArena(f.x)) add(f.x - v.x0, f.y - (f.z || 0) - v.y0, f.kind === "brute" || f.kind === "rockbrute" ? SZ.brute : "auto");
+    for (const f of fight.foes || []) if (!f.dead && !(f.spawn > 0) && inArena(f.x)) add(f.x - v.x0, f.y - (f.z || 0) - v.y0, f.kind === "brute" || f.kind === "rockbrute" ? SZ.brute : f.kind === "wolf" ? SZ.far : "auto");   // (a wolf's chevron the small size, design pass 21)
     for (const e of fight.engines || []) if (e.manned && !e.wrecked) add(e.x - v.x0, e.y - v.y0, SZ.engine, { dot: true, alarm: !!e.stone });
     for (const s of ((fight.marks || {}).stone || [])) { const r = s.r || 16, sx = s.x - v.x0, sy = s.y - (s.z || 0) - v.y0; if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) add(sx, sy, SZ.engine, { alarm: true }); }
     out.sort((a, b) => a.d - b.d);
@@ -1067,13 +1181,13 @@
     o = o || {}; const out = { arrows: [], edges: [], go: null, left: null, gate: null };
     const D = fight.director, v = fight.view, A = fight.area || {}; if (!D || !v || !fight.world) return out;
     const W = v.x1 - v.x0, H = v.y1 - v.y0, me = fight.knights[o.seat || 0] || fight.k, G = fight.gate || {}, ch = fight.chest || {}, ar = D.arenas[D.ai];
-    const breaking = !!(ar && ar.id === 5 && ar.phase === "breakGate" && !G.burst);
+    const breaking = !!(ar && isCastle(A, ar) && ar.phase === "breakGate" && !G.burst);
     // the arrows' points
     const ram = fight.world.ram === null || fight.world.ram === undefined ? null : fight.world.solids[fight.world.ram];
     if (ram && !ram.gone) out.arrows.push({ kind: "ram", x: Math.round((ram.x0 + ram.x1) / 2), y: Math.round(ram.y1 - 14) });
     if (breaking) { const at = ((A.gate || {}).aim || {}).at || [2892, 244]; out.arrows.push({ kind: "gate", x: at[0], y: at[1] - 16 }); }   // (over the portcullis's lower half: the arch's top is under the top row when the camera is low)
     if (ch.shown && !(ch.open === true || (ch.openAt !== undefined && ch.openAt !== null))) out.arrows.push({ kind: "chest", x: Math.round(ch.x), y: Math.round(ch.y - 13) });
-    else if (G.ours) { const Z = (A.zones || {}).exit; if (Z && Z.u) { const [x, y] = XY((Z.u[0] + Z.u[1]) / 2, (Z.v[0] + Z.v[1]) / 2); out.arrows.push({ kind: "exit", x: Math.round(x), y: Math.round(y - 30) }); } }
+    else if (G.ours || (fight.level || {}).gateOpen) { const Z = (A.zones || {}).exit; if (Z && Z.u) { const [x, y] = XY((Z.u[0] + Z.u[1]) / 2, (Z.v[0] + Z.v[1]) / 2); out.arrows.push({ kind: "exit", x: Math.round(x), y: Math.round(y - 30) }); } else if (Z && Z.rect) out.arrows.push({ kind: "exit", x: Math.round((Z.rect[0] + Z.rect[2]) / 2), y: Math.round((Z.rect[1] + Z.rect[3]) / 2 - 24) }); }
     for (const k of fight.knights) if (k !== me && k.down && !k.out) out.arrows.push({ kind: "lift", x: Math.round(k.x), y: Math.round(k.y - (k.z || 0) - 20), seat: k.seat });
     // off the screen: the gate, the chest, the way in and a fallen friend always; the ram only while the gate is to be broken
     const off = [];
@@ -1101,7 +1215,8 @@
       // the trickle comes while a brute of the gate lives, so it counts from the wave's start, while they are still to come too (and stops
       // counting when the last of them falls, as it stops coming)
       const T = ar.trickle; if (T && T.i < T.seq.length && (!T.whileAlive || fight.foes.some(f => !f.dead && T.whileAlive.includes(f.kind) && f.arenaId === ar.id) || toCome.some(e => T.whileAlive.includes(e.kind)))) n += T.seq.length - T.i;
-      if (ar.id === 5) n += ((fight.level || {}).calls || []).length;
+      if (isCastle(A, ar)) n += ((fight.level || {}).calls || []).length;
+      for (const ph of ((ar.wave || {}).phases || [])) if (!(ar.phaseDone || {})[ph.id]) for (const g of ph.groups || []) if (g.kind) n += g.scale === false ? (g.n || 0) : Math.round(D.scale.count(g.n || 0) * dX(fight, "count"));
       // a trebuchet's reserve on its way: scheduled, or its winchman just fallen to a shot between two of the director's steps; only while
       // the wave has other trolls, as the director cancels the reserves without them
       if (others || n > 0) for (const e of D.engines) if (e.spec.arena === ar.id && !e.wrecked && !e.stopped && e.crew > 0 && (e.reserveAt !== null || (e.winch && e.winch.dead))) n++;
@@ -1117,12 +1232,13 @@
     const D = fight.director; if (!D) throw new Error("level.js: attach the director first");
     const C = CB(), P = PH(), W = fight.world, ar = D.arenas.find(a => a.id === arenaId); if (!ar) return null;
     for (const q of D.arenas) if (q.i < ar.i && !q.cleared) { q.state = "cleared"; q.cleared = true; q.started = true; if (q.spec.palisade !== undefined && W.palisades[q.spec.palisade] !== undefined) { const s = W.solids[W.palisades[q.spec.palisade]]; if (s && !s.gone) P.removeSolid(W, s); } }
+    if (ar.spec.room) fight.level.room = ar.spec.room;
     D.ai = ar.i; limits(fight, D);
     const rally = rallyOf(fight, ar); fight.level.rally = rally;
     for (const k of fight.knights) { const at = rally[k.seat]; C.place(fight, k, at[0], at[1]); C.clearSeat(fight, k); }
     D.cam.xf = clamp((ar.spec.camX || [ar.spec.x0])[0], D.cam.left, D.cam.right);
     const feet = fight.k.y - (fight.k.z || 0), CA = fight.area.camera || {}, DZ = CA.deadY || [84, 148];
-    D.cam.yf = clamp(feet - (DZ[0] + DZ[1]) / 2, 0, (CA.y || [0, 216])[1]);
+    D.cam.yf = clamp(feet - (DZ[0] + DZ[1]) / 2, camYRange(fight)[0], camYRange(fight)[1]);
     yieldCam(fight, D, false, true);   // the knights inside the view's box at once (arena 5's rally lies east of its camX)
     C.setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf));
     setArena(fight, D, ar);
@@ -1133,14 +1249,15 @@
   // the camera put on the counted knights at once (tests and scenes, after Combat.place): the aim and the yield with no speed, inside the limits
   function snap(fight) {
     const D = fight.director; if (!D) return null;
-    const CA = fight.area.camera || {}, VK = fight.area.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 }, G = CA.aimXGate || { east: 2560, aimX: 96 }, DZ = CA.deadY || [84, 148];
+    const CA = fight.area.camera || {}, VK = fight.area.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 }, G = CA.aimXGate || null, DZ = CA.deadY || [84, 148];
     const counted = fight.knights.filter(k => full(k) && standing(k)); if (!counted.length) return fight.view;
     let mx = 0, my = 0; for (const k of counted) { mx += k.x; my += k.y - (k.z || 0); } mx /= counted.length; my /= counted.length;
-    D.cam.xf = clamp(mx - (mx >= G.east ? G.aimX : (CA.aimX === undefined ? 176 : CA.aimX)), D.cam.left, D.cam.right);
-    D.cam.yf = clamp(my - (DZ[0] + DZ[1]) / 2, (CA.y || [0, 216])[0], (CA.y || [0, 216])[1]);
+    D.cam.xf = clamp(mx - (G && mx >= G.east ? G.aimX : (CA.aimX === undefined ? 176 : CA.aimX)), D.cam.left, D.cam.right);
+    const YR = camYRange(fight);
+    D.cam.yf = clamp(my - (DZ[0] + DZ[1]) / 2, YR[0], YR[1]);
     let lo = -Infinity, hi = Infinity; for (const k of counted) { const feet = k.y - (k.z || 0); lo = Math.max(lo, feet - VK.y1 + YIELD); hi = Math.min(hi, feet - VK.y0 - YIELD); }
     if (lo <= hi) D.cam.yf = clamp(D.cam.yf, lo, hi);
-    D.cam.yf = clamp(D.cam.yf, (CA.y || [0, 216])[0], (CA.y || [0, 216])[1]);
+    D.cam.yf = clamp(D.cam.yf, YR[0], YR[1]);
     const v = CB().setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf)); freeBox(fight, D); return v;
   }
 

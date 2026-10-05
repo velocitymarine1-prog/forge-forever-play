@@ -98,7 +98,7 @@
   const MARGIN = 13;        // the broadphase pads every solid and edge by the widest body (r 11, or 9 with the ram) and a little more
   const OUT = 4;            // a climber stepping off the ladder's foot stands 4 px out from it (section 3.2b)
   // ground cover by rank: on overlapping cover the more slippery or slower wins
-  const RANK = { ice: 6, puddle: 5, caltrops: 4, crater: 3, trench: 2, fire: 1, ground: 0 };   // fire: no friction of its own (a mark the fields cost at 4)
+  const RANK = { ice: 6, puddle: 5, caltrops: 4, crater: 3, trench: 2, snow: 1.5, fire: 1, ground: 0 };   // snow (design pass 21): a drift slows to 0.8   // fire: no friction of its own (a mark the fields cost at 4)
   const GROUND = { kind: "ground" };
 
   // ------------------------------------------------------------------ building it from the area
@@ -172,7 +172,7 @@
   function prop(W, p, pk) {
     if (pk.hole) { W.holes.push({ id: W.holes.length, kind: p.kind, shape: "r", x0: p.x0, y0: p.y0, x1: p.x1, y1: p.y1, depth: pk.hole.depth, deep: pk.hole.class === "deep", death: pk.hole.death, cover: pk.cover, shotCover: pk.shotCover }); return; }
     if (pk.cover && !pk.shape) { W.cover.push({ kind: pk.cover, prop: p.kind, rule: pk, shape: "r", x0: p.x0, y0: p.y0, x1: p.x1, y1: p.y1, on: null }); return; }
-    const base = { kind: p.kind, ht: pk.ht, thin: !!pk.thin, stun: pk.chargeStun, contact: pk.contact, burnBase: pk.burnBase };
+    const base = { kind: p.kind, base: p.base || 0, ht: pk.ht, thin: !!pk.thin, stun: pk.chargeStun, contact: pk.contact, burnBase: pk.burnBase };   // base: (design pass 21) a prop on a surface (the high table on the dais)
     if (pk.section && p.x0 !== undefined) {
       // sections along the long side, of equal length and at most `section` px
       const along = p.x1 - p.x0 >= p.y1 - p.y0, len = along ? p.x1 - p.x0 : p.y1 - p.y0, n = Math.max(1, Math.ceil(len / pk.section - 1e-9)), w = len / n;
@@ -198,8 +198,9 @@
     if (P.slab && P.shape === "r") addSolid(W, { kind: "slab", shape: "r", x0: P.x0, y0: P.y0, x1: P.x1, y1: P.y1, base: P.z - P.slab, ht: P.slab, plat: P.id });
     // the legs: thin solids, together one breakable piece (the archer tower), an aim target 10 px up
     if (S.legs) {
-      const L = S.legs, ids = L.at.map(at => addSolid(W, { kind: "leg", shape: "c", x: at[0], y: at[1], r: L.r, ht: L.ht, thin: !!L.thin, tower: P.id }).id);
-      addPiece(W, { kind: "tower", deck: P.id, x: (P.x0 + P.x1) / 2, y: (P.y0 + P.y1) / 2, r: (L.aim || {}).r || 9, chest: (L.aim || {}).chest || 10, ht: P.z, hp: L.hp, weak: L.weak, resist: L.resist, aim: true, solids: ids, wood: true, fall: L.fall || {}, creak: L.creak });
+      const L = S.legs, ids = L.at.map(at => addSolid(W, { kind: "leg", shape: "c", x: at[0], y: at[1], r: L.r, ht: L.ht, thin: !!L.thin, tower: L.hp ? P.id : null }).id);
+      // (design pass 21) legs with no hit points (the Great Hall's gallery posts) are posts, never a target
+      if (L.hp) addPiece(W, { kind: "tower", deck: P.id, x: (P.x0 + P.x1) / 2, y: (P.y0 + P.y1) / 2, r: (L.aim || {}).r || 9, chest: (L.aim || {}).chest || 10, ht: P.z, hp: L.hp, weak: L.weak, resist: L.resist, aim: true, solids: ids, wood: true, fall: L.fall || {}, creak: L.creak });
     }
     // the parapet: 2 px walls 4 px tall on the platform's edges (a wall to bodies on it, nothing to bodies below), with its gaps; thin,
     // since it is too low to stop a shot (a bow from the ground reaches the deck's archer over it)
@@ -603,6 +604,18 @@
   // body take it over. Stopping self-motion at a ledge leaves the impulse to its own share (a push judged by its own rule)
   function edge(W, b, e, x0, y0, self, out) {
     const q = segQ(e, b.x, b.y), dx = b.x - q[0], dy = b.y - q[1], d = Math.hypot(dx, dy), side = (b.x - e.ax) * e.nx + (b.y - e.ay) * e.ny, sd = q[2] > 0 && q[2] < 1 && side < 0 ? -d : d;
+    // (design pass 21) a ground body on a platform's side of its ground wall is pushed out only from inside the platform's footprint (and
+    // its radius): beyond it (south of the keep's steps, under the same 32 px cell as the landing's north wall) the wall is not its business
+    if (sd < 0 && e.owner === "ground" && e.plat) { const P = W.platBy[e.plat]; if (P && P.shape === "r" && !(b.x > P.x0 - b.r && b.x < P.x1 + b.r && b.y > P.y0 - b.r && b.y < P.y1 + b.r)) return false;
+      // and back out the way it came: a body that crossed this wall in this substep goes back through it; one already inside goes out
+      // through the nearest side that has a wall (a body squeezed a pixel into a gallery stair's south side was thrown out of its north
+      // side, into the wall behind it; a brute knocked into the keep landing's east side is nearest its open south side, onto the steps)
+      if (P && P.shape === "r" && sdist(e, x0, y0) < -1e-9) {
+        if (P._gwOf !== W.edges) { P._gwOf = W.edges; P._gw = { n: false, s: false, e: false, w: false }; for (const q of W.edges) if (q.owner === "ground" && q.plat === P.id && q.kind === "wall") P._gw[q.ny < -0.5 ? "n" : q.ny > 0.5 ? "s" : q.nx < -0.5 ? "w" : "e"] = true; }
+        const G = P._gw, to = { n: b.y - P.y0, s: P.y1 - b.y, w: b.x - P.x0, e: P.x1 - b.x }, mine = e.ny < -0.5 ? "n" : e.ny > 0.5 ? "s" : e.nx < -0.5 ? "w" : "e";
+        let near = Infinity; for (const k of ["n", "s", "w", "e"]) if (G[k]) near = Math.min(near, to[k]);
+        if (to[mine] > near + 1e-9) return false;
+      } }
     const hard = e.kind === "wall" || (e.deep && b.catches);
     let floor;
     if (hard) floor = b.r;

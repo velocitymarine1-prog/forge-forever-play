@@ -30,8 +30,9 @@ the sign, goes back to the anvil.
 **Try it in the cellar** on a new weapon's plaque, or from the menu. Walk a knight among the training dummies and swing, shoot,
 stream, lob, orbit, ward, trap and summon with anything you own. A legend strikes with its body's weapon and has one ability from
 its head's class (Volley, Quake, Whirlwind…) on the gold button above Strike, with a cooldown. Nothing bleeds, nothing is used up,
-and nothing pays. The rack on the wall holds every weapon you own. **The door on the cellar's left wall** ("← The Troll Gate": tap the
-prompt, press E, or walk into the wall) opens the gate plate: go alone, or bring one to three sword-brothers.
+and nothing pays. The rack on the wall holds every weapon you own. **The door on the cellar's left wall** ("← The castle": tap the
+prompt, press E, or walk into the wall) opens the castle plate: the Troll Gate and, once it is cleared, the Great Hall; go alone, or
+bring one to three sword-brothers.
 
 **The Troll Gate** (`battlegrounds.html?area=gate`), the first real Battleground. A dusk field two screens deep before a troll castle,
 played exactly like the cellar: five waves of trolls in five arenas among thorn-wire, stakes, trenches and troll outposts that send trolls
@@ -45,6 +46,13 @@ without a hit. Yellow arrows point at what to go to and use (the ram, the gate t
 fallen friend to lift), a yellow GO shows the way on between the waves, the plate in the top-right corner counts the trolls the wave
 still has, and whatever you hit shows its health over it.
 
+**The Great Hall** (`battlegrounds.html?area=hall`), the second level, past the gate: the castle's yard under falling snow, where
+troll knights who heard the war horn wait behind their shields with archers on the timber galleries and hay bales that burn; then the
+long hall inside the keep, and the great hall's feast, where the kennels burst open and rabid troll wolves leap the tables. Three
+rooms joined by doors (walk up to an open door and push up, or tap its prompt). A troll knight's shield stops blows from the front:
+go round it, or smash it with a hammer until it breaks. Wolves hit soft but fast, and leap. The cellar's door plate lists both levels
+(the Great Hall opens once the Troll Gate is cleared), the gate's tally has On to the Great Hall, and a clear pays 275 XP.
+
 Play: https://velocitymarine1-prog.github.io/forge-forever-play/
 
 Built for a phone held sideways, landscape only, and add it to the home screen: held upright, every page shows a turn plate, and
@@ -56,4 +64,4 @@ This is a **world of one**: the pairs the seed ledger knows reveal the Forge Ora
 every other pair is the offline Combiner's provisional draft. Your game is saved in this browser and online, on the forge's server,
 so it can go to another phone (Settings: Play on another phone, then Bring a game here on the other). The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `3fdbe8a`.
+`tools/deploy.sh` from commit `dfa35d1`.

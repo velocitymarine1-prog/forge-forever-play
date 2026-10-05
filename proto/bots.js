@@ -45,7 +45,8 @@
       climbs: false, ram: false, chest: false, camera: false, drops: false, pay: false },
     squire: { think: 0.1, react: [0.20, 0.35], dodgeMelee: 0.70, stepOffLine: 0.75, leaveRing: 0.90, leaveChunkShadow: 0.5, rollBurning: 0.60,
       clumsy: { dodgeMelee: 0.5, stepOffLine: 0.5 },
-      meleeAt: 0.9, bowKeep: [80, 140], thingsWhenClear: 80, climbs: false, ram: false, wakesPost: false, wanders: 0, chest: true },
+      meleeAt: 0.9, bowKeep: [80, 140], thingsWhenClear: 80, climbs: false, ram: false, wakesPost: false, wanders: 0, chest: true,
+      roundShield: 0.5, roundEvery: 3.0 },   // (design pass 21) a troll knight's shield up and facing it: half its approaches it goes round
     rng: { bots: "0x626f7473", squire: "0x73717569" }
   };
   const brothersSpec = () => Object.assign({}, DEFAULTS.brothers, data().brothers || {});
@@ -90,7 +91,9 @@
     // the gate has burst, so the exit zone takes the party in
     gateOpen(fight) { const L = fight.level || {}; if (L.gateOpen !== undefined) return !!L.gateOpen; const g = (fight.pieces || []).find(p => p.kind === "gate"); return !!(g && g.broken); },
     // the director's own goal for the squire, { x, y }, when it gives one
-    goal(fight) { const L = fight.level || {}; return L.goal || null; }
+    goal(fight) { const L = fight.level || {}; return L.goal || null; },
+    // (design pass 21) the passage open from the party's room, its spec, or null
+    passage(fight) { const L = fight.level || {}; return L.passage ? ((fight.area || {}).passages || []).find(q => q.id === L.passage) || null : null; }
   };
 
   // ------------------------------------------------------------------ what a bot sees
@@ -99,6 +102,9 @@
   const foes = fight => (fight.foes || []).filter(alive);
   const inView = (fight, b) => combat().inView(fight, b);
   const up = b => (b.z || 0) > 12;   // on the roof, the tower deck, a breach or up the stair: above the ground by more than a step (the drawbridge deck is at the ground's height: a knight on it is followed, not guarded from the chapel stair's foot)
+  // (design pass 21) a troll on a surface the level's bots climb to (spec bots.climbTo: the Great Hall's gallery and the keep's balcony,
+  // stairs at both ends): a knight with no bow goes up after it, as a player does; the Troll Gate lists none, so its squire never climbs
+  const climbsTo = (fight, f) => !!(f && f.on && (((fight.area || {}).bots || {}).climbTo || []).includes(f.on));
   const targetOf = f => f.brain ? f.brain.target : f.act ? f.act.seat : null;   // the seat a troll is on
   const isBrute = f => !!f.spec && f.spec.tokens === false;
   const isRanged = f => !!(f.spec && f.spec.keep);
@@ -121,7 +127,21 @@
   // a clear straight way for the knight's body along (ux, uy) for len px: no solid at its height, no deep hole
   function wayClear(fight, k, ux, uy, len) {
     const P = phys(), W = fight.world, probe = { x: k.x, y: k.y, z: k.z || 0, r: k.r, h: k.h || 24, on: k.on || null, knight: true };
-    for (let t = 4; t <= len; t += 4) { probe.x = k.x + ux * t; probe.y = k.y + uy * t; if (P.caught(W, probe, probe.x, probe.y) || (!k.on && P.groundAt(W, probe.x, probe.y).deep)) return false; }
+    // (design pass 21) in a level whose bots see raised surfaces as walls (spec bots.walls: the Great Hall, where a gallery landing's
+    // side stands between the ground under the deck and a troll at its stair's foot), the way follows the height it would walk at: onto
+    // any surface within a step of it (up a stair from its foot, a landing from the stair's head), under a deck, and never into the side
+    // of a surface solid underneath more than a step above it
+    const walls = ((fight.area || {}).bots || {}).walls, step = (W.N && W.N.stepUp) || 6;
+    let h = k.z || 0;
+    for (let t = 4; t <= len; t += 4) {
+      probe.x = k.x + ux * t; probe.y = k.y + uy * t;
+      if (P.caught(W, probe, probe.x, probe.y) || (!k.on && P.groundAt(W, probe.x, probe.y).deep)) return false;
+      if (walls) {
+        let next = 0;
+        for (const Q of W.plats) { if (!P.inPlat(Q, probe.x, probe.y)) continue; const z = P.platZ(Q, probe.x, probe.y); if (z <= h + step + 1e-9) next = Math.max(next, z); else if (Q.solidUnder) return false; }
+        h = next;
+      }
+    }
     return true;
   }
   // the next point on the way to a target { x, y, r?, id?, on?, z?, knight? }: straight when within 64 px and clear; else down the knight
@@ -141,7 +161,17 @@
     if (!p || p.set !== set) p = bot.path = { set, F: P.field(set, "knight"), key: null, t: 1e9 };
     if (p.key !== key || p.t >= every - 1e-9 || p.F.ver !== set.ver) { P.fieldBuild(set, p.F, P.fieldSeeds(set, "knight", { x: tgt.x, y: tgt.y, z: tgt.z || 0, on: tgt.on || null, climbing: null })); p.key = key; p.t = 0; }
     if (k.x < set.box.x0 - 8 || k.x > set.box.x1 + 8 || k.y < set.box.y0 - 8 || k.y > set.box.y1 + 8) return null;
-    const n0 = P.nodeOf(set, k), nx = P.fieldNext(set, p.F, n0);
+    let n0 = P.nodeOf(set, k);
+    // (design pass 21, in a level whose bots cross layers with care: spec bots.layers, the Great Hall) a knight at a stair's edge whose node
+    // lies past the stair's rect (its grid's last row reaches 2 px beyond the keep steps' foot): the class cannot stand on that node, so it
+    // goes from the ground's node under it, within a step of its height
+    const layers = !!((fight.area || {}).bots || {}).layers;
+    if (layers && k.on && !set.cls.knight.ok[n0]) { const g0 = P.nodeOf(set, { x: k.x, y: k.y, on: null }); if (set.cls.knight.ok[g0] && Math.abs(set.z[g0] - (k.z || 0)) <= 6) n0 = g0; }
+    let nx = P.fieldNext(set, p.F, n0);
+    // (design pass 21) a walk link to another layer's node a step or two away (the dais steps' grid over the ground's, offset 2 px): the
+    // knight is already there, so the way on is that node's next; where the field ends there (its seed, the nearest node to a surface too
+    // narrow for nodes of its own: the keep door's landing), the rest is the straight way to the target
+    if (nx && nx.kind === "walk" && set.lay[nx.n] !== set.lay[n0] && dist(k.x, k.y, set.x[nx.n], set.y[nx.n]) < (layers ? 6 : 3)) { const n2 = P.fieldNext(set, p.F, nx.n); if (n2) nx = n2; else return null; }
     if (nx) { const [x, y] = P.nodeAt(set, nx.n); return { x, y, kind: nx.kind }; }
     // nothing leads on from here: at the seed itself (a target outside the set's box) the straight way; from a node the class cannot stand
     // on (the knight wedged against a boulder's footprint, where the field has no value) the nearest reached node
@@ -171,7 +201,8 @@
   function footOf(fight, p) {
     const W = fight.world, A = fight.area || {};
     for (const L of W.ladders || []) if (L.deck === p.on) return [L.foot[0] - L.into[0] * 14, L.foot[1] - L.into[1] * 14];
-    const S = (A.surfaces || []).find(s => s.kind === "stair");
+    const stairs = (A.surfaces || []).filter(s => s.kind === "stair"), cx = s => (s.rect[0] + s.rect[2]) / 2, cy = s => (s.rect[1] + s.rect[3]) / 2;
+    const S = stairs.length > 1 ? stairs.slice().sort((a, b) => dist(cx(a), cy(a), p.x, p.y) - dist(cx(b), cy(b), p.x, p.y))[0] : stairs[0];   // (design pass 21) the stair nearest the player
     if (!S) return null;
     const r = S.rect, y = S.pathRow !== undefined ? S.pathRow : (r[1] + r[3]) / 2;
     return S.rise === "e" ? [r[0] - 12, y] : S.rise === "w" ? [r[2] + 12, y] : S.rise === "n" ? [(r[0] + r[2]) / 2, r[3] + 12] : [(r[0] + r[2]) / 2, r[1] - 12];
@@ -274,6 +305,12 @@
     const N = bot.N, want = swapTo === undefined ? wantHand(bot, k, f) : swapTo;
     if (want !== k.active && k.hands.length > 1 && k.swapT <= 0 && bot.swapT <= 0) { out.swap = true; bot.swapT = 0.5; return; }
     const u = k.hands[k.active].u, dd = dist(k.x, k.y, f.x, f.y), face = () => { out.move = toward(k, f.x, f.y, 0.06); out.strike = true; };
+    if (u.melee && f.spec && f.spec.guard && bot.R && guardFacing(fight, f, k)) {   // (design pass 21) the shield up and facing it: on half its approaches it walks round to the side first
+      const F = bot.flank || (bot.flank = {}), c = F[f.id];
+      if (!c || fight.t >= c.until) F[f.id] = { side: bot.R() < (N.roundShield === undefined ? 0.5 : N.roundShield) ? (bot.R() < 0.5 ? 1 : -1) : 0, until: fight.t + (N.roundEvery || 3.0) };
+      const side = F[f.id].side;
+      if (side) { const a = f.face + side * 1.9, tx = f.x + Math.cos(a) * 20, ty = f.y + Math.sin(a) * 20; if (dist(k.x, k.y, tx, ty) > 6) { const s = stepToward(fight, bot, k, { x: tx, y: ty }); out.move = toward(k, s.x, s.y, 1); return; } }
+    }
     if (u.melee) {
       const reach = combat().reachOf(u) * (N.meleeAt || 0.9) + (f.r || 0);
       if (dd > reach || Math.abs((k.z || 0) - (f.z || 0)) > 12) { const s = stepToward(fight, bot, k, f); out.move = toward(k, s.x, s.y, 1); }
@@ -285,6 +322,13 @@
       else if (dd < lo && !up(f) && !f.piece) out.move = toward(k, f.x, f.y, -1);
       else face();
     }
+  }
+  // a troll knight's shield up and facing a knight (within its 120 degrees)
+  function guardFacing(fight, f, k) {
+    const G = f.spec.guard, up = !(f.stagger > 0) && !(f.reelUntil > fight.t) && !(f.guard && f.guard.upAt > fight.t) && !(f.act && (f.act.phase === "wind" || f.act.phase === "strike"));
+    if (!up) return false;
+    let d = Math.atan2(k.y - f.y, k.x - f.x) - f.face; d = ((d + 3 * PI) % (2 * PI)) - PI;
+    return Math.abs(d) <= ((G.arc || 120) / 2) * PI / 180;
   }
   // the follow (section 3.10): 48 to 96 px from the player's knight; when it is up, the foot of its ladder or stair, 12 to 32 px off
   // a knight pressed against something it did not mean to stand at (a clod the fields leave out, a rock's edge, the chest on the deck, two
@@ -429,9 +473,10 @@
   // of the next arena (the view's centre over it, or the bank past the horn line in the last), where the waves start; it never wanders
   function plan(fight, k) {
     const A = fight.area || {};
+    const P = ADAPT.passage(fight); if (P) { const zx = (P.zone.x[0] + P.zone.x[1]) / 2, zy = Math.max((P.zone.y[0] + P.zone.y[1]) / 2, P.zone.y[1] + 2); return { x: zx, y: zy, on: P.on || null, pass: P.id }; }   // (its zone's foot: the wall stands behind it)   // (design pass 21) through the open door into the next room
     const g = ADAPT.goal(fight); if (g) return g;
-    const ch = ADAPT.chest(fight); if (ch) return { x: ch.x, y: ch.y, r: ch.r || 6, use: true };
-    if (ADAPT.gateOpen(fight)) { const Z = (A.zones || {}).exit; if (Z && Z.u) { const u = (Z.u[0] + Z.u[1]) / 2, v = (Z.v[0] + Z.v[1]) / 2; return { x: (u + v) / 2, y: (v - u) / 2, exit: true }; } }
+    const ch = ADAPT.chest(fight); if (ch) { if (!ch.on) return { x: ch.x, y: ch.y, r: ch.r || 6, use: true }; const b = besideChest(fight, k, ch); return { x: b[0], y: b[1], r: 2, on: ch.on, use: true, chest: ch }; }   // (design pass 21) a chest on a surface: a free spot beside it
+    if (ADAPT.gateOpen(fight)) { const Z = (A.zones || {}).exit; if (Z && Z.u) { const u = (Z.u[0] + Z.u[1]) / 2, v = (Z.v[0] + Z.v[1]) / 2; return { x: (u + v) / 2, y: (v - u) / 2, exit: true }; } if (Z && Z.rect) return { x: (Z.rect[0] + Z.rect[2]) / 2, y: (Z.rect[1] + Z.rect[3]) / 2, exit: true }; }
     const marks = ADAPT.edgeMarks(fight).filter(m => m && m.x !== undefined && m.y !== undefined);
     if (marks.length) {
       // a mark at the view's edge means a troll beyond it: the squire walks past the mark, 64 px on in the mark's direction (its `dir`, eighths
@@ -448,10 +493,16 @@
     for (const a of A.arenas || []) { const x = a.hornLine ? Math.max(a.rally, a.hornLine + 30) : a.x0 + 192; if (x > k.x + 8) return { x, y: (a.rallyY || [200])[0] }; }
     return null;
   }
+  // a free spot 14 px from a chest on a surface (the hall's dais), the side toward the knight first
+  function besideChest(fight, k, ch) {
+    const P = phys(), W = fight.world, a0 = Math.atan2(k.y - ch.y, k.x - ch.x), R = (ch.r || 6) + (k.r || 6) + 1;
+    for (const da of [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI]) { const a = a0 + da, x = ch.x + Math.cos(a) * R, y = ch.y + Math.sin(a) * R; if (!P.caught(W, { x, y, z: ch.z || 0, r: k.r || 6, h: k.h || 24, on: ch.on, knight: true })) return [x, y]; }
+    return [ch.x, ch.y + R];
+  }
   // the squire decides every 0.1 s: the nearest troll in the view it can fight (any with a bow; one on the ground within 12 px of its
   // height without); with no troll within 80 px, the nearest standing thing (the watchtower too when it has no bow); else its plan
   function squireDecide(fight, bot, k) {
-    const N = bot.N, bow = hasBow(k), can = f => bow || (!up(f) && Math.abs((k.z || 0) - (f.z || 0)) <= 12), FO = foes(fight).filter(f => inView(fight, f) && can(f));
+    const N = bot.N, bow = hasBow(k), can = f => bow || (!up(f) && Math.abs((k.z || 0) - (f.z || 0)) <= 12) || climbsTo(fight, f), FO = foes(fight).filter(f => inView(fight, f) && can(f));
     // its target is kept while it holds (a troll stepping a pixel out of the view, a hut at the view's edge, would otherwise flip it every think)
     const cur = bot.mode === "fight" ? (fight.foes || []).find(q => q.id === bot.tid) : null, curThing = bot.mode === "thing" ? bot.tid : null;
     if (cur && alive(cur) && can(cur) && inViewPad(fight, cur, 32)) { const near = FO.length ? nearestOf(FO, k.x, k.y) : null; if (!near || near === cur || dist(near.x, near.y, k.x, k.y) + 24 >= dist(cur.x, cur.y, k.x, k.y)) return; }
@@ -474,6 +525,16 @@
     const g = bot.goal;
     if (!g) return out;
     const dd = dist(k.x, k.y, g.x, g.y);
+    if (g.pass) {   // (design pass 21) a passage: walked to by the field; in its zone the stick held toward the door and the pass sent (the page's fade is the page's)
+      const P = ((fight.area || {}).passages || []).find(q => q.id === g.pass);
+      if (P && k.x >= P.zone.x[0] && k.x <= P.zone.x[1] && k.y >= P.zone.y[0] - 6 && k.y <= P.zone.y[1] + 6) { out.move = [0, -0.7]; out.pass = g.pass; bot.press = fight.t; return out; }
+      const s = stepToward(fight, bot, k, { x: g.x, y: g.y, on: g.on || null }); out.move = toward(k, s.x, s.y, 1); return out;
+    }
+    if (g.exit && !(((fight.area || {}).zones || {}).exit || {}).u) {   // a level's exit by x and y (the hall's lord's door): walk in and push on
+      if (inExitZone(fight, k)) { out.move = [1, 0]; bot.press = fight.t; }
+      else { const s = stepToward(fight, bot, k, g); out.move = toward(k, s.x, s.y, 1); }
+      return out;
+    }
     if (g.exit) {
       // to the zone: by its field until it stands on the deck, then straight along the deck in the lane beside the chest on its own side (the
       // chest stands on the centre line at the zone's mouth, and the 8 px grid has no sure way past it); in the zone the stick is held toward
@@ -484,8 +545,9 @@
       else { const s = stepToward(fight, bot, k, g); out.move = toward(k, s.x, s.y, 1); }
       return out;
     }
-    if (g.use && dd <= (g.r || 6) + 10) { out.use = true; return out; }   // the chest: a tap on the prompt or E, for the director
-    if (dd > 4) { const s = stepToward(fight, bot, k, g); out.move = toward(k, s.x, s.y, 1); }
+    if (g.use && (g.chest ? dist(k.x, k.y, g.chest.x, g.chest.y) <= (g.chest.r || 6) + 10 : dd <= (g.r || 6) + 10)) { out.use = true; return out; }   // the chest: a tap on the prompt or E, for the director
+    if (g.chest && dd <= 4) { out.move = toward(k, g.chest.x, g.chest.y, 1); return out; }   // (design pass 21) beside a chest on a surface and not yet in reach: lean in
+    if (dd > 4) { const s = stepToward(fight, bot, k, g.on ? { x: g.x, y: g.y, on: g.on, z: (g.chest && g.chest.z) || 0 } : g); out.move = toward(k, s.x, s.y, 1); }
     return out;
   }
   // the point of the exit zone to walk to along the deck: the zone's u, and a v in the lane beside the chest (12 to 18 px from it, so 15:
@@ -498,7 +560,7 @@
     const a = lane(mine), b = lane(-mine), v = a.squeeze <= 4 || a.squeeze <= b.squeeze ? a.v : b.v;
     return { x: (u + v) / 2, y: (v - u) / 2 };
   }
-  function inExitZone(fight, k) { const Z = ((fight.area || {}).zones || {}).exit; if (!Z || !Z.u) return false; const u = k.x - k.y, v = k.x + k.y; return u >= Z.u[0] && u <= Z.u[1] && v >= Z.v[0] && v <= Z.v[1]; }
+  function inExitZone(fight, k) { const Z = ((fight.area || {}).zones || {}).exit; if (Z && Z.rect) return k.x >= Z.rect[0] - 1 && k.x <= Z.rect[2] + 1 && k.y >= Z.rect[1] && k.y <= Z.rect[3]; if (!Z || !Z.u) return false; const u = k.x - k.y, v = k.x + k.y; return u >= Z.u[0] && u <= Z.u[1] && v >= Z.v[0] && v <= Z.v[1]; }
   const inViewPad = (fight, b, pad) => { const v = fight.view; if (!v) return true; const fy = b.y - (b.z || 0); return b.x >= v.x0 - pad && b.x <= v.x1 + pad && fy >= v.y0 - pad && fy <= v.y1 + pad; };
   function squire(fight, opts) {
     opts = opts || {};
@@ -507,6 +569,7 @@
     const S = squireSpec(), N = Object.assign({}, S, opts.clumsy ? S.clumsy : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;
     const bot = newBot(0, N, "squire");
     const Q = { N, bot, seed, rng: rng((seed ^ seedConst("squire")) >>> 0), step(dt) { return squireInput(fight, Q, bot, dt); } };
+    bot.R = Q.rng;
     return Q;
   }
   // the sim's driver: the squire at seat 0 and the party at the rest, one keyed input a step

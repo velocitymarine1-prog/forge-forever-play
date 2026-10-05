@@ -12,7 +12,8 @@
 //
 // The game keeps using localStorage as it does. This module copies the player's own records to the server and back, as one bundle:
 //   { v: 2, at, smith: { id, name, joined }, forge: <forge-forever:local:<id>>, lessons: <forge-forever:lessons:<id>>,
-//     marks: { cellarSeen, gateSeen, gateFirsts } }   or the erase marker { v: 2, erased: true, at }
+//     marks: { cellarSeen, gateSeen, gateFirsts, hallSeen } }   or the erase marker { v: 2, erased: true, at }
+// (hallSeen, the Great Hall's first visit since design pass 21, rides only once it is set, so a bundle from before it is the same bundle)
 // gzipped where the browser can (CompressionStream), plain JSON where it can't. The phone's bookkeeping is forge-forever:cloud =
 // { id, rev, dirty, registered, erase }: the player it belongs to, the version both sides last agreed on, unsent changes, whether
 // this player was ever online from here, an erase still to send.
@@ -37,7 +38,7 @@
   // cross: the server is on another site (the GitHub Pages copy): no cookie, the token alone, and no keepalive send as a page closes
   let cross = false; try { cross = /^https?:\/\//i.test(API) && new URL(API).origin !== root.location.origin; } catch (e) { cross = false; }
   const K = { smith: "forge-forever:smith", local: "forge-forever:local:", lessons: "forge-forever:lessons:", sync: "forge-forever:cloud", device: "forge-forever:device",
-    note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts" };
+    note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts", hallSeen: "forge-forever:hall-seen" };
   const WAIT = 4000, DEBOUNCE = 2000, GAP = 5000, RETRY = 30000, KEEPALIVE_MAX = 60000, AWAY = 60000;
   const DEV = "isaac";   // the bench's dev smith (proto/smith.js): never sent online
   // the Battlegrounds page shows none of the save (it plays what the Forge handed down), so it is never reloaded for the cloud: a run
@@ -88,7 +89,7 @@
     if (!r || r.id !== id) return null;
     return { v: 2, at: nowIso(), by: on ? deviceId() : null, smith: { id: r.id, name: r.name, joined: r.joined || null },
       forge: parse(get(K.local + id)), lessons: parse(get(K.lessons + id)),
-      marks: { cellarSeen: get(K.cellarSeen), gateSeen: get(K.gateSeen), gateFirsts: parse(get(K.gateFirsts)) } };
+      marks: Object.assign({ cellarSeen: get(K.cellarSeen), gateSeen: get(K.gateSeen), gateFirsts: parse(get(K.gateFirsts)) }, get(K.hallSeen) !== null ? { hallSeen: get(K.hallSeen) } : {}) };
   }
   const same = (a, b) => !!a && !!b && JSON.stringify([a.smith, a.forge, a.lessons, a.marks]) === JSON.stringify([b.smith, b.forge, b.lessons, b.marks]);
   // apply(bundle, smith): the bundle's records become this phone's (another player's records already here stay where they are)
@@ -102,7 +103,7 @@
     const put = (k, v) => (v === null || v === undefined ? del(k) : set(k, typeof v === "string" ? v : JSON.stringify(v)));
     put(K.local + id, b.forge); put(K.lessons + id, b.lessons);
     const m = b.marks || {};
-    put(K.cellarSeen, m.cellarSeen); put(K.gateSeen, m.gateSeen); put(K.gateFirsts, m.gateFirsts);
+    put(K.cellarSeen, m.cellarSeen); put(K.gateSeen, m.gateSeen); put(K.gateFirsts, m.gateFirsts); put(K.hallSeen, m.hallSeen);
     return "applied";
   }
   // wipeLocal(): what Erase my smithy wipes on this phone (settings.js's own list), without telling the server

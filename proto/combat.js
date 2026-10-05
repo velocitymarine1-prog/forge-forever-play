@@ -954,6 +954,7 @@
           emit(fight, { type: "fx", kind: "star", x: p.x, y: p.y, el: p.el, mat: p.mat }, k);
         } else {
           p.done = true; p.stop = stop.solid ? stop.solid.kind : "ground"; emit(fight, { type: "fx", kind: "star", x: p.x, y: p.y, el: p.el, mat: p.mat }, k);
+          if (fight.marks && p.el === "fire" && stop.solid && stop.solid.piece && hayOf(fight, stop.solid.piece)) lightHay(fight, stop.solid.piece);   // (design pass 21) a fire arrow lights a bale
           if (fight.marks && p.kind === "arrow") { const pc = stop.solid && stop.solid.piece && !stop.solid.piece.gone ? stop.solid.piece : null; stuck(fight, stop.solid ? ox : p.lx, stop.solid ? oy : p.ly, pc ? p.lz : (stop.surface || 0), stop.plat ? stop.plat.id : null, pc, "arrow"); }   // a knight's arrow sticks where it stops (section 3.6a)
         }
         continue;
@@ -1250,11 +1251,16 @@
     }
     // in a level the wall is any solid: the troll's circle swept along the push for push / mass px meets one (section 3.2a)
     else if (d.foe && u.mods.has("bounce") && direct && o.form !== "shoot" && o.form !== "lob" && push > 0 && !d.st.freeze && !d.st.stun && sweeps(fight, d, ang, push / phys().massOf(d))) { dmg *= M.bounce.wall; if (!tag) tag = "WALL"; }
+    // (design pass 21) the troll knight's shield: a blow from the arc in front is blocked: 15 % of it lands (a smash 50 %), a third of
+    // its push, no status; the meter fills toward the guard's break
+    const blockX = d.foe && d.spec && d.spec.guard && flat === undefined ? guardBlock(fight, d, o, dmg, o.form === "smash" || o.melee ? Math.atan2(d.y - k.y, d.x - k.x) : ang) : null;   // a melee blow (a smash's burst too) comes from its knight
+    if (blockX !== null) { dmg *= blockX; push *= (d.spec.guard.push === undefined ? 0.33 : d.spec.guard.push); tag = "BLOCK"; }
     const at = d.foe || d.piece ? drawnAt(d) : hp;
     const XF = u.isFinisher && direct && o.melee ? C.combos.finisher : FEEL;   // (design pass 20) a finisher holds the screen longer
     const e = emit(fight, { type: "hit", d: d.i, dummy: d.kind, amount: dmg, tag, crit, form: o.form, element: u.element, kind: o.kind, why: o.why || null, x: at[0], y: at[1], melee: !!o.melee,
       hold: direct && o.melee ? (crit ? XF.holdCrit : XF.hold) : 0, sum: !!o.sum }, k);
     if (o.move && direct) { e.move = o.move; if (u.isFinisher) e.fin = true; }
+    if (blockX !== null) { e.blocked = true; emit(fight, { type: "foeBlock", foe: d.id, x: at[0], y: at[1], amount: dmg, dent: guardOf(d).dent }, k); }
     log(fight, d, dmg);
     // a level: a piece takes its hit points and nothing else (statuses do not act on it); a troll takes its hit points, then the rest
     if (d.piece) { if (direct) d.flash = FEEL.flash; damage(fight, d, dmg, null, foot, k); return e; }
@@ -1275,9 +1281,9 @@
     else if (d.arm) { if (direct) d.arm.w += (Q.perDamage * dmg + Q.perPush * push) * (Math.sin(angDiff(ang, d.arm.a)) >= 0 ? 1 : -1); }
     else d.wv += (Math.sign(Math.cos(ang) || 1) * (W.kick + push * W.perPush) - Math.sign(to[0] - d.x) * pull * W.perPush) * W.gain * share;
     if (direct && d.puff) emit(fight, { type: "fx", kind: d.puff, x: d.puff === "sparks" ? hp[0] - Math.cos(seen) * 4 : hp[0], y: hp[1], seed: fight.steps + d.i }, k);
-    // statuses
+    // statuses (none through a troll knight's shield)
     const strength = o.kind === "tick" ? dmg / share : dmg;
-    for (const s of u.statuses) { if (d.immune.includes(s)) { emit(fight, { type: "immune", d: d.i, status: s, x: hp[0], y: hp[1] }, k); continue; } applyStatus(fight, d, s, strength, u, o); }
+    if (blockX === null) for (const s of u.statuses) { if (d.immune.includes(s)) { emit(fight, { type: "immune", d: d.i, status: s, x: hp[0], y: hp[1] }, k); continue; } applyStatus(fight, d, s, strength, u, o); }
     if (u.mods.has("sticky")) d.st.sticky = { t: M.sticky.time };   // hits slow the target 40 % for 1 s
     if (u.mods.has("vampiric")) { const v = dmg * mo(u, "vampiric").heal; emit(fight, { type: "heal", amount: v, why: "vampiric", x: k.x, y: k.y }, k); healKnight(fight, k, v); }
     if (fight.marks && d.foe && direct) {   // a level's marks (section 3.6a): a water hit leaves a puddle r 6 at the troll's feet (at most one a knight a second); a lightning hit scorch r 3
@@ -1779,7 +1785,7 @@
     if (p.kind === "hut" || p.kind === "tent") { const R = K.hutRuin || {}; p.ruin = P.addSolid(W, { kind: "hutRuin", shape: "c", x: p.x, y: p.y, r: R.r || 10, ht: R.ht || 8 }).id; }
     emit(fight, { type: "wreck", piece: p.i, kind: p.kind, x: p.x, y: p.y });
     if (p.kind === "clod" && p.mark) { const m = p.mark; p.mark = null; endMark(fight, m, m.crumble ? "crumbled" : "broken"); }   // a broken clod leaves loose dirt
-    else if (p.byFire && p.wood && fight.marks) { const HB = ((fight.area || {}).huts || {}).burning, B = p.kind === "hut" ? (HB || { r: 14, life: 3.0 }) : { r: 12, life: 3.0 }; p.burning = null; fire(fight, p.x, p.y, B.r || 12, B.life || 3.0, "world", { z: p.z, on: p.on }); }   // a wooden piece wrecked by fire burns (section 3.6a: a burning hut's collapse r 14, any other wooden piece r 12)
+    else if (p.byFire && p.wood && fight.marks && !p.hayDone) { const HB = ((fight.area || {}).huts || {}).burning, B = p.kind === "hut" ? (HB || { r: 14, life: 3.0 }) : { r: 12, life: 3.0 }; p.burning = null; fire(fight, p.x, p.y, B.r || 12, B.life || 3.0, "world", { z: p.z, on: p.on }); }   // a wooden piece wrecked by fire burns (section 3.6a: a burning hut's collapse r 14, any other wooden piece r 12)
   }
   // the archer tower felled (section 3.2b): it falls away from the felling blow (to the east when the blow came from under it), and every
   // body on its deck and its ladder falls with it and lands by the "structure" row; the poles lie flat as ground cover along the fall
@@ -1928,7 +1934,7 @@
     if (isArrow) stuck(fight, x, y, piece ? p.fz : sf.z, sf.on, piece, p.kind);
     if (!miss) return;
     if (miss.patch === "fire") {
-      if (piece) { if (piece.wood) { piece.byFire = true; const mult = affinity(piece, null, "fire", { mods: NOMODS }), dmg = (p.o.woodDamage || 10) * mult; emit(fight, { type: "hit", d: piece.i, dummy: piece.kind, amount: dmg, tag: mult > 1.01 ? "WEAK" : null, crit: false, form: null, element: "fire", kind: "world", why: "bolt", x: piece.x, y: piece.y - (piece.z || 0) - (piece.chest || 0), melee: false, hold: 0, sum: false }); damage(fight, piece, dmg, "fire", [x, y], null, "world"); if (!piece.gone) piece.burning = { t: 3.0 }; } }
+      if (piece) { if (piece.wood) { piece.byFire = true; const mult = affinity(piece, null, "fire", { mods: NOMODS }), dmg = (p.o.woodDamage || 10) * mult; emit(fight, { type: "hit", d: piece.i, dummy: piece.kind, amount: dmg, tag: mult > 1.01 ? "WEAK" : null, crit: false, form: null, element: "fire", kind: "world", why: "bolt", x: piece.x, y: piece.y - (piece.z || 0) - (piece.chest || 0), melee: false, hold: 0, sum: false }); damage(fight, piece, dmg, "fire", [x, y], null, "world"); if (!piece.gone) { if (hayOf(fight, piece)) lightHay(fight, piece); else piece.burning = { t: 3.0 }; } } }
       else if (solid && !solid.charred && ((data().wood || {}).charsOnly || ["cart", "palisade", "burntTent", "ram"]).includes(solid.kind)) { solid.charred = true; emit(fight, { type: "char", solid: solid.id, kind: solid.kind, x, y }); }
       for (const ic of M.ice.slice()) if (inMark(ic, { x, y, on: sf.on })) { melt(fight, ic, "fire"); emit(fight, { type: "fizzle", x, y, r: miss.r || 10 }); return; }
       for (const pd of M.puddle) if (inMark(pd, { x, y, on: sf.on })) { emit(fight, { type: "fizzle", x, y, r: miss.r || 10 }); return; }
@@ -2090,10 +2096,16 @@
     const P = phys(), W = fight.world, CS = MK().crater || {}, merge = CS.merge === undefined ? 10 : CS.merge, cap = (data().caps || {}).craters || 24; o = o || {};
     for (const Q of W.plats) if (Q.active && P.inShape(Q, x, y)) return null;
     r = Math.max(r, CS.minR || 8);
+    // (design pass 21) a level that keeps its bowls off its surfaces (spec craterClear, px: the Great Hall, whose stairs and landings rise
+    // from the yard's floor): no bowl reaches within that of a surface solid underneath, so a knight is never left in a pit deeper than a
+    // step at a stair's foot
+    const clear = (fight.area || {}).craterClear, reaches = (cx, cy, cr) => clear !== undefined && W.plats.some(Q => Q.active && Q.solidUnder && Q.shape === "r" && Math.hypot(Math.max(Q.x0 - cx, 0, cx - Q.x1), Math.max(Q.y0 - cy, 0, cy - Q.y1)) < cr + clear);
+    if (reaches(x, y, r)) return null;
     const near = M.crater.find(c => Math.hypot(c.x - x, c.y - y) <= merge + 1e-9);
     let c;
     if (near) {
       const nr = Math.max(near.r, r + Math.hypot(near.x - x, near.y - y)), nd = Math.max(near.hole.depth, depth);
+      if (reaches(near.x, near.y, nr)) return null;
       P.resizeCrater(W, near.hole, nr, nd); near.r = nr; c = near;
       groundSet(fight, "crater", c.x, c.y, c.r);
       emit(fight, { type: "mark", kind: "crater", id: c.id, x: c.x, y: c.y, z: 0, r: c.r, side: c.side, merged: true });
@@ -2212,8 +2224,32 @@
   }
   // the bodies that burn, and whose fire it is: a troll a knight's weapon set burning carries knight fire; everything else world fire
   const burnSide = b => b.knight ? "world" : b.st && b.st.burn && b.st.burn.by ? "knight" : "world";
-  // a breakable wooden piece in fire: 6 a second (x 1.5, weak to fire); wrecked by fire it burns as a fire patch r 12 for 3.0 s
+  // ---- hay (design pass 21 section 3.4): a bale (a wooden piece whose kind has burns, the Great Hall's hay) is set alight by a fire hit (a
+  // bolt bursting on it, a fire arrow stopping in it), a fire patch touching it, or a bale burning within spread.r for spread.after s; it
+  // burns life s as a fire patch r patch.r on the world's side, its solid burning what is pushed into it (burnBase, as a cookfire), then
+  // collapses into flat ash (a cover; the fire's end scorches the ground). A wipe puts out a bale still alight: it stands again
+  const hayOf = (fight, p) => { const K = ((fight.area || {}).propKinds || {})[p.kind]; return K && K.burns && K.burns.life ? K.burns : null; };
+  const pieceGap = (W, a, b) => { const s = W.solids[a.solids[0]], t = W.solids[b.solids[0]]; if (!s || !t || s.shape !== "r" || t.shape !== "r") return Math.hypot(a.x - b.x, a.y - b.y) - (a.r || 0) - (b.r || 0); return Math.hypot(Math.max(0, t.x0 - s.x1, s.x0 - t.x1), Math.max(0, t.y0 - s.y1, s.y0 - t.y1)); };
+  function lightHay(fight, p) {
+    const B = hayOf(fight, p), W = fight.world; if (!B || !fight.marks || p.gone || !p.active || p.hayLit) return false;
+    p.hayLit = { at: fight.t, contact: p.solids.map(id => [W.solids[id].contact, W.solids[id].burnBase]) }; p.burning = { t: B.life, hay: true }; p.byFire = true;
+    for (const id of p.solids) { const sd = W.solids[id]; sd.contact = B.contact || "fire"; sd.burnBase = B.burnBase; }
+    fire(fight, p.x, p.y, (B.patch || {}).r || 10, B.life, "world", { z: p.z, on: p.on });
+    emit(fight, { type: "hayLit", piece: p.i, x: p.x, y: p.y });
+    const SP = B.spread || {};
+    fight.marks.pending.push({ at: fight.t + (SP.after === undefined ? 1.0 : SP.after), hay: p, fire: () => { if (!p.hayLit || p.gone) return; for (const q of fight.pieces) if (q !== p && !q.hayLit && !q.gone && hayOf(fight, q) && pieceGap(W, p, q) <= (SP.r || 12) + 1e-9) lightHay(fight, q); } });
+    fight.marks.pending.push({ at: fight.t + B.life, hay: p, fire: () => {
+      if (!p.hayLit || p.gone) return;
+      const rects = p.solids.map(id => W.solids[id]).filter(sd => sd && sd.shape === "r").map(sd => [sd.x0, sd.y0, sd.x1, sd.y1]);
+      p.burning = null; p.hayDone = true; p.hp = 0; breakPiece(fight, p, null, null);
+      for (const r of rects) phys().addCover(W, { kind: B.leaves || "hayAsh", shape: "r", x0: r[0], y0: r[1], x1: r[2], y1: r[3], on: p.on || null });
+    } });
+    return true;
+  }
+  // a breakable wooden piece in fire: 6 a second (x 1.5, weak to fire); wrecked by fire it burns as a fire patch r 12 for 3.0 s (a bale of
+  // hay is lit instead)
   function scorchPiece(fight, p, amount) {
+    if (hayOf(fight, p)) { lightHay(fight, p); return; }
     const mult = affinity(p, null, "fire", { mods: NOMODS });
     if (mult === 0) return;
     p.byFire = true;
@@ -2316,7 +2352,7 @@
     for (const m of M.stone.slice()) { m.t += dt; if (m.t >= m.life - 1e-9) stoneLand(fight, m); }
     for (const m of M.ember.slice()) { m.t += dt; if (m.t >= m.life - 1e-9) endMark(fight, m, "time"); }
     // a wooden piece that caught (a bolt burst on it) burns at the fire patch's rate for 3.0 s
-    for (const p of fight.pieces) { const B = p.burning; if (!B || p.gone || !p.active) { if (B) p.burning = null; continue; } B.t -= dt; B.tick = (B.tick || 0) + dt; if (B.tick >= S.tick - 1e-9) { B.tick -= S.tick; scorchPiece(fight, p, ((MS.fire || {}).woodPerSecond || 6) * S.tick); } if (p.burning && B.t <= 1e-9) p.burning = null; }
+    for (const p of fight.pieces) { const B = p.burning; if (B && B.hay && !p.gone) continue; if (!B || p.gone || !p.active) { if (B) p.burning = null; continue; } B.t -= dt; B.tick = (B.tick || 0) + dt; if (B.tick >= S.tick - 1e-9) { B.tick -= S.tick; scorchPiece(fight, p, ((MS.fire || {}).woodPerSecond || 6) * S.tick); } if (p.burning && B.t <= 1e-9) p.burning = null; }
   }
   // on a wipe the live marks go (fire, ice, puddles, chunks, stones in flight, the glowing heaps) and the lasting ones stay; the retry is
   // fought on the scarred field
@@ -2324,6 +2360,7 @@
     const M = fight.marks; if (!M) return;
     for (const kind of ["fire", "ice", "puddle", "chunk", "stone", "ember"]) for (const m of M[kind].slice()) endMark(fight, m, "wipe", true);
     for (const q of M.pending) if (q.grass) q.grass.lit = null;   // a clump lit but not yet burning: the fire that lit it is gone, so it never catches
+    for (const q of M.pending) if (q.hay && q.hay.hayLit && !q.hay.gone) { const b = q.hay, W = fight.world; b.solids.forEach((id, i) => { const c = b.hayLit.contact[i] || []; W.solids[id].contact = c[0]; W.solids[id].burnBase = c[1]; }); b.hayLit = null; b.burning = null; b.byFire = false; }   // (design pass 21) a bale alight goes out with its fire
     M.pending.length = 0; M.wiped++;
     for (const p of fight.patches.slice()) endPatch(fight, p);   // the knights' own fire and frost patches are live marks too (section 3.6a)
     emit(fight, { type: "marksWiped" });
@@ -2439,7 +2476,8 @@
   // wind's start. A kit's attacks are families (ATTACK): melee (club, stab, jab), shot (arrow, bolt), ring (slam, rockSlam), charge; a new
   // kind is new numbers in spec/trolls.json and, for a new family, one entry here. A cooldown is the time until the next blow may land
   // (the note's "1.4 s from the strike's start"), so a wind-up starts when the cooldown is down to its own length.
-  const ATTACK = { club: "melee", stab: "melee", jab: "melee", arrow: "shot", bolt: "shot", slam: "ring", rockSlam: "ring", charge: "charge" };
+  const ATTACK = { club: "melee", stab: "melee", jab: "melee", arrow: "shot", bolt: "shot", slam: "ring", rockSlam: "ring", charge: "charge",
+    cut: "melee", bash: "melee", bite: "melee", leap: "leap" };   // design pass 21: the troll knight's cut and shield bash, the wolf's bite and leap
   const TOKEN_OF = { melee: "melee", shot: "archers" }, ELEMENT_OF = { "fire-bolt": "fire", "ice-arrow": "ice" };   // what a kind's projectile carries (a reflected one strikes by it)
   const PI = Math.PI;
   function newBrain(fight, f) { return { target: null, rt: 0, circle: f.id % 2 ? 1 : -1, stuck: { t: 0, best: Infinity, tx: null, ty: null, side: false }, spot: null }; }
@@ -2456,13 +2494,40 @@
     const cur = B.target !== null ? fight.knights[B.target] : null;
     if (B.rt <= 0 || !cur || !standing(cur)) { B.rt = C0.retarget || 0.5; pickTarget(fight, f); }
     const k = B.target !== null ? fight.knights[B.target] : null;
-    if (f.act) { f.intent = f.act.drive ? { drive: f.act.drive } : IDLE; f.moving = !!f.act.drive; if (f.act.fam === "charge" && f.act.phase === "run") runStep(fight, f, dt); return; }
+    if (f.act) { f.intent = f.act.drive ? { drive: f.act.drive } : IDLE; f.moving = !!f.act.drive; if (f.act.fam === "charge" && f.act.phase === "run") runStep(fight, f, dt); else if (f.act.fam === "leap" && f.act.phase === "run") leapStep(fight, f, dt); return; }
     if (f.roarDue && !fight.wipe) { beginRoar(fight, f); f.intent = IDLE; f.moving = false; return; }   // the roar waits for the attack in hand to end
+    if (f.form && formStep(fight, f, dt)) return;   // in its formation (design pass 21): it walks its spot, shield first, until the line breaks
     if (!k) { f.intent = IDLE; f.moving = false; return; }
+    if (f.spec.guard) { const G = guardOf(f), H = ((f.spec.attacks || {}).bash || {}).after || {}; G.hug = Math.hypot(k.x - f.x, k.y - f.y) <= (H.hugWithin || 18) + k.r + f.r + 1e-9 ? G.hug + dt : 0; }   // a knight hugging the shield (the bash's second condition)
+    if (B.skirm) { if (fight.t < B.skirm.until - 1e-9) { skirmStep(fight, f, k, dt); return; } B.skirm = null; B.circle = -B.circle; }   // (design pass 21) the wolf darts away after its attack, then comes again from the other side
     if (tryAttack(fight, f, k) || f.fixed) { f.intent = IDLE; f.moving = false; if (f.fixed) f.face = Math.atan2(k.y - f.y, k.x - f.x); return; }   // a fixed troll stands where it is and faces its knight
     moveToward(fight, f, k, dt);
     if (B.spotWalk && B.spot) stuckStep(fight, f, dt, B.spot[0], B.spot[1]); else stuckStep(fight, f, dt, k.x, k.y, k.seat);   // a walk to a trench's end is tracked toward its spot
   }
+  // a troll in a formation (design pass 21, the director's formationOf): the line's centre walks toward the standing knights at its speed
+  // (moved once a step, by the first of its trolls to think), facing them; each troll walks to its spot across the line, kept to its box,
+  // turning to the line's facing at its rate; the line breaks for good when a standing knight comes within holdWithin of a member, a
+  // member is hit, or its time is up, and the brain takes over. Returns true while it holds
+  function formStep(fight, f, dt) {
+    const G = f.form.group;
+    if (G.broken) { f.form = null; return false; }
+    const ks = fight.knights.filter(standing);
+    if (fight.t > G.until + 1e-9 || f.hurtAt > G.t0 || ks.some(k => Math.hypot(k.x - f.x, k.y - f.y) <= G.holdWithin + 1e-9)) { G.broken = true; f.form = null; emit(fight, { type: "formBreak", foe: f.id, x: f.x, y: f.y }); return false; }
+    if (fight.t > G.lastT + 1e-9) {
+      const step = Math.min(fight.t - G.lastT, 0.1); G.lastT = fight.t;
+      if (fight.t > G.t0 && ks.length) { const mx = ks.reduce((q, k) => q + k.x, 0) / ks.length, my = ks.reduce((q, k) => q + k.y, 0) / ks.length, d = Math.hypot(mx - G.cx, my - G.cy); if (d > 1e-6) { G.a = Math.atan2(my - G.cy, mx - G.cx); const go = Math.min(d, G.speed * step); G.cx += (mx - G.cx) / d * go; G.cy += (my - G.cy) / d * go; } }
+    }
+    const px = -Math.sin(G.a), py = Math.cos(G.a), b = f.box;
+    let x = G.cx + px * f.form.off, y = G.cy + py * f.form.off;
+    if (b) { x = clamp(x, b.x0 + f.r, b.x1 - f.r); y = clamp(y, b.y0 + f.r, b.y1 - f.r); }
+    const dx = x - f.x, dy = y - f.y, dd = Math.hypot(dx, dy), sp = f.speed || f.spec.speed || 34;
+    if (dd > 1.5) { f.intent = { wish: steer(fight, f, dx / dd * sp, dy / dd * sp, dd), tilt: 1 }; f.moving = true; } else { f.intent = IDLE; f.moving = false; }
+    f.wantClose = false;
+    turnTo(f, G.a, dt);
+    return true;
+  }
+  // a troll's facing turned toward an angle: at once, or at its kind's turning rate (design pass 21: the troll knight's 150 degrees a second)
+  function turnTo(f, a, dt) { const T = f.spec && f.spec.turn; if (!T) { f.face = a; return; } const d = angDiff(a, f.face), m = T * RAD * dt; f.face = Math.abs(d) <= m + 1e-12 ? a : f.face + Math.sign(d) * m; }
   // the roar's spec of a brute (the rock brute's names the brute's)
   function roarOf(K) { const R = K.roar; return typeof R === "string" ? ((trollSpec()[R] || {}).roar || null) : R || null; }
   // the Emberback's roll (section 3.5): at the start of waves 2 to 5, one roll on fight.rng.waves at 5 %, kept per wave so a wipe is not a
@@ -2560,7 +2625,7 @@
   const slowX = f => f.st.slow ? 1.25 : 1, weakX = f => f.st.weaken ? 1 - data().statuses.weaken.less : 1;   // statuses on trolls: x 1.25 wind-up, 40 % less damage
   // may an attack start now? the common gates, then the family's own
   function tryAttack(fight, f, k) {
-    const K = f.spec, A = K.attacks || {}, C0 = trollCommon(), names = Object.keys(A).sort((a, b) => (ATTACK[a] === "melee" ? 0 : 1) - (ATTACK[b] === "melee" ? 0 : 1));
+    const K = f.spec, A = K.attacks || {}, C0 = trollCommon(), names = Object.keys(A).sort((a, b) => ((ATTACK[a] === "melee" ? 0 : 1) - (ATTACK[b] === "melee" ? 0 : 1)) || ((A[b] && A[b].after ? 1 : 0) - (A[a] && A[a].after ? 1 : 0)));
     if (!standing(k) || k.frozen > 0 || k.noWind > 0 || fight.wipe) return false;
     if (f.climbing || !inAttackBox(fight, f.x, f.y, f.z)) return false;   // nobody strikes from a ladder (section 3.2b)
     for (const name of names) {
@@ -2568,7 +2633,8 @@
       const fam = ATTACK[name]; if (!atk || !fam) continue;
       const windT = (atk.wind || atk.draw || 0) * slowX(f);
       if ((f.cd[name] || 0) > windT + 1e-9) continue;
-      const token = K.tokens === false || (fam === "melee" && K.keep) ? null : TOKEN_OF[fam] || null;   // a ranged kind's stab or jab takes no token
+      if (atk.after && !afterHolds(fight, f, k, atk.after)) continue;   // (design pass 21) the bash: only after two blocks in 1.5 s, or a knight hugging the shield 1 s
+      const token = K.tokens === false || (fam === "melee" && K.keep) ? null : atk.token || K.token || TOKEN_OF[fam] || null;   // a ranged kind's stab or jab takes no token; a kind may name its own pool (the wolves' pack)
       if (token && tokensOn(fight, k.seat, token, f) >= ((C0.tokens || {})[token] || 2)) continue;
       const start = FAMILY[fam].can(fight, f, k, atk, name);
       if (!start) continue;
@@ -2578,7 +2644,7 @@
     return false;
   }
   function beginAct(fight, f, k, name, atk, fam, token, windT, start) {
-    f.face = Math.atan2(k.y - f.y, k.x - f.x);
+    if (!f.spec.turn) f.face = Math.atan2(k.y - f.y, k.x - f.x);   // (design pass 21) a kind with a turning rate turns through its wind-up instead
     f.act = Object.assign({ kind: name, atk, fam, phase: "wind", t: 0, T: Math.max(windT * dX(fight, "windUp"), trollCommon().telegraphMin || 0.45), seat: k.seat, token, drive: null, hits: [] }, start);   // a difficulty's wind-up never goes under telegraphMin
     emit(fight, { type: "windUp", foe: f.id, kind: f.kind, attack: name, seat: k.seat, x: f.x, y: f.y, z: f.z, wind: f.act.T, tel: f.act.tel || null });
   }
@@ -2586,12 +2652,13 @@
   function actStep(fight, f, dt) {
     const A = f.act, F = FAMILY[A.fam];
     A.t += dt;
+    if (f.spec.turn && A.phase === "wind" && A.seat !== null && A.seat !== undefined) { const k = fight.knights[A.seat]; if (k) turnTo(f, Math.atan2(k.y - f.y, k.x - f.x), dt); }
     if (F.during) F.during(fight, f, A, dt);
     if (A.t < A.T - 1e-9) return;
     if (A.phase === "wind") { A.t = 0; F.strike(fight, f, A); if (f.act !== A) return; if (A.phase === "wind") { A.phase = "recover"; A.T = A.atk.recover || 0.6; } }
     else if (A.phase === "strike") { A.phase = "recover"; A.t = 0; A.T = A.atk.recover || 0.6; }
     else if (A.phase === "run") { if (A.t > A.T + 0.5) runEnd(fight, f, A, "range", 0); }   // the run ends on what it meets or at its length (runStep); this is the safety
-    else if (A.phase === "recover") { f.act = null; if (A.after) A.after(fight, f); }
+    else if (A.phase === "recover") { f.act = null; if (A.after) A.after(fight, f); const SK = f.spec.skirmish; if (SK && f.brain && (SK.after || []).includes(A.kind)) f.brain.skirm = { until: fight.t + (SK.time || 0.8), seat: A.seat }; }
   }
   // a knight the troll's target stands at (k), or the tower's legs when it chops them (A.legs): the melee blow's landing
   function landBlow(fight, f, A, dmg, o) {
@@ -2706,6 +2773,28 @@
       during(fight, f, A) { const ph = Math.floor(A.t / 0.5) & 1 ? "strike" : "wind"; if (ph !== A.phase) { A.phase = ph; if (ph === "strike") emit(fight, { type: "heave", foe: f.id, engine: f.post ? f.post.engine : null, x: f.x, y: f.y }); } },
       strike() {}
     },
+    // (design pass 21) the wolf's leap: from 40 to 90 px of its knight, a 0.5 s crouch with the strip of its path shown, then a jump along
+    // the line fixed at the wind's start, up to 80 px, its arc peaking at 18 px, so it clears the tables and benches between; the first
+    // knight it meets is hit (4, a push of 8, staggered 0.2 s); it lands and recovers 0.5 s
+    leap: {
+      can(fight, f, k, atk) {
+        const dd = Math.hypot(k.x - f.x, k.y - f.y);
+        if (f.air || dd < (atk.from || 40) || dd > (atk.to || 90) || Math.abs((k.z || 0) - (f.z || 0)) > data().physics.z.melee) return null;
+        const ux = (k.x - f.x) / dd, uy = (k.y - f.y) / dd, len = Math.min(atk.max || 80, dd);
+        if (!leapClear(fight, f, ux, uy, len, atk.peak || 18)) return null;
+        if (!inAttackBox(fight, f.x + ux * len, f.y + uy * len, f.z)) return null;
+        return { tel: { kind: "strip", x0: f.x, y0: f.y, x1: f.x + ux * len, y1: f.y + uy * len, w: f.r * 2 }, ux, uy, len };
+      },
+      strike(fight, f, A) {
+        const atk = A.atk, N = data().physics, g = N.g || 600, peak = atk.peak || 18, vz = Math.sqrt(2 * g * peak), T = 2 * vz / g, v = A.len / T;
+        f.cd[A.kind] = atk.cooldown || 4;
+        A.phase = "run"; A.T = T + 0.5; A.flying = false; A.x0 = f.x; A.y0 = f.y;
+        if (f.st.blind && fight.rand() < data().statuses.blind.miss) { A.blindMiss = true; emit(fight, { type: "miss", foe: f.id, attack: A.kind, x: f.x, y: f.y }); }
+        f.air = true; f.vz = vz; f.fallFrom = f.z || 0; f.on = null; f.ix = A.ux * v; f.iy = A.uy * v; f.face = Math.atan2(A.uy, A.ux);
+        f.intent = IDLE;
+        emit(fight, { type: "leap", foe: f.id, x: f.x, y: f.y, x1: f.x + A.ux * A.len, y1: f.y + A.uy * A.len, time: T });
+      }
+    },
     // a charge: a straight run fixed at the wind's start, a drive in the move function, that ends on what it meets
     charge: {
       can(fight, f, k, atk) {
@@ -2772,6 +2861,81 @@
     if (D.done && !end) end = "range";
     if (end) runEnd(fight, f, A, end, stun);
   }
+  // ------------------------------------------------------------------ design pass 21: the troll knight's shield, the wolf's leap and dart
+  // the guard's record on a troll knight: its meter, its dents, its blocks' times, the hug clock, when the shield is up again
+  function guardOf(f) { return f.guard || (f.guard = { meter: 0, last: -1e9, dent: 0, blocks: [], hug: 0, upAt: 0 }); }
+  // the shield is up unless the troll knight winds up or strikes, recovers from a bash, reels, is staggered, stunned or frozen, is in the
+  // air or still coming in, or has just raised it again (0.4 s after a reel)
+  function guardUp(fight, f) {
+    if (!f.spec.guard || f.dead || f.spawn > 0 || f.stagger > 0 || f.st.stun || f.st.freeze || f.air) return false;
+    const A = f.act; if (A && (A.phase === "wind" || A.phase === "strike" || (A.kind === "bash" && A.phase === "recover"))) return false;
+    return fight.t >= guardOf(f).upAt - 1e-9;
+  }
+  // a blow on the troll knight's shield: within the arc in front, a blockable form, a direct hit. Returns the damage factor (0.15, a
+  // smash 0.5), or null when the blow is not blocked. The meter takes the blow's full damage (a smash x 1.5); 40 within 3 s breaks the
+  // guard: the troll knight reels 1.2 s (staggered: it cannot act and takes x 1.25), then raises the shield 0.4 s later
+  function guardBlock(fight, f, o, dmg, ang) {
+    const GD = f.spec.guard; if (!GD || o.kind !== "direct" || !guardUp(fight, f)) return null;
+    const smash = o.form === "smash"; if (!smash && !(GD.forms || []).includes(o.form)) return null;
+    if (Math.abs(angDiff(ang + Math.PI, f.face)) > (GD.arc || 120) / 2 * RAD + 1e-9) return null;   // the blow comes from outside the shield's arc
+    const G = guardOf(f), win = GD.window || 3.0;
+    if (fight.t - G.last > win + 1e-9) G.meter = 0;
+    G.last = fight.t; G.meter += dmg * (smash ? (GD.smashCounts || 1.5) : 1);
+    G.blocks = G.blocks.filter(t => fight.t - t <= 3).concat([fight.t]);
+    const D = GD.dents || [0.33, 0.66], frac = G.meter / (GD.breakAt || 40);
+    G.dent = frac >= D[1] ? 2 : frac >= D[0] ? 1 : 0;
+    if (G.meter >= (GD.breakAt || 40) - 1e-9) {
+      G.meter = 0; G.dent = 0; G.blocks = [];
+      const reel = GD.reel || 1.2; f.stagger = Math.max(f.stagger, reel); f.staggered = true; f.reelUntil = fight.t + reel; G.upAt = fight.t + reel + (GD.raise || 0.4);
+      if (f.act) cancelAct(fight, f, "guardBreak", true);
+      emit(fight, { type: "guardBreak", foe: f.id, x: f.x, y: f.y, z: f.z });
+    }
+    return smash ? (GD.smashTake === undefined ? 0.5 : GD.smashTake) : (GD.take === undefined ? 0.15 : GD.take);
+  }
+  // the bash's condition: two blocks within 1.5 s, or a knight hugging the shield for 1 s
+  function afterHolds(fight, f, k, AF) { const G = guardOf(f); return G.blocks.filter(t => fight.t - t <= (AF.within || 1.5) + 1e-9).length >= (AF.blocks || 2) || G.hug >= (AF.hug || 1.0) - 1e-9; }
+  // the wolf's dart away after a bite or a leap: back to 36 to 56 px from its knight (by id), then round it, facing it
+  function skirmStep(fight, f, k, dt) {
+    const SK = f.spec.skirmish || {}, B = f.brain, back = SK.back || [36, 56], want = back[0] + ((f.id % 3) / 2) * (back[1] - back[0]);
+    const dx = f.x - k.x, dy = f.y - k.y, dd = Math.hypot(dx, dy) || 1e-6, ux = dx / dd, uy = dy / dd, sp = f.speed || f.spec.speed || 96;
+    let w = dd < want - 2 ? [ux * sp, uy * sp] : [-uy * B.circle * sp * 0.8, ux * B.circle * sp * 0.8];
+    w = steer(fight, f, w[0], w[1]);
+    f.intent = { wish: w, tilt: 1 }; f.moving = true; f.wantClose = false; f.face = Math.atan2(-dy, -dx);
+  }
+  // the leap's flight (a real jump in the one move: upward speed for its peak, the horizontal as an impulse kept in the air); the first
+  // knight it meets at its height is hit; it ends on landing
+  function leapStep(fight, f, dt) {
+    const A = f.act, atk = A.atk;
+    if (!A.flying) { if (f.air) A.flying = true; else if (A.t > 0.05) { leapEnd(fight, f, A); return; } }
+    if (A.flying && !f.air) { leapEnd(fight, f, A); return; }
+    if (A.hits.length) return;
+    for (const k of fight.knights) {
+      if (!standing(k) || Math.hypot(k.x - f.x, k.y - f.y) > f.r + k.r + 2) continue;
+      if ((f.z || 0) >= (k.z || 0) + (k.h || 24) || (k.z || 0) >= (f.z || 0) + (f.h || 14)) continue;   // over its head or under it
+      A.hits.push(k.seat);
+      const res = A.blindMiss ? "miss" : hurt(fight, k, (atk.damage || 4) * weakX(f) * dX(fight, "trollDamage"), { melee: true, from: [f.x, f.y], push: atk.push, stagger: atk.stagger, src: f.kind + "." + A.kind });
+      emit(fight, { type: "foeStrike", foe: f.id, attack: A.kind, seat: k.seat, res, x: f.x, y: f.y, z: f.z });
+      break;
+    }
+  }
+  function leapEnd(fight, f, A) {
+    f.ix = 0; f.iy = 0; f.intent = IDLE;
+    emit(fight, { type: "leapEnd", foe: f.id, x: f.x, y: f.y, z: f.z, hit: A.hits.length > 0 });
+    A.phase = "recover"; A.t = 0; A.T = A.atk.recover || 0.5;
+  }
+  // a leap's path: the height of its arc at each 4 px along it clears every solid there (tables and benches are 12 and 6 tall, a pillar
+  // 64: never), no deep hole or ledge is crossed, and it lands on free ground inside the attack box
+  function leapClear(fight, f, ux, uy, len, peak) {
+    const P = phys(), W = fight.world, probe = { x: f.x, y: f.y, z: f.z || 0, r: f.r, h: f.h, on: null };
+    for (let t = 4; t <= len + 1e-9; t += 4) {
+      const q = t / len; probe.x = f.x + ux * t; probe.y = f.y + uy * t; probe.z = (f.z || 0) + 4 * peak * q * (1 - q) * 0.999;
+      if (P.caught(W, probe) || P.groundAt(W, probe.x, probe.y).deep) return false;
+    }
+    probe.x = f.x + ux * len; probe.y = f.y + uy * len; probe.z = f.z || 0;
+    if (P.caught(W, probe) || P.groundAt(W, probe.x, probe.y).deep) return false;
+    const s = P.surfaceAt ? P.surfaceAt(W, probe.x, probe.y, (f.z || 0) + W.N.stepUp) : null;
+    return !(s && s.plat && s.plat.id !== f.on);   // it lands where it took off from: the floor, or the same platform
+  }
   function runEnd(fight, f, A, why, stun) {
     if (A.drive) { A.drive.done = true; A.drive = null; }
     f.intent = IDLE;
@@ -2834,10 +2998,10 @@
           else { wish = null; closing = true; }   // nowhere to stand here: walk toward the knight, into the box
         }
       }
-    } else if (K.close && dd <= (K.close.within || 60)) speed = K.close.speed || speed;
-    // the melee kinds with the tokens on their knight taken circle at 30 px
+    } else if (K.close && dd <= (K.close.within || 60) && !(K.holdGround && dd <= (K.holdGround.within || 30))) speed = K.close.speed || speed;
+    // the melee kinds with the tokens on their knight taken circle at 30 px (a kind with its own pool and ring, the wolves, at theirs)
     if (!K.keep && K.tokens !== false && wish === null) {
-      const T = (C0.tokens || {}).melee || 2, taken = tokensOn(fight, k.seat, "melee", f) >= T, ring = C0.circle || 30;
+      const tok = K.token || "melee", T = (C0.tokens || {})[tok] || 2, taken = tokensOn(fight, k.seat, tok, f) >= T, ring = (K.circle || C0.circle || 30) + (K.circleJitter ? ((f.id % 3) - 1) * K.circleJitter : 0);
       if (taken && dd < ring + 24) {
         const tx = -uy * B.circle, ty = ux * B.circle, rad = dd < ring - 4 ? -1 : dd > ring + 4 ? 1 : 0;
         const wx = tx + ux * rad * 0.6, wy = ty + uy * rad * 0.6, wl = Math.hypot(wx, wy);
@@ -2855,10 +3019,12 @@
       else if (held && !onPlat(f.x + ux * 8, f.y + uy * 8)) { wish = [0, 0]; closing = false; f.face = Math.atan2(dy, dx); }
       else wish = [ux * speed, uy * speed];
     }
+    if (K.weave && closing && wish && !f.climbing) { const a = (K.weave.amp || 0.35) * Math.sin(TAU * fight.t / (K.weave.period || 0.6) + f.id), c = Math.cos(a), sn = Math.sin(a); wish = [wish[0] * c - wish[1] * sn, wish[0] * sn + wish[1] * c]; }   // (design pass 21) a wolf weaves as it closes
     f.intent = drop ? { wish, tilt, drop: true } : { wish, tilt };
     f.moving = Math.hypot(wish[0], wish[1]) > 1e-6;
     f.wantClose = closing && f.moving;
-    if (f.moving && !K.keep) f.face = Math.atan2(wish[1], wish[0]);
+    if (K.turn) turnTo(f, Math.atan2(dy, dx), dt);   // (design pass 21) a slow turner faces its knight at its rate, its shield leading, whichever way it walks
+    else if (f.moving && !K.keep) f.face = Math.atan2(wish[1], wish[0]);
   }
   // a ranged troll's spot when its line is blocked: across the line at 8 px steps up to its sidestep (40 px), its own side first, inside the
   // draw box, on its platform if held, with a clear line to its target; of those, the one covered from the most other knights (a solid
@@ -3065,7 +3231,7 @@
     f.rockLying = P.addSolid(W, { kind: "rockLying", shape: "c", x: R.x, y: R.y, r: 7, ht: 0, thin: true, base: R.z || 0 });
     A.after = (fg, g) => { if (g.rockLying) { P.removeSolid(W, g.rockLying); g.rockLying = null; } };
   }
-  const takenX = f => f.foe && f.staggered && f.spec.stagger ? f.spec.stagger.taken || 1.25 : 1;
+  const takenX = f => f.foe && f.staggered ? (f.spec.stagger ? f.spec.stagger.taken || 1.25 : f.spec.guard ? f.spec.guard.taken || 1.25 : 1) : 1;   // (design pass 21) a troll knight reeling from a broken guard takes x 1.25 too
   // a status a troll's own kind sets on a troll (a reflected ice arrow chills its archer: the trolls' slow for 2 s, three within 3 s freeze it)
   function trollSets(fight, f, what) {
     const S = data().statuses;

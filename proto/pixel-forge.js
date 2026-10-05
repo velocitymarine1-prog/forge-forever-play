@@ -544,6 +544,11 @@
     paint(sp, maskSet(and(ell(16, 18, 11, 8), not(ell(16, 18, 5.5, 3.5)))), (x, y, m) => { const dr = !m(x + 1, y) || !m(x, y + 1), ul = !m(x - 1, y) || !m(x, y - 1); return (x + y) % 3 === 0 ? ramp[0] : dr ? ramp[0] : ul ? ramp[2] : ramp[1]; });
     paint(sp, stroke(t => [25 + t * 4, 18 + t * 6], () => 1, 20), auto(ramp));
   }
+  // a fang is the tusk drawn bone-white (wolf-fang, design pass 21 section 3.12): the bone ramp's peach for its shadow, floral white
+  // for its body and white on its lit rim, so it reads beside the troll tooth's yellowed tusk. A Thing tagged "fang" draws in it;
+  // every other tusk keeps the bone ramp pixel for pixel
+  const FANG = ["#e8b796", "#fffaf0", "#ffffff", "#ffffff"];
+  const isFang = t => !!(t && Array.isArray(t.tags) && t.tags.includes("fang"));
   const ICONS = {
     flask: (sp, t, el) => flask(sp, el || ELEM.arcane),
     jar: (sp, t, el) => flask(sp, el || ELEM.fire, true),
@@ -575,7 +580,7 @@
       paint(sp, stroke(t => [4 + t * 24, 8 - t * 2], () => 0.6, 30), auto(RAMP.bone)); for (const [x, y] of [[26, 14], [20, 20], [11, 26]]) paint(sp, stroke(t => [4 + (x - 4) * t, 8 + (y - 8) * t], () => 0.35, 30), flat(RAMP.bone[1])); },
     tongue: sp => paint(sp, stroke(t => [7 + t * 18, 24 - 16 * Math.sin(t * 2.2)], t => 3 - t * 1.6, 60), auto(RAMP.pink, (x, y) => (x + y) % 7 === 0)),
     eye: (sp, t, el) => { paint(sp, maskSet(ell(16, 16, 11, 7)), auto(RAMP.bone)); paint(sp, maskSet(disc(16, 16, 4.5)), auto(el || ["#265c42", "#3e8948", "#63c74d", "#d6f264"])); paint(sp, maskSet(rect(15, 12, 16, 20)), flat(OUT)); sp.set(14, 13, "#ffffff"); for (const [x, y] of [[7, 15], [8, 18], [24, 14]]) sp.set(x, y, "#e43b44"); },
-    tusk: sp => paint(sp, stroke(t => [7 + t * 18, 27 - 22 * Math.sin(t * 1.3)], t => 2.6 * (1 - t) + 0.4, 60), auto(RAMP.bone)),
+    tusk: (sp, th) => paint(sp, stroke(t => [7 + t * 18, 27 - 22 * Math.sin(t * 1.3)], t => 2.6 * (1 - t) + 0.4, 60), auto(isFang(th) ? FANG : RAMP.bone)),
     // a folded green pelt (troll-hide, design pass 12 section 3.11.4): the fur side with a ragged foot and three leg flaps, its far
     // corner folded over along the diagonal so the pale flesh side lies on the fur, a few dark tufts in the fur
     pelt: sp => {
@@ -609,7 +614,7 @@
     "leather-strip": ["strip"], rope: ["rope"], "glass-shard": ["shards", null, "silver"], feather: ["feather"], silk: ["spool"], coal: ["coal"], salt: ["salt"],
     "golem-core": ["core", "earth"], "dragon-scale": ["scale", "fire"], "dragon-breath": ["jar", "fire"], "wraith-shroud": ["cloth", "void"],
     "slime-jelly": ["blob", "poison"], "skeleton-skull": ["skull"], "treant-branch": ["branch"], "goblin-ear": ["ear"], "wyvern-wing": ["wing"],
-    "mimic-tongue": ["tongue"], "basilisk-eye": ["eye"], "troll-tooth": ["tusk"], "troll-hide": ["pelt"],
+    "mimic-tongue": ["tongue"], "basilisk-eye": ["eye"], "troll-tooth": ["tusk"], "troll-hide": ["pelt"], "wolf-fang": ["tusk"],
     "gas-can": ["can"], bell: ["bell"], mirror: ["mirror"], hourglass: ["hourglass"], magnet: ["magnet"], lantern: ["lanternIcon", "holy"],
     spring: ["spring"], chain: ["chainlinks"], gear: ["gear"], "war-horn": ["hornIcon"]
   };

@@ -12,6 +12,10 @@
 // stagger). Every frame bakes a white canvas (the hit flash) and its stone canvases (the stone death: four steps of ramp swap to the
 // Things stone ramp); the fire-staff's coal and the Emberback's veins glow on two phases, still under reduced motion. A frame names
 // its weapon's tip, where the page draws the red glint of a wind-up: no sprite holds #ff0044, the colour kept for telegraphs.
+// Design pass 21 (the Great Hall, sections 3.6, 3.7 and 3.9; built by build 15 stage E) adds two kinds on bodies of their own, ported
+// from its sketch (docs/design/21-great-hall.sketch.js): the troll knight (a kettle helm, plate too small for its hump, a long sword and
+// the castle's kite shield; block, bash 2 and reel besides, and frame()'s sixth argument cracks the shield as its guard meter fills) and
+// the rabid troll wolf (grey mange patched green, 14 px at the withers; run 4 and leap besides, and no climb or fall).
 // Besides the trolls, the small things of the fight, each a sprite with its anchor: the troll arrow and the ice arrow (7 x 3, in 16
 // directions, with a 1 px ground shadow), the fire bolt's tumbling coal and its sparks, the trebuchet's stone, the chunks a rock slam
 // throws (dirt, clods, the drawbridge's splinters) and the soot shadows where they will land, the pouch, the splash and the rock brute's
@@ -26,9 +30,14 @@
     bone: ["#c28569", "#e8b796", "#ead4aa", "#fffaf0"], oak: ["#3e2731", "#733e39", "#b86f50", "#e4a672"], burlap: ["#733e39", "#b86f50", "#e4a672", "#ead4aa"],
     leather: ["#2a1d28", "#3e2731", "#733e39", "#b86f50"], iron: ["#262b44", "#3a4466", "#5a6988", "#8b9bb4"], stone: ["#4a4450", "#6e6a70", "#9a948c", "#c4bcae"],
     soot: ["#181425", "#262b44", "#3e2731", "#5a6988"], frost: ["#5a6988", "#8b9bb4", "#c0cbdc", "#ffffff"], charred: ["#181425", "#2a1d28", "#3e2731", "#733e39"],
-    fire: ["#be4a2f", "#f77622", "#feae34", "#fee761"]
+    fire: ["#be4a2f", "#f77622", "#feae34", "#fee761"],
+    // design pass 21's three: the troll knights' plate (the Things' steel), the castle's blue of its arms (its shade #0b2f55 is the
+    // pass's own) and the rabid wolves' mange, a cool grey darker than the trolls (the pass's own ramp)
+    steel: ["#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"], blue: ["#0b2f55", "#124e89", "#0099db", "#2ce8f5"], mange: ["#24222c", "#443f4d", "#686475", "#968fa2"]
   };
   const EYE = "#fee761", TUSK = ["#e8b796", "#ead4aa"], MOSS = "#265c42";
+  // the green hand the trolls smear over the castle's wolf, the gilt of the shield's rim (lit, shaded), a rabid wolf's gums and froth
+  const HAND = ["#265c42", "#3e8948"], GILT = ["#feae34", "#be4a2f"], GUM = "#a22633", FROTH = "#ffffff";
   // the stone ramp the dead swap to (the Things', pixel-forge.js RAMP.stone) and the field's rock ramp, the same tones
   const STONE = R.stone;
   const FACINGS = ["right", "left", "away", "toward"];
@@ -44,10 +53,14 @@
     archer: { body: "archer", N: 32, skin: R.green, weapon: "bow", hood: R.leather, fletch: R.bone, extra: { jab: 2 } },
     icearcher: { body: "archer", N: 32, skin: R.green, weapon: "bow", hood: R.frost, fletch: R.frost, ice: true, extra: { jab: 2 } },
     brute: { body: "brute", N: 48, skin: R.nature, weapon: "maul", extra: { charge: 1, roar: 1, sit: 1 } },
-    rockbrute: { body: "brute", N: 48, skin: R.nature, weapon: "rock", extra: { roar: 1, sit: 1 } }
+    rockbrute: { body: "brute", N: 48, skin: R.nature, weapon: "rock", extra: { roar: 1, sit: 1 } },
+    // design pass 21 (the Great Hall): the troll knight (its shield's block, bash and reel) and the rabid troll wolf (its gallop and its
+    // leap), who never climbs
+    trollknight: { body: "knight", N: 32, skin: R.green, weapon: "sword", extra: { block: 1, bash: 2, reel: 1 } },
+    wolf: { body: "wolf", N: 32, skin: R.mange, weapon: "jaws", climbs: false, extra: { run: 4, leap: 1 } }
   };
   const KINDS = Object.keys(KIND);
-  const ANIMS = {}; for (const k of KINDS) ANIMS[k] = Object.assign({}, KIND[k].N === 48 ? LARGE : SMALL, KIND[k].extra || {});
+  const ANIMS = {}; for (const k of KINDS) ANIMS[k] = Object.assign({}, KIND[k].N === 48 || KIND[k].climbs === false ? LARGE : SMALL, KIND[k].extra || {});
 
   // ------------------------------------------------------------------ a small painter over an N x N grid (the renderer's way)
   function Grid(N) { this.N = N; this.px = new Array(N * N).fill(null); }
@@ -567,10 +580,299 @@
     const my = Math.round((y0 + y1) / 2); for (let x = x0; x <= x1; x++) { sp.set(x, my, R.burlap[x % 2 ? 1 : 2]); }
   }
 
+  // ------------------------------------------------------------------ the troll knight's body (design pass 21 section 3.6)
+  // A footman in the castle's stolen armour, ported from docs/design/21-great-hall.sketch.js: a dented kettle helm, its eye glinting under
+  // the brim over a green face, a tusk and an underbite; a breastplate too small for its green hump, a pauldron, a mail skirt, iron
+  // greaves over bare green feet; a long sword, and a kite shield of the castle's arms (a white wolf's head on blue in a gilt rim) smeared
+  // with the green hand, its face cracked once and twice as the guard meter fills (K.dent 1, 2). The shield is on the near arm in the side
+  // drawing, held low so the face shows over it (raised over the face to block); on the troll's left facing the camera, the sword on its
+  // right; seen from behind, its back of oak boards and straps. Drawn 26 px tall (27 facing the camera or away), a footman's frame under
+  // the helm.
+  const kite = (cx, cy) => (x, y) => { const yy = y - cy, xx = x - cx; if (yy < 0 || yy > 12) return false; return Math.abs(xx) <= (yy < 6 ? 4.5 : 4.5 * (1 - (yy - 6) / 7.5)); };
+  // the shield's face, its top at (cx, cy), 9 x 12: the gilt rim (lit on the top and the left), the blue field (light on the left), the
+  // white wolf's head looking left, the green hand smeared down over it, the dents, the iron boss (returned: a bash's tip)
+  function shield(sp, cx, cy, dent) {
+    const k = kite(cx, cy), B = R.blue;
+    region(sp, k, B, { tex: (x, y) => {
+      const yy = y - cy, xx = x - cx;
+      if (!k(x - 1, y) || !k(x + 1, y) || !k(x, y - 1) || !k(x, y + 1)) return yy < 2 || xx < 0 ? GILT[0] : GILT[1];
+      const wolf = (xx >= -2 && xx <= 2 && yy >= 3 && yy <= 7) || (xx === -3 && yy >= 5 && yy <= 6) || (xx === -2 && yy === 2) || (xx === 1 && yy === 2) || (xx >= -1 && xx <= 1 && yy === 8);
+      if (wolf) return xx === 0 && yy === 4 ? R.iron[0] : xx >= 1 ? R.bone[2] : "#ffffff";
+      return xx < 0 ? B[2] : yy > 8 ? B[0] : B[1];
+    } });
+    for (const [dx, dy] of [[0, 5], [1, 5], [-1, 6], [0, 6], [1, 6], [2, 6], [0, 7], [1, 7], [-1, 4], [1, 3], [2, 4], [0, 9], [1, 10]]) { const c = sp.get(cx + dx, cy + dy); if (c && c !== GILT[0] && c !== GILT[1]) sp.set(cx + dx, cy + dy, dy > 7 ? HAND[0] : HAND[1]); }
+    if (dent >= 1) for (const [dx, dy] of [[-3, 2], [-2, 3], [-2, 4], [-1, 5]]) sp.set(cx + dx, cy + dy, OUT);
+    if (dent >= 2) for (const [dx, dy] of [[3, 7], [2, 8], [2, 9], [3, 3], [2, 2]]) sp.set(cx + dx, cy + dy, OUT);
+    sp.set(cx, cy + 5, R.iron[3]);
+    return [cx, cy + 5];
+  }
+  // the shield's back (seen from behind): oak boards, two leather straps across, the boss's rivet; its tip on the top board, which shows
+  // over the shoulders when the shield is thrust ahead of the body
+  function shieldBack(sp, cx, cy) {
+    const k = kite(cx, cy);
+    region(sp, (x, y) => k(x, y) && Math.abs(x - cx) <= 4, R.leather, { tex: (x, y, c) => (y - cy === 4 || y - cy === 8) ? R.leather[0] : x === cx && y - cy === 6 ? R.iron[2] : (x - cx) % 3 === 0 && c === R.leather[1] ? R.leather[2] : null });
+    return [cx, cy + 2];
+  }
+  // the long sword from the fist (fx, fy) to its point (tx, ty): an iron pommel, a leather grip, an iron cross, a steel blade whose point
+  // is its brightest pixel (returned: the tip, where a cut's glint is drawn)
+  function sword(sp, fx, fy, tx, ty) {
+    const d = Math.hypot(tx - fx, ty - fy) || 1, ux = (tx - fx) / d, uy = (ty - fy) / d;
+    region(sp, line(fx - ux * 2, fy - uy * 2, fx, fy, 1), R.leather, { flat: 2 });
+    region(sp, line(fx + ux - uy * 2, fy + uy + ux * 2, fx + ux + uy * 2, fy + uy - ux * 2, 1), R.iron, { flat: 2 });
+    region(sp, line(fx + ux * 2, fy + uy * 2, tx, ty, 1), R.steel, { flat: 2, spec: (x, y) => (x + y) % 3 === 0 });
+    sp.set(Math.round(fx - ux * 3), Math.round(fy - uy * 3), R.iron[3]);
+    sp.set(tx, ty, R.steel[3]);
+    return [Math.round(tx), Math.round(ty)];
+  }
+  // the kettle helm, its brim on row by: a low dome lit from the top left with a dent, the wide brim
+  function helm(sp, cx, by, side) {
+    const rx = side ? 4.3 : 4.8, w = side ? 6 : 7;
+    region(sp, or((x, y) => y < by && ell(cx, by, rx, 5)(x, y), rect(Math.round(cx - w), by, Math.round(cx + w), by)), R.iron,
+      { ball: [cx - 1.5, by - 3, 4.5], spec: (x, y) => x === Math.round(cx - 2) && y === by - 3, tex: (x, y) => y === by ? (x < cx - 1 ? R.iron[2] : R.iron[1]) : null });
+    sp.set(Math.round(cx + 1), by - 3, R.iron[0]);   // the dent
+  }
+  // the side drawing's poses: the sword arm (the far arm) [shoulder, fist, the blade's point] and the shield [cx, its top]. At rest the
+  // sword drags its point behind; the cut raises it behind and swings it down ahead; reeling, both arms are flung back and the front is open
+  const KS = {
+    rest: { sword: [[12, 16], [8, 21], [2, 29]], shield: [18, 17] }, raise: { sword: [[12, 15], [9, 9], [3, 3]], shield: [19, 16] },
+    strike: { sword: [[14, 16], [22, 19], [29, 25]], shield: [15, 16] }, ground: { sword: [[14, 16], [21, 22], [28, 29]], shield: [16, 16] },
+    block: { sword: [[12, 16], [8, 21], [3, 28]], shield: [21, 9] }, bash0: { sword: [[12, 16], [8, 21], [2, 28]], shield: [15, 15] },
+    bash1: { sword: [[12, 16], [9, 21], [3, 28]], shield: [23, 15] }, reel: { sword: [[12, 15], [8, 11], [4, 5]], shield: [7, 12] },
+    flinch: { sword: [[12, 16], [8, 22], [3, 28]], shield: [17, 16] }
+  };
+  // facing the camera: the sword's fist and point on the troll's right (our left), the shield [cx, its top] on its left
+  const KF = {
+    rest: { fist: [6, 21], point: [2, 29], shield: [22, 17] }, raise: { fist: [5, 8], point: [9, 1], shield: [22, 16] },
+    strike: { fist: [9, 23], point: [13, 29], shield: [23, 16] }, ground: { fist: [8, 23], point: [11, 29], shield: [22, 17] },
+    block: { fist: [6, 21], point: [3, 28], shield: [16, 10] }, bash0: { fist: [6, 21], point: [2, 29], shield: [24, 14] },
+    bash1: { fist: [6, 21], point: [2, 29], shield: [19, 17] }, reel: { fist: [4, 11], point: [2, 3], shield: [26, 9] },
+    flinch: { fist: [6, 21], point: [3, 29], shield: [21, 16] }
+  };
+  // the shield's back seen from behind, on our left: [cx, its top] (raised to block, drawn back and thrust for the bash, flung wide)
+  const KB = { rest: [5, 13], raise: [5, 13], strike: [6, 13], ground: [5, 14], block: [7, 8], bash0: [5, 15], bash1: [8, 10], reel: [5, 10], flinch: [5, 13] };
+  function trollKnight(drawing, P, K) {
+    const N = 32, sp = new Grid(N), S = K.skin, B = P.bob || 0, step = P.step || 0, arm = P.arm || "rest", dent = K.dent || 0;
+    let tip = null;
+    if (drawing === "side") {
+      const X = P.lean || 0, back = step > 0 ? -2 : step < 0 ? 2 : 0, fwd = -back, hx = X + (P.head ? P.head[0] : 0), hy = B + (P.head ? P.head[1] : 0);
+      const pose = KS[arm] || KS.rest, [[sx, sy], [fx, fy], [tx, ty]] = pose.sword;
+      // the sword arm, behind: the sword raised behind it for the cut, else held in its fist
+      if (arm === "raise" || arm === "reel") tip = sword(sp, fx + X, fy + B, tx + X, ty + B);
+      limb(sp, sx + X, sy + B, fx + X, fy + B, dark(S));
+      if (arm !== "raise" && arm !== "reel") tip = sword(sp, fx + X, fy + B, tx + X, ty + B);
+      // the legs in iron greaves, bare green feet with the toes forward
+      region(sp, rect(11 + back, 24, 13 + back, 28), dark(R.iron)); region(sp, rect(10 + back, 29, 14 + back, 30), dark(S));
+      region(sp, rect(15 + fwd, 24, 17 + fwd, 28), R.iron); region(sp, rect(15 + fwd, 29, 19 + fwd, 30), S, { ball: [16 + fwd, 29, 3] });
+      // the troll's body, the mail skirt, the breastplate too small for it, the green hump of the shoulders and the pauldron
+      region(sp, ell(13.5 + X, 19 + B, 6.5, 6), S, { ball: [13.5 + X, 19 + B, 6.5] });
+      region(sp, (x, y) => x >= 8 + X && x <= 19 + X && y >= 21 + B && y <= 25 + B && !(y === 25 + B && (x + B) % 2 === 0), R.iron, { tex: (x, y) => (x + y) % 2 ? R.iron[1] : R.iron[2] });
+      region(sp, ell(14.5 + X, 18.5 + B, 5.5, 4.5), R.steel, { ball: [13 + X, 16.5 + B, 5.5], spec: (x, y) => x === 11 + X && y === 15 + B });
+      region(sp, ell(11.5 + X, 13.5 + B, 5, 4), S, { ball: [11.5 + X, 13.5 + B, 5], spec: (x, y) => x === 9 + X && y === 11 + B, cast: S[0] });
+      region(sp, ell(13 + X, 15 + B, 3.5, 2.4), R.steel, { ball: [12 + X, 14 + B, 3.5], cast: R.steel[0] });
+      // the head, jutting forward under the helm: the brow in the brim's shadow, a yellow eye, a big nose, an underbite and a tusk
+      region(sp, ell(20.5 + hx, 15.5 + hy, 3.8, 3), S, { ball: [20.5 + hx, 15.5 + hy, 3.8], cast: S[0] });
+      region(sp, rect(24 + hx, 14 + hy, 25 + hx, 16 + hy), S, { spec: (x, y) => x === 24 + hx && y === 14 + hy });
+      for (let x = 18; x <= 23; x++) sp.set(x + hx, 13 + hy, S[0]);
+      for (let x = 20; x <= 23; x++) sp.set(x + hx, 17 + hy, S[0]);
+      sp.set(23 + hx, 16 + hy, TUSK[1]); sp.set(23 + hx, 17 + hy, TUSK[0]);
+      helm(sp, 19.5 + hx, 12 + hy, true);
+      sp.set(22 + hx, 14 + hy, P.flinch ? S[0] : EYE);
+      // the near arm and the shield on it, its face toward us
+      const [shx, shy] = pose.shield;
+      limb(sp, 15 + X, 16 + B, shx - 1 + X, shy + 5 + B, S, 2, 3);
+      const boss = shield(sp, shx + X, shy + B, dent);
+      if (arm === "bash0" || arm === "bash1") tip = boss;
+    } else {
+      const up = drawing === "up", lA = step > 0 ? -1 : 0, lB = step < 0 ? -1 : 0, m = x => up ? 31 - x : x, hy = B + (P.head ? P.head[1] : 0);
+      const climb = P.climb, fall = P.fall;
+      // facing away, the shield's back on our left (the troll's left arm), behind the body when it is raised to block or thrust
+      const bk = up && climb === undefined && !fall ? KB[arm] || KB.rest : null;
+      if (bk && (arm === "block" || arm === "bash1")) tip = shieldBack(sp, bk[0], bk[1] + B);
+      // the legs in greaves, bare green feet
+      if (climb !== undefined) {
+        const c = climb ? 1 : 0;
+        region(sp, rect(11, 23 - 2 * c, 13, 26 - 2 * c), R.iron); region(sp, rect(10, 27 - 2 * c, 14, 28 - 2 * c), S);
+        region(sp, rect(18, 21 + 2 * c, 20, 28), R.iron); region(sp, rect(17, 29, 21, 30), S);
+      } else if (fall) {
+        region(sp, rect(9, 24, 11, 28), R.iron); region(sp, rect(8, 29, 12, 30), S); region(sp, rect(20, 24, 22, 28), R.iron); region(sp, rect(19, 29, 23, 30), S);
+      } else {
+        region(sp, rect(11, 25 + lA, 13, 28 + lA), R.iron); region(sp, rect(10, 29 + lA, 14, 30 + lA), S, { ball: [11, 29, 3] });
+        region(sp, rect(18, 25 + lB, 20, 28 + lB), R.iron); region(sp, rect(17, 29 + lB, 21, 30 + lB), S, { ball: [18, 29, 3] });
+      }
+      // the green body bulging round a breastplate too small for it, the mail skirt, the plated shoulders
+      region(sp, ell(15.5, 19 + B, 7.5, 5.5), S, { ball: [15.5, 19 + B, 7.5] });
+      region(sp, (x, y) => x >= 9 && x <= 22 && y >= 22 + B && y <= 25 + B && !(y === 25 + B && (x + B) % 2 === 0), R.iron, { tex: (x, y) => (x + y) % 2 ? R.iron[1] : R.iron[2] });
+      if (up) {   // its back: the green hump and the breastplate's straps across it
+        for (let x = 10; x <= 21; x++) { sp.set(x, 18 + B, R.leather[1]); if (x >= 12 && x <= 19) sp.set(x, 21 + B, R.leather[1]); }
+        sp.set(15, 18 + B, R.iron[2]); sp.set(16, 18 + B, R.iron[2]);
+      } else {
+        region(sp, ell(15.5, 18.5 + B, 5.5, 4.5), R.steel, { ball: [14, 16.5 + B, 5.5], spec: (x, y) => x === 12 && y === 15 + B });
+        for (let x = 12; x <= 19; x++) if ((x + B) % 3 === 0) sp.set(x, 19 + B, R.steel[0]);
+      }
+      region(sp, ell(15.5, 14.5 + B, 9.5, 3.2), R.steel, { ball: [14, 13.5 + B, 9.5], spec: (x, y) => x === 9 && y === 13 + B, cast: R.steel[0] });
+      // the arms: climbing or falling both up; else the sword in the troll's right fist (our left facing the camera)
+      if (climb !== undefined) { const c = climb ? 1 : 0; limb(sp, 8, 14, 7, 4 + 3 * c, S); limb(sp, 23, 14, 24, 7 - 3 * c, S); }
+      else if (fall) { limb(sp, 7, 14, 4, 6, S); limb(sp, 24, 14, 27, 6, S); tip = sword(sp, m(4), 6, m(2), 1); }
+      else {
+        const f = KF[arm] || KF.rest, [fx, fy] = f.fist, [px, py] = f.point;
+        limb(sp, m(7), 15 + B, m(fx), fy + B, S);
+        const t = sword(sp, m(fx), fy + B, m(px), py + (arm === "raise" ? 0 : B));
+        if (arm !== "bash0" && arm !== "bash1") tip = t;
+      }
+      // the head low between the plated shoulders, the helm's brim over the eyes
+      region(sp, ell(15.5, 13 + hy, 4.3, 3.3), S, { ball: [15.5, 13 + hy, 4.3], cast: S[0] });
+      if (!up) {
+        sp.set(13, 12 + hy, P.flinch ? S[0] : EYE); sp.set(18, 12 + hy, P.flinch ? S[0] : EYE);
+        region(sp, rect(15, 13 + hy, 16, 14 + hy), S, { spec: (x, y) => x === 15 && y === 13 + hy });
+        for (let x = 13; x <= 18; x++) sp.set(x, 15 + hy, S[0]);
+        sp.set(13, 14 + hy, TUSK[1]); sp.set(18, 14 + hy, TUSK[1]); sp.set(13, 15 + hy, TUSK[0]); sp.set(18, 15 + hy, TUSK[0]);
+      } else for (let x = 13; x <= 18; x++) sp.set(x, 15 + hy, S[0]);
+      helm(sp, 15.5, 11 + hy, false);
+      // the shield: its back on our left facing away; its face on our right facing the camera; slung on the back to climb, flung up falling
+      if (bk && arm !== "block" && arm !== "bash1") { const t = shieldBack(sp, bk[0], bk[1] + B); if (arm === "bash0") tip = t; }
+      if (climb !== undefined) tip = shieldBack(sp, 15, 15);
+      if (fall) { if (up) shieldBack(sp, m(25), 3); else shield(sp, m(25), 3, dent); }
+      if (!up && climb === undefined && !fall) {
+        const [shx, shy] = (KF[arm] || KF.rest).shield;
+        limb(sp, 24, 15 + B, shx + 1, shy + 6 + B, S, 2, 3);
+        const boss = shield(sp, shx, shy + B, dent);
+        if (arm === "bash0" || arm === "bash1") tip = boss;
+      }
+    }
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  function knightPose(anim, i) {
+    if (anim === "walk") return { step: [1, 0, -1, 0][i % 4], bob: i % 2 ? 0 : 1, arm: "rest" };
+    if (anim === "wind") return { lean: -1, arm: "raise" };
+    if (anim === "strike") return { lean: 1, arm: "strike" };
+    if (anim === "recover") return { lean: 1, bob: 1, arm: "ground" };
+    if (anim === "hit" || anim === "stone") return { lean: -1, head: [-1, -1], flinch: true, arm: "flinch" };
+    if (anim === "block") return { bob: 1, head: [-1, 1], arm: "block" };
+    if (anim === "bash") return { lean: i % 2 ? 2 : -1, arm: i % 2 ? "bash1" : "bash0" };
+    if (anim === "reel") return { lean: -2, head: [-1, -1], arm: "reel" };
+    if (anim === "climb") return { climb: i % 2, arm: "back" };
+    if (anim === "fall") return { fall: true, arm: "reel" };
+    return { bob: i % 2, arm: "rest" };   // idle: a 1 px breath
+  }
+
+  // ------------------------------------------------------------------ the rabid troll wolf's body (design pass 21 section 3.7)
+  // The castle's wolves, taken from the kennels and infected, ported from the sketch: lean and grey in the mange ramp (lit a step above
+  // its middle, so the grey reads on the halls' dark floors and stays darker than a troll's green), the fur patched green where the
+  // troll shows (the patches fixed to the body, so they ride its breath), hackles along the back, ribs, a bushy tail held low, pricked
+  // ears (laid back when it snarls), yellow troll eyes, small tusks, a red mouth and froth when the jaws open. 14 px tall at the withers
+  // (its body's h), drawn 15 with its ears, the head carried low and forward; side, toward and away. The tip is at the jaws.
+  // P: { bob, crouch (the body lowered), legs [near fore, far fore, near hind, far hind] (each -2 to 2, back to forward), jaw (0 to 3),
+  // froth, hackles (raised, the ears laid back), flinch, tailDown, lunge (the head thrust forward), stretch (the leap: long and low,
+  // the fore legs reaching ahead, the hind legs pushing off behind) }
+  function hash(x, y, k) { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul((k | 0) + 1, 2246822519)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+  // a stroke 2 px wide (each pixel and the one to its right) through the points: a quadruped's thin legs, no lower than the last point
+  function stroke2(pts) {
+    const s = new Set();
+    for (let k = 0; k + 1 < pts.length; k++) { const [x0, y0] = pts[k], [x1, y1] = pts[k + 1], n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 2 + 1;
+      for (let i = 0; i <= n; i++) { const t = i / n, x = Math.round(x0 + (x1 - x0) * t), y = Math.round(y0 + (y1 - y0) * t); s.add(x + "," + y); s.add((x + 1) + "," + y); } }
+    return (x, y) => s.has(x + "," + y);
+  }
+  function wolf(drawing, P, K) {
+    const N = 32, sp = new Grid(N), F = K.skin, B = P.bob || 0, crouch = P.crouch || 0, Y = crouch + B, legs = P.legs || [0, 0, 0, 0], jaw = P.jaw || 0;
+    const FUR = [F[1], F[2], F[3], F[3]], FAR = [F[0], F[1], F[2], F[2]], td = P.tailDown ? 2 : 0, back = !!P.hackles;
+    // the mange's green patches in blotches, by the body's own pixel (x, y - Y)
+    const patch = (x, y) => { const v = y - Y; return hash(x >> 1, v >> 1, 77) < 0.32 && hash(x, v, 78) < 0.6 ? HAND[hash(x, v, 79) < 0.5 ? 0 : 1] : null; };
+    // a paw on row y, 2 px and a toe toward dx
+    const paw = (x, y, dx, ramp) => region(sp, rect(Math.min(x, x + dx), y, Math.max(x + 1, x + 1 + dx), y), ramp, { flat: 1 });
+    let tip = null;
+    if (drawing === "side") {
+      const L = P.lunge || 0, st = P.stretch ? 1 : 0;
+      // a fore leg from the elbow to the paw, the wrist bent by its swing; a hind leg from the hip back to the hock, then down; stretched
+      // in the leap, the fore legs reach ahead off the ground and the hind legs push off behind
+      const fore = (x, ph, ramp) => {
+        if (st) { region(sp, stroke2([[x, 23 + Y], [x + 4, 26], [x + 7, 27]]), ramp); paw(x + 7, 28, 1, ramp); return; }
+        const px = x + 2 * ph; region(sp, stroke2([[x, 23 + Y], [x + ph, 27], [px, 29]]), ramp); paw(px, 30, 1, ramp);
+      };
+      const hind = (x, ph, ramp) => {
+        if (st) { region(sp, stroke2([[x, 22 + Y], [x - 4, 26], [x - 7, 29]]), ramp); paw(x - 7, 30, -1, ramp); return; }
+        const hx = x - 2 + ph, px = x - 1 + 2 * ph; region(sp, stroke2([[x, 22 + Y], [hx, 27], [px, 29]]), ramp); paw(px, 30, 1, ramp);
+      };
+      // the far legs; the tail, bushy and low (streaming behind in a leap); the body: a deep chest, the belly tucked up, the rump
+      fore(17, legs[1], FAR); hind(11, legs[3], FAR);
+      const tail = st ? or(line(6, 20 + Y, 3, 20 + Y, 3), line(3, 20 + Y, 1, 19 + Y, 2)) : or(line(6, 20 + Y, 4, 22 + Y + td, 3), line(4, 22 + Y + td, 2, 25 + Y + td, 2));
+      region(sp, tail, FUR, { tex: (x, y) => patch(x, y) || ((x + y) % 3 === 0 ? F[1] : null) });
+      region(sp, or(ell(8.5, 21 + Y, 3, 2.5), ell(13.5, 20.8 + Y, 6, 1.9), ell(19.5, 21.6 + Y, 3.3, 2.9)), FUR,
+        { ball: [12, 19 + Y, 9], tex: (x, y) => patch(x, y) || ((x === 14 || x === 16) && y >= 20 + Y && y <= 21 + Y ? F[1] : null) });
+      // the hackles: tufts over the shoulders, a ridge the length of the back when they are raised
+      if (back) { for (let x = 11; x <= 20; x++) sp.set(x, 18 + Y, F[x % 2 ? 1 : 0]); for (let x = 13; x <= 19; x += 2) sp.set(x, 17 + Y, F[1]); }
+      else for (const x of [15, 17, 19]) sp.set(x, 18 + Y, F[2]);
+      fore(19, legs[0], FUR); hind(9, legs[2], FUR);
+      // the neck and the head, low and forward: pricked ears (laid back snarling), a long muzzle and its nose, the jaw dropped by `jaw`
+      const hx = 24 + L, hy = 21 + Y;
+      region(sp, line(21, 21 + Y, hx - 1, hy, 3), FUR, { tex: patch });
+      region(sp, ell(hx, hy, 2.3, 1.8), FUR, { ball: [hx - 1, hy - 1, 2.3] });
+      if (back) { region(sp, rect(hx - 2, hy - 2, hx - 1, hy - 2), FAR, { flat: 2 }); sp.set(hx - 3, hy - 2, F[1]); }
+      else { sp.set(hx - 2, hy - 3, F[1]); sp.set(hx - 2, hy - 2, F[1]); sp.set(hx - 1, hy - 3, F[3]); sp.set(hx - 1, hy - 2, F[2]); sp.set(hx, hy - 2, F[2]); }
+      region(sp, rect(hx + 3, hy, hx + 4, hy + 1), FUR, { tex: (x, y) => y === hy ? F[3] : null });                     // the muzzle
+      sp.set(hx + 5, hy, OUT);                                                                                         // the nose
+      region(sp, rect(hx, hy + 2 + jaw, hx + 4, hy + 2 + jaw), FUR, { flat: 0 });                                          // the jaw
+      if (jaw) { for (let x = hx + 1; x <= hx + 4; x++) for (let y = hy + 2; y < hy + 2 + jaw; y++) sp.set(x, y, GUM); sp.set(hx + 4, hy + 2, TUSK[1]); sp.set(hx + 3, hy + 1 + jaw, TUSK[1]); if (P.froth) sp.set(hx + 1, hy + 2 + jaw, FROTH); }
+      else sp.set(hx + 3, hy + 1, TUSK[1]);
+      sp.set(hx + 1, hy - 1, P.flinch ? F[1] : EYE);
+      tip = [hx + 4, hy + 2];
+    } else if (drawing === "down") {
+      // facing the camera: the shoulders wide behind the head, the head low in front with its pricked ears (laid back snarling), a pale
+      // ridge down the muzzle to the nose, the narrow chest and the fore legs (the hind legs hidden behind them); of a pair of legs the
+      // one swung further forward is lifted a pixel
+      const lift = k => legs[k] > legs[k ^ 1] ? 1 : 0, hy = 22 + Y + (P.lunge > 0 ? 1 : 0), st = P.stretch;
+      // leaping, the hind legs push off behind and the fore paws reach out at us, spread
+      if (st) { region(sp, or(rect(14, 26 + Y, 14, 29), rect(17, 26 + Y, 17, 29)), FAR); paw(13, 30, 0, FAR); paw(17, 30, 0, FAR); }
+      region(sp, ell(15.5, 21 + Y, 5.5, 2), FUR, { ball: [13.5, 20 + Y, 5.5], tex: patch });
+      region(sp, ell(15.5, 24.5 + Y, 3, 2), FUR, { ball: [14.5, 23.5 + Y, 3], tex: patch });
+      if (st) { region(sp, or(line(13, 25 + Y, 11, 27, 2), line(18, 25 + Y, 20, 27, 2)), FUR); paw(10, 28, 0, FUR); paw(20, 28, 0, FUR); }
+      else { region(sp, or(rect(13, 26 + Y, 14, 29 - lift(0)), rect(17, 26 + Y, 18, 29 - lift(1))), FUR); paw(13, 30 - lift(0), -1, FUR); paw(17, 30 - lift(1), 0, FUR); }
+      if (back) region(sp, or(rect(11, hy - 2, 12, hy - 2), rect(19, hy - 2, 20, hy - 2)), FAR, { flat: 2 });
+      else for (const [x, y, c] of [[12, -4, 3], [12, -3, 2], [13, -3, 1], [19, -4, 2], [19, -3, 1], [18, -3, 1]]) sp.set(x, hy + y, F[c]);
+      region(sp, or(ell(15.5, hy, 3.4, 2.3), rect(12, hy - 1, 19, hy)), FUR, { ball: [14.5, hy - 1, 3.4] });
+      for (let y = hy - 2; y <= hy; y++) { sp.set(15, y, F[3]); sp.set(16, y, F[2]); }                               // the muzzle's ridge
+      sp.set(15, hy + 1, OUT); sp.set(16, hy + 1, OUT);                                                              // the nose
+      region(sp, rect(14, hy + 2 + jaw, 17, hy + 2 + jaw), FUR, { flat: 0 });                                          // the jaw
+      if (jaw) { for (let x = 14; x <= 17; x++) for (let y = hy + 2; y < hy + 2 + jaw; y++) sp.set(x, y, GUM); sp.set(14, hy + 2, TUSK[1]); sp.set(17, hy + 2, TUSK[1]); if (P.froth) sp.set(16, hy + 2 + jaw, FROTH); }
+      else { sp.set(14, hy + 1, TUSK[1]); sp.set(17, hy + 1, TUSK[1]); }
+      sp.set(14, hy - 1, P.flinch ? F[1] : EYE); sp.set(17, hy - 1, P.flinch ? F[1] : EYE);
+      tip = [15, hy + 2];
+    } else {
+      // from behind: the head and its ears beyond the shoulders, the haunches, the hocks and the tail hanging between them
+      const lift = k => legs[k] > legs[k ^ 1] ? 1 : 0, st = P.stretch;
+      if (back) region(sp, or(rect(11, 19 + Y, 12, 19 + Y), rect(19, 19 + Y, 20, 19 + Y)), FAR, { flat: 1 });
+      else for (const [x, y, c] of [[12, 18, 2], [12, 19, 1], [13, 19, 1], [19, 18, 1], [19, 19, 1], [18, 19, 0]]) sp.set(x, y + Y, F[c]);
+      region(sp, or(ell(15.5, 20.4 + Y, 3, 1.3), ell(15.5, 21.2 + Y, 5, 1.6)), FAR, { ball: [14, 20 + Y, 5] });
+      // leaping, the hind legs splay back at us to push off and the tail streams up behind
+      if (st) { region(sp, or(line(12, 25 + Y, 10, 29, 2), line(18, 25 + Y, 20, 29, 2)), FUR); paw(9, 30, 0, FUR); paw(20, 30, 1, FUR); }
+      else { region(sp, or(rect(12, 26 + Y, 13, 29 - lift(3)), rect(18, 26 + Y, 19, 29 - lift(2))), FUR); paw(11, 30 - lift(3), 1, FUR); paw(18, 30 - lift(2), 1, FUR); }
+      region(sp, or(ell(13, 23.5 + Y, 2.6, 2.8), ell(18, 23.5 + Y, 2.6, 2.8)), FUR, { ball: [12.5, 22 + Y, 4], tex: patch });
+      const tb = Math.min(29, 27 + Y + (td ? 1 : 0)), t0 = st ? 17 + Y : 21 + Y, t1 = st ? 22 + Y : tb;
+      region(sp, or(rect(15, t0, 16, t1), rect(14, t0 + 1, 17, t1 - 1)), FUR, { tex: (x, y) => y === (st ? t0 : tb) ? F[3] : (x + y) % 3 === 0 ? F[1] : null });
+      tip = [15, 20 + Y];
+    }
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  function wolfPose(anim, i) {
+    if (anim === "walk") return { legs: [[1, 0, -1, 0], [0, -1, 0, 1], [-1, 0, 1, 0], [0, 1, 0, -1]][i % 4], bob: i % 2 };
+    if (anim === "run") return { legs: [[2, 1, -2, -1], [0, -1, -1, 0], [-2, -1, 2, 1], [-1, 0, 1, 0]][i % 4], bob: i % 2, jaw: 1, froth: i % 2 === 0 };
+    if (anim === "wind") return { crouch: 2, jaw: 2, froth: true, hackles: true, legs: [-1, -1, 1, 1] };
+    if (anim === "leap") return { stretch: true, jaw: 2, lunge: 1, hackles: true };
+    if (anim === "strike") return { jaw: 3, lunge: 2, legs: [1, 1, 0, 0], froth: true, hackles: true };
+    if (anim === "recover") return { crouch: 1, jaw: 1, legs: [0, 1, 0, 1] };
+    if (anim === "hit" || anim === "stone") return { flinch: true, crouch: 1, tailDown: true, lunge: -1, hackles: true };
+    return { bob: i % 2, jaw: i % 2 ? 1 : 0, froth: i % 2 === 1 };   // idle: panting
+  }
+
   // ------------------------------------------------------------------ the frames
   // the pose of a kind's animation frame i
   function poseOf(kind, anim, i) {
     const body = KIND[kind].body;
+    if (body === "knight") return knightPose(anim, i);
+    if (body === "wolf") return wolfPose(anim, i);
     if (anim === "walk") return { step: [1, 0, -1, 0][i % 4], bob: i % 2 ? 0 : 1, arm: "rest" };
     if (anim === "wind") return { lean: -1, arm: body === "archer" ? "draw" : "raise" };
     if (anim === "strike") return { lean: 1, arm: body === "archer" ? "loose" : body === "brute" ? "strike" : "swing" };
@@ -586,19 +888,22 @@
     return { bob: i % 2, arm: "rest" };   // idle: a 1 px breath
   }
   const cache = new Map();
-  // Trolls.frame(kind, facing, anim, i, glow) -> { px, N, w, h, kind, facing, anim, i, glow, tip, canvas(), white(), stonePx(s), stone(s) }
+  // Trolls.frame(kind, facing, anim, i, glow, dent) -> { px, N, w, h, kind, facing, anim, i, glow, dent, tip, canvas(), white(), stonePx(s),
+  //   stone(s) }
   //   kind: one of KINDS (anything else is a footman); facing: right | left | away | toward (anything else is right); anim: one of the
-  //   kind's ANIMS (anything else is idle; climb and fall only for the small trolls); glow: 0 or 1, the coal's and the veins' phase
-  function frame(kind, facing, anim, i, glow) {
+  //   kind's ANIMS (anything else is idle; climb and fall only for the small trolls that climb); glow: 0 or 1, the coal's and the veins'
+  //   phase; dent: 0, 1 or 2, the troll knight's shield cracked as its guard meter fills (a third, two thirds; ignored for other kinds)
+  function frame(kind, facing, anim, i, glow, dent) {
     if (!KIND[kind]) kind = "footman";
     if (!DRAWING[facing]) facing = "right";
     const A = ANIMS[kind];
     if (!A[anim]) anim = "idle";
     i = (i | 0) % A[anim];
-    const K = Object.assign({}, KIND[kind], { kind, glow: (KIND[kind].weapon === "staff" || KIND[kind].veins) && glow ? 1 : 0 });
+    const knight = KIND[kind].body === "knight";
+    const K = Object.assign({}, KIND[kind], { kind, glow: (KIND[kind].weapon === "staff" || KIND[kind].veins) && glow ? 1 : 0, dent: knight ? Math.max(0, Math.min(2, dent | 0)) : 0 });
     const climbing = anim === "climb";
     const [drawing, flip] = climbing ? ["up", false] : DRAWING[facing];
-    const key = kind + "|" + (climbing ? "away" : facing) + "|" + anim + "|" + i + "|" + K.glow;
+    const key = kind + "|" + (climbing ? "away" : facing) + "|" + anim + "|" + i + "|" + K.glow + (knight ? "|" + K.dent : "");
     if (cache.has(key)) return cache.get(key);
     const P = poseOf(kind, anim, i);
     const sp = BODY[K.body](drawing, P, K);
@@ -606,7 +911,7 @@
     let px = sp.px, tip = sp.tip ? [Math.max(0, Math.min(N - 1, Math.round(sp.tip[0]))), Math.max(0, Math.min(N - 1, Math.round(sp.tip[1])))] : null;
     if (anim === "stone") px = px.map(c => c && c !== OUT ? toStone(c) : c);
     if (flip) { px = new Array(N * N).fill(null); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) px[y * N + (N - 1 - x)] = sp.px[y * N + x]; if (anim === "stone") px = px.map(c => c && c !== OUT ? toStone(c) : c); if (tip) tip = [N - 1 - tip[0], tip[1]]; }
-    const out = { px, N, w: N, h: N, kind, facing: climbing ? "away" : facing, anim, i, glow: K.glow, tip, _c: null, _w: null, _s: [],
+    const out = { px, N, w: N, h: N, kind, facing: climbing ? "away" : facing, anim, i, glow: K.glow, dent: K.dent, tip, _c: null, _w: null, _s: [],
       canvas() { return this._c || (this._c = toCanvas(px, N, null)); },
       white() { return this._w || (this._w = toCanvas(px, N, () => "#ffffff")); },
       // the stone death's ramp swap, step 1 to 4 (4 is all stone); a dithered share of the pixels each step
@@ -752,10 +1057,10 @@
       return thing(px, 16, 14, 8, 13);
     });
   }
-  // a kind's sprite on the knight's interface: { kind, N, FACINGS, ANIMS, frame(facing, anim, i, glow) }
-  function sprite(kind) { if (!KIND[kind]) kind = "footman"; return { kind, N: KIND[kind].N, FACINGS, DRAWING, ANIMS: ANIMS[kind], frame: (facing, anim, i, glow) => frame(kind, facing, anim, i, glow) }; }
+  // a kind's sprite on the knight's interface: { kind, N, FACINGS, ANIMS, frame(facing, anim, i, glow, dent) }
+  function sprite(kind) { if (!KIND[kind]) kind = "footman"; return { kind, N: KIND[kind].N, FACINGS, DRAWING, ANIMS: ANIMS[kind], frame: (facing, anim, i, glow, dent) => frame(kind, facing, anim, i, glow, dent) }; }
 
-  const BODY = { footman, archer, brute };
+  const BODY = { footman, archer, brute, knight: trollKnight, wolf };
   root.Trolls = { OUT, R, STONE, KINDS, KIND, FACINGS, DRAWING, ANIMS, frame, sprite, poseOf, toStone, stonePixels, DIRS, dirOf, PROJECTILES, projectile, chunk, shadow, pouch, splash, rock };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Trolls;
 })(typeof window !== "undefined" ? window : globalThis);
