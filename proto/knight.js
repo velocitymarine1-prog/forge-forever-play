@@ -13,6 +13,10 @@
 // arguments, as the rules and the cellar ask, is the cellar's knight, pixel for pixel: alone, the player is the cellar's knight.
 // Pass 1's four heroes replace it later through the same interface. The pixels are made without a DOM, so node can check them;
 // canvases are made only when a page asks. Plain script, defines window.Knight. Needs no other file.
+// Since build 13 (card t74, design pass 20: the melee combos) it also has the ten poses of a combo's swing (COMBO): raise (the weapon
+// over the head), chop (driven down in front), cock (drawn back behind the body), sweep (swept out in front), crouch (low, for the
+// rising cut), rise (stretched up on the toes), draw (the thrust's draw), lunge (the thrust), leap (in the air, tucked) and land (the
+// slam), from the side and the front; from behind each is the front's mirror with no face. Every other frame is unchanged.
 (function (root) {
   "use strict";
   const N = 32, OUT = "#181425";
@@ -23,7 +27,8 @@
   // the four facings and the drawing each uses: right and left the side drawing (left mirrored), away the back, toward the front
   const FACINGS = ["right", "left", "away", "toward"];
   const DRAWING = { right: ["side", false], left: ["side", true], away: ["up", false], toward: ["down", false] };
-  const ANIMS = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, bonk: 1, hurt: 1, down: 1, crawl: 2, climb: 2, fall: 1, teeter: 1 };
+  const ANIMS = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, bonk: 1, hurt: 1, down: 1, crawl: 2, climb: 2, fall: 1, teeter: 1,
+    raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1 };   // pass 20: the combo's poses
   // the seats' colours (design pass 12 section 3.12): none green, so no knight reads as a troll, none red, so none reads as a warning.
   // SEATS is the colour itself; SEAT_RAMP lights it for the plume (dark, the colour, lit, glint)
   const SEATS = ["#ffffff", "#2ce8f5", "#fee761", "#b55088"];
@@ -40,6 +45,8 @@
   const rect = (x0, y0, x1, y1) => (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
   const ell = (cx, cy, rx, ry) => (x, y) => ((x - cx) ** 2) / (rx * rx) + ((y - cy) ** 2) / (ry * ry) <= 1.02;
   const or = (...f) => (x, y) => f.some(g => g(x, y));
+  // pass 20: a limb along a segment, r its half width (a combo's arms reach on the slant)
+  const cap = (x0, y0, x1, y1, r) => (x, y) => { const vx = x1 - x0, vy = y1 - y0, L = vx * vx + vy * vy; let t = L ? ((x - x0) * vx + (y - y0) * vy) / L : 0; t = Math.max(0, Math.min(1, t)); const dx = x - (x0 + t * vx), dy = y - (y0 + t * vy); return dx * dx + dy * dy <= r * r + 0.01; };
   function region(sp, pred, ramp, o) {
     o = o || {}; const m = (x, y) => x >= 0 && y >= 0 && x < N && y < N && pred(x, y);
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (m(x, y)) {
@@ -175,7 +182,7 @@
     if (P.prone !== undefined) return drawProne(P.prone, L);
     const sp = new Grid(), STEEL = R.steel, DARK = R.iron, LEATHER = R.leather, GOLD = R.gold, CLOTH = L.tabard, PLUME = L.plume;
     const side = drawing === "side", hip = P.hip, X = P.lean || 0, hx = (P.head || [0, 0])[0], hy = (P.head || [0, 0])[1];
-    const limb = (a, ramp) => { region(sp, rect(a.x0, a.y0, a.x1, a.y1), ramp); if (a.fist) region(sp, rect(a.fist[0], a.fist[1], a.fist[2], a.fist[3]), DARK); };
+    const limb = (a, ramp) => { region(sp, a.seg ? cap(a.seg[0], a.seg[1], a.seg[2], a.seg[3], a.w || 1.3) : rect(a.x0, a.y0, a.x1, a.y1), ramp); if (a.fist) region(sp, rect(a.fist[0], a.fist[1], a.fist[2], a.fist[3]), DARK); };   // (pass 20: a.seg, an arm on the slant)
     for (const a of P.arms) if (a.behind) limb(a, a.far ? DARK : STEEL);   // an arm behind the body, drawn first
     for (const g of P.legs) { region(sp, rect(g.x, g.y0, g.x + 2, g.y1), g.far ? DARK : STEEL); if (g.boot) region(sp, rect(g.boot[0], g.y1, g.boot[1], g.y1 + 1), LEATHER, g.far ? { flat: 1 } : undefined); if (g.shin) region(sp, rect(g.shin[0], g.shin[1], g.shin[2], g.shin[3]), g.far ? DARK : STEEL); }
     const sx0 = side ? 11 + X : 11, sx1 = side ? 19 + X : 20, skirt = P.skirt || 4;
@@ -243,8 +250,68 @@
     sp.hand = hand;
     return sp;
   }
+  // pass 20: the poses of a combo's swing, by drawing (side: facing right; down: toward the camera, the weapon hand on the right of the
+  // grid; up is down's mirror with no face). An arm on the slant is a segment (seg: from the shoulder to the wrist) with a fist; the
+  // hand is the pixel the weapon's grip sits on. A pose's legs and hips carry the swing's weight: back for a wind-up, forward and low
+  // for a blow, up on the toes for a rising cut, tucked in the air for a leap
+  const HANG_L = { x0: 7, y0: 15, x1: 9, y1: 20, fist: [7, 21, 9, 22] };
+  const COMBO = {
+    side: {
+      raise: { hip: 20, lean: -1, head: [-1, 0], legs: [{ x: 11, y0: 24, y1: 29, boot: [10, 14], far: true }, { x: 16, y0: 24, y1: 29, boot: [16, 20] }],
+        arms: [{ seg: [16, 14, 20, 5], fist: [19, 1, 21, 3], over: true }], hand: [20, 2] },
+      chop: { hip: 21, lean: 2, head: [1, 1], legs: [{ x: 10, y0: 25, y1: 29, boot: [9, 13], far: true }, { x: 18, y0: 25, y1: 29, boot: [18, 22] }],
+        arms: [{ seg: [17, 15, 23, 19], fist: [24, 18, 26, 20] }], hand: [25, 19] },
+      cock: { hip: 20, lean: -1, head: [-1, 0], legs: [{ x: 11, y0: 24, y1: 29, boot: [10, 14], far: true }, { x: 15, y0: 24, y1: 29, boot: [15, 19] }],
+        arms: [{ seg: [13, 15, 7, 18], fist: [4, 17, 6, 19], behind: true }], hand: [5, 18] },
+      sweep: { hip: 20, lean: 1, head: [1, 0], legs: [{ x: 11, y0: 24, y1: 29, boot: [10, 14], far: true }, { x: 17, y0: 24, y1: 29, boot: [17, 21] }],
+        arms: [{ seg: [16, 15, 23, 16], fist: [24, 15, 26, 17] }], hand: [25, 16] },
+      crouch: { hip: 23, lean: 1, head: [1, 0], skirt: 3, legs: [{ x: 11, y0: 26, y1: 29, boot: [10, 14], far: true }, { x: 16, y0: 26, y1: 29, boot: [16, 20] }],
+        knees: [[17.5, 26, 2.2, 1.4]], arms: [{ seg: [15, 18, 11, 24], fist: [9, 25, 11, 27] }], hand: [10, 26] },
+      rise: { hip: 19, lean: 1, head: [0, -1], plume: "up", legs: [{ x: 12, y0: 23, y1: 27, boot: [11, 14], far: true }, { x: 16, y0: 23, y1: 29, boot: [16, 19] }],
+        arms: [{ seg: [17, 13, 22, 5], fist: [21, 2, 23, 4], over: true }], hand: [22, 3] },
+      draw: { hip: 20, lean: -1, head: [-1, 0], legs: [{ x: 11, y0: 24, y1: 29, boot: [10, 14], far: true }, { x: 16, y0: 24, y1: 29, boot: [16, 20] }],
+        arms: [{ seg: [13, 15, 10, 18], fist: [7, 17, 9, 19] }], hand: [8, 18] },
+      lunge: { hip: 21, lean: 2, head: [1, 1], legs: [{ x: 9, y0: 25, y1: 29, boot: [8, 12], far: true }, { x: 19, y0: 25, y1: 29, boot: [19, 23] }],
+        arms: [{ seg: [17, 16, 25, 16], fist: [26, 15, 28, 17] }], hand: [27, 16] },
+      leap: { hip: 21, lean: 0, plume: "up", legs: [{ x: 11, y0: 25, y1: 29, boot: [10, 13], far: true }, { x: 16, y0: 24, y1: 27, boot: [16, 19] }],
+        arms: [{ seg: [16, 15, 20, 6], fist: [19, 3, 21, 5], over: true }], hand: [20, 4] },
+      land: { hip: 24, lean: 2, head: [1, 2], skirt: 3, legs: [{ x: 9, y0: 27, y1: 29, boot: [8, 12], far: true }, { x: 18, y0: 27, y1: 29, boot: [18, 22] }],
+        knees: [[19.5, 26.5, 2.2, 1.4]], arms: [{ seg: [17, 19, 22, 25], fist: [23, 25, 25, 27] }], hand: [24, 26] }
+    },
+    down: {
+      raise: { hip: 20, legs: [{ x: 12, y0: 24, y1: 29, boot: [11, 14] }, { x: 17, y0: 24, y1: 29, boot: [17, 20] }],
+        arms: [HANG_L, { seg: [23, 14, 24, 4], fist: [23, 1, 25, 3], over: true }], hand: [24, 2] },
+      chop: { hip: 21, head: [0, 1], legs: [{ x: 11, y0: 25, y1: 29, boot: [10, 13] }, { x: 18, y0: 25, y1: 29, boot: [18, 21] }],
+        arms: [HANG_L, { seg: [22, 15, 18, 21], fist: [16, 22, 18, 24], over: true }], hand: [17, 23] },
+      cock: { hip: 20, legs: [{ x: 12, y0: 24, y1: 29, boot: [11, 14] }, { x: 17, y0: 24, y1: 29, boot: [17, 20] }],
+        arms: [HANG_L, { seg: [23, 15, 28, 16], fist: [28, 15, 30, 17] }], hand: [29, 16] },
+      sweep: { hip: 20, legs: [{ x: 12, y0: 24, y1: 29, boot: [11, 14] }, { x: 17, y0: 24, y1: 29, boot: [17, 20] }],
+        arms: [HANG_L, { seg: [22, 16, 8, 18], fist: [4, 17, 6, 19], over: true }], hand: [5, 18] },
+      crouch: { hip: 23, skirt: 3, legs: [{ x: 11, y0: 26, y1: 29, boot: [10, 13] }, { x: 18, y0: 26, y1: 29, boot: [18, 21] }],
+        knees: [[12.5, 26, 2.2, 1.2], [19.5, 26, 2.2, 1.2]], arms: [{ x0: 7, y0: 18, x1: 9, y1: 23, fist: [7, 24, 9, 25] }, { seg: [23, 18, 24, 24], fist: [23, 25, 25, 27] }], hand: [24, 26] },
+      rise: { hip: 19, plume: "up", legs: [{ x: 12, y0: 23, y1: 28, boot: [11, 14] }, { x: 17, y0: 23, y1: 29, boot: [17, 20] }],
+        arms: [{ x0: 7, y0: 14, x1: 9, y1: 19, fist: [7, 20, 9, 21] }, { seg: [23, 13, 23, 4], fist: [22, 1, 24, 3], over: true }], hand: [23, 2] },
+      draw: { hip: 20, legs: [{ x: 12, y0: 24, y1: 29, boot: [11, 14] }, { x: 17, y0: 24, y1: 29, boot: [17, 20] }],
+        arms: [HANG_L, { seg: [23, 15, 24, 12], fist: [23, 9, 25, 11] }], hand: [24, 10] },
+      lunge: { hip: 21, head: [0, 1], legs: [{ x: 11, y0: 25, y1: 29, boot: [10, 13] }, { x: 18, y0: 25, y1: 29, boot: [18, 21] }],
+        arms: [HANG_L, { seg: [21, 16, 19, 21], fist: [17, 21, 20, 24], over: true }], hand: [18, 23] },
+      leap: { hip: 21, plume: "up", legs: [{ x: 11, y0: 25, y1: 29, boot: [10, 13] }, { x: 18, y0: 24, y1: 27, boot: [18, 21] }],
+        arms: [{ seg: [9, 15, 12, 6], fist: [11, 3, 13, 5], over: true }, { seg: [22, 15, 19, 6], fist: [18, 3, 20, 5], over: true }], hand: [19, 4] },
+      land: { hip: 24, skirt: 3, head: [0, 2], legs: [{ x: 10, y0: 27, y1: 29, boot: [9, 12] }, { x: 19, y0: 27, y1: 29, boot: [19, 22] }],
+        knees: [[11.5, 26.5, 2.2, 1.2], [20.5, 26.5, 2.2, 1.2]], arms: [{ x0: 7, y0: 19, x1: 9, y1: 24, fist: [7, 25, 9, 26] }, { seg: [22, 19, 19, 25], fist: [17, 26, 20, 28], over: true }], hand: [18, 27] }
+    }
+  };
+  // the back view of a combo pose: the front's mirror across the grid, with no face
+  function mirrorParts(P) {
+    const mx = x => N - 1 - x, box = b => [mx(b[2]), b[1], mx(b[0]), b[3]];
+    const arm = a => Object.assign({}, a, a.seg ? { seg: [mx(a.seg[0]), a.seg[1], mx(a.seg[2]), a.seg[3]] } : { x0: mx(a.x1), x1: mx(a.x0) }, a.fist ? { fist: box(a.fist) } : {});
+    return Object.assign({}, P, { back: true, legs: P.legs.map(g => Object.assign({}, g, { x: mx(g.x + 2) }, g.boot ? { boot: [mx(g.boot[1]), mx(g.boot[0])] } : {})),
+      knees: (P.knees || []).map(k => [mx(k[0]), k[1], k[2], k[3]]), arms: P.arms.map(arm), hand: [mx(P.hand[0]), P.hand[1]] });
+  }
+  function comboParts(drawing, anim) { return drawing === "side" ? COMBO.side[anim] : drawing === "up" ? mirrorParts(COMBO.down[anim]) : COMBO.down[anim]; }
   // the parts of the new frames for a drawing
   function partsOf(drawing, anim, i) {
+    if (COMBO.side[anim]) return comboParts(drawing, anim);   // pass 20
     const side = drawing === "side";
     const stand = d => d === "side"
       ? [{ x: 13, y0: 24, y1: 29, boot: [12, 16], far: true }, { x: 15, y0: 24, y1: 29, boot: [15, 19] }]
@@ -296,7 +363,7 @@
       arms: [{ x0: 3, y0: 13, x1: 8, y1: 15, fist: [1, 12, 2, 15] }, { x0: 23, y0: 16, x1: 28, y1: 18, fist: [29, 15, 30, 18] }],
       back: drawing === "up", hand: drawing === "down" ? [29, 16] : [2, 13] };
   }
-  const MORE = { hurt: 1, down: 1, crawl: 1, climb: 1, fall: 1, teeter: 1 };
+  const MORE = { hurt: 1, down: 1, crawl: 1, climb: 1, fall: 1, teeter: 1, raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1 };   // (pass 20: the combo's poses)
 
   // ------------------------------------------------------------------ the overlays
   // made from a frame's own pixels, for any square grid of n (a troll's too): burning, 3 px tongues of flame, #f77622 over #feae34,

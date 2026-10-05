@@ -68,6 +68,31 @@
     K.resist = join("resist", "weak"); K.weak = join("weak", "resist"); K.immune = join("immune", "none");
     return K;
   }
+  // the melee combos (design pass 20, card t74): spec/combat.json "combos"; with the block missing or its on false, every blow is today's
+  const combosOn = () => { const CB = data().combos; return !!(CB && CB.on); };
+  // the set of moves a melee weapon plays: its class's (a legend's body, its left class), else its form's
+  function setOf(u) {
+    const CB = data().combos; if (!CB || !u || !u.melee) return null;
+    const base = u.base === "claws" ? "claw" : u.base;
+    return CB.sets && CB.sets[base] ? base : ((CB.byForm || {})[u.form] || null);
+  }
+  // the finisher's units: the hand's own, its damage, its push and its form's own measure multiplied (a spin's: its reach)
+  function finisherUnits(u) {
+    const X = data().combos.finisher, f = Object.assign({}, u, { isFinisher: true }), A = X.area || {}, lever = u.spin ? A.spin : A[u.form];
+    f.K = u.K * X.K; f.push = u.push * X.push;
+    if (lever && typeof f[lever[0]] === "number") f[lever[0]] = lever[0] === "arc" ? Math.min(360, f[lever[0]] * lever[1]) : f[lever[0]] * lever[1];
+    return f;
+  }
+  // a chain is broken wherever a strike is cut short (a dodge, a swap, a stagger in the wind-up, a fall, a freeze, the ability, the ram,
+  // the rack, the quintain's bonk, a wipe, Reset): the next blow is move I
+  function breakChain(k) { for (const h of k.hands) h.combo = null; if (k.carry) k.carry.combo = null; }
+  // the move a knight's strike plays, for the screen: { n, set, move, s, T, a, twin, form }, or null when it is no combo blow
+  function swingOf(fight, k) {
+    k = k || fight.k; const s = k && k.strike, CB = data().combos;
+    if (!s || !s.move || !CB) return null;
+    const list = (CB.sets || {})[s.set] || [];
+    return { n: s.move, set: s.set, move: list[s.move - 1] || null, s: s.t, T: { wind: s.wind, act: s.act, dur: s.dur, finisher: s.move === 3 }, a: s.a, twin: s.twin, form: s.form };
+  }
   // a legend's ability (design pass 10): the head's class decides it; spec/abilities.json holds all twenty
   let ABIL = null;
   function abilities() { if (!ABIL) ABIL = root.FORGE_ABILITIES || { classes: {} }; return ABIL.classes || {}; }
@@ -269,7 +294,7 @@
   }
   // a hand: one weapon's units and clocks. Its units know whose hand made them (u.knight), so a shot, a trap, a minion, a patch or a
   // status pushes, pulls, heals and is logged for the knight that loosed it
-  function newHand(t, k) { const u = units(t), h = { thing: t, u, u2: u.second, ua: abilityUnits(t), acd: 0, acdOf: 1, cd: 0, recover: 0, recoverOf: 0, count: 0, lungeCd: 0, orbit: null, aura: null, practice: !!t.practice }; for (const x of [u, h.u2, h.ua]) if (x) x.knight = k; return h; }
+  function newHand(t, k) { const u = units(t), h = { thing: t, u, u2: u.second, ua: abilityUnits(t), acd: 0, acdOf: 1, cd: 0, recover: 0, recoverOf: 0, count: 0, lungeCd: 0, orbit: null, aura: null, practice: !!t.practice, combo: null, uf: null }; for (const x of [u, h.u2, h.ua]) if (x) x.knight = k; return h; }
   function newDummy(d, i) {
     const C = data(), Z = isRule(C.dummies[d.kind]) ? C.dummies[d.kind] : C.dummies.straw;
     const o = { i, kind: isRule(C.dummies[d.kind]) ? d.kind : "straw", name: Z.name, x: d.x, y: d.y, r: Z.r, chest: Z.chest, head: Z.head, eyes: Z.eyes, size: Z.size, shadow: Z.shadow, puff: Z.puff,
@@ -285,7 +310,7 @@
     const k = fight.knights[seat || 0], old = k.hands[i], h = newHand(t, k);
     if (old) { h.orbit = old.orbit; h.aura = old.aura; }
     k.hands[i] = h;
-    if (i === k.active) { k.strike = null; k.twinQ = null; stopStream(fight, k); k.gout = null; k.charging = false; k.chargeT = 0; }
+    if (i === k.active) { k.strike = null; k.twinQ = null; stopStream(fight, k); k.gout = null; k.charging = false; k.chargeT = 0; breakChain(k); }
     for (const n of h.u.notes.concat(h.u2 ? h.u2.notes : [])) logOnce(fight, n);
     return true;
   }
@@ -463,7 +488,7 @@
     if (swap && k.carry && k.swapT <= 0 && (!staggered || ST.swap)) { putRam(fight, k); k.swapT = KN.swap; }
     else if (swap && k.hands.length > 1 && k.swapT <= 0 && k.bonk <= 0 && (!staggered || ST.swap)) {
       k.active = (k.active + 1) % k.hands.length; k.swapT = KN.swap;
-      k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; stopStream(fight, k);
+      k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; stopStream(fight, k); breakChain(k);
       emit(fight, { type: "swap", hand: k.active, weapon: k.hands[k.active].thing.id }, k);
     }
     const hand = handOf(k), u = hand.u;
@@ -481,7 +506,7 @@
       const a = mm > 0.05 ? Math.atan2(mv[1], mv[0]) : k.face, D = KN.dodge;
       k.dodge = D.time; k.dodgeCd = D.cooldown; k.safe = D.safe; k.dvx = Math.cos(a) * D.px / D.time; k.dvy = Math.sin(a) * D.px / D.time;
       if (staggered && ST.dodgeEnds) k.stagger = 0;
-      k.strike = null; k.twinQ = null; k.charging = false; k.chargeT = 0; stopStream(fight, k);
+      k.strike = null; k.twinQ = null; k.charging = false; k.chargeT = 0; stopStream(fight, k); breakChain(k);
       emit(fight, { type: "dodge", x: k.x, y: k.y, a }, k);
     }
     if (k.dodge > 0) {
@@ -516,11 +541,21 @@
     if (abil && hand.ua && hand.acd <= 0 && k.swapT <= 0 && (!staggered || ST.ability)) { useAbility(fight, k, hand, inp.target); }
     // a blow was struck with the units fu: it counts, and a blow of a repeating form starts the hand's cooldown (1 / rate, the overshoot
     // of the last one carried, so a held Strike keeps the weapon's rate exactly)
-    const did = fu => { if (!fu) return; hand.count++; if (C.forms[fu.form].blow) hand.cd = Math.max(hand.cd, -dt) + 1 / fu.rate; };
+    // (design pass 20) after a finisher the cooldown is longer by the reset beat; a chain lapses `window` s after the hand is ready again
+    const did = fu => {
+      if (!fu) return; hand.count++;
+      if (!C.forms[fu.form].blow) return;
+      const s = k.strike, mv = s && s.move && s.hand === k.active ? s.move : 0;
+      hand.cd = Math.max(hand.cd, -dt) + 1 / fu.rate * (mv === 3 ? 1 + C.combos.reset : 1);
+      if (mv && hand.combo) hand.combo.until = fight.t + Math.max(hand.cd, s.dur - s.t) + C.combos.window;
+    };
     if (u.mods.has("charge") && u.form !== "stream") {
       // charge: hold to charge (up to 1 s), release to strike at x (1 + 1.5 x the charge); a charge weapon doesn't repeat while held
       const CH = C.modifiers.charge;
-      if (held && ready && hand.cd <= 0 && !k.charging && (F.blow || pressed)) { k.charging = true; k.chargeT = dt; emit(fight, { type: "charge", hand: k.active }, k); }
+      if (held && ready && hand.cd <= 0 && !k.charging && (F.blow || pressed)) {
+        k.charging = true; k.chargeT = dt; emit(fight, { type: "charge", hand: k.active }, k);
+        if (hand.combo && fight.t <= hand.combo.until + 1e-9) hand.combo.until = Infinity;   // (design pass 20) a charge begun in the window holds the chain
+      }
       else if (held && k.charging) k.chargeT = Math.min(CH.time, k.chargeT + dt);
       else if (!held && k.charging) {
         k.charging = false;
@@ -544,11 +579,11 @@
     }
     if (k.strike) strikeStep(fight, k, dt);
     // twin: every blow repeats 0.15 s later (once the first has landed)
-    if (k.twinQ) { k.twinQ.t -= dt; if (k.twinQ.t <= 0 && (!k.strike || k.strike.done)) { const q = k.twinQ; k.twinQ = null; if (k.swapT <= 0) { startStrike(fight, k, q.fu, q.want, true, q.charge, q.first); strikeStep(fight, k, 0); } } }
+    if (k.twinQ) { k.twinQ.t -= dt; if (k.twinQ.t <= 0 && (!k.strike || k.strike.done)) { const q = k.twinQ; k.twinQ = null; if (k.swapT <= 0) { startStrike(fight, k, q.fu, q.want, true, q.charge, q.first, q.move); strikeStep(fight, k, 0); } } }
   }
   function useAbility(fight, k, hand, want) {
     const ua = hand.ua, A = ua.ability;
-    k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; stopStream(fight, k);
+    k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; stopStream(fight, k); breakChain(k);
     hand.acd = A.cooldown; hand.acdOf = A.cooldown;
     emit(fight, { type: "ability", name: A.name, hand: k.active, x: k.x, y: k.y, el: ua.element }, k);
     playAbility(fight, k, hand, ua, 0, want);
@@ -625,8 +660,17 @@
     if (done) return fu;
     return second ? blow(fight, k, false, want, isTwin, charge) : null;   // none could start: the blow is the first form
   }
-  function startStrike(fight, k, fu, want, isTwin, charge, first) {
+  // (design pass 20) a melee blow of the hand's own units is the next move of the hand's chain (a twin's repeat: its first's, `move`);
+  // move III strikes with the finisher's units, a longer wind-up and a longer follow-through
+  function startStrike(fight, k, fu, want, isTwin, charge, first, move) {
     const C = data(), hand = handOf(k), F = C.forms[fu.form], M = C.modifiers;
+    let mv = 0, set = null;
+    if (combosOn() && fu.melee && !fu.isAbility && !fu.ram && hand && (fu === hand.u || fu === hand.uf) && (set = setOf(hand.u))) {
+      if (isTwin) mv = move || 0;
+      else { const c = hand.combo; mv = c && c.n > 0 && c.n < 3 && fight.t <= c.until + 1e-9 ? c.n + 1 : 1; hand.combo = { n: mv, until: Infinity }; }
+      if (mv === 3) fu = hand.uf || (hand.uf = finisherUnits(hand.u));
+      else if (mv) fu = hand.u;
+    }
     let am = aim(fight, fu, want, isTwin ? first : undefined, k);
     if (isTwin && !am.d && first) am = aim(fight, fu, first.i, undefined, k);   // twin: the next-nearest target, or the same one
     const s = k.strike = { form: fu.form, fu, hand: k.active, t: 0, wind: fu.windT || F.wind, act: F.act, dur: fu.windT ? Math.max(F.dur, fu.windT + F.act + 0.1) : F.dur, a: am.a, target: am.d, done: false, twin: !!isTwin, charge: charge || 1 };
@@ -642,8 +686,10 @@
         emit(fight, { type: "fx", kind: "dash", x: k.x, y: k.y, a: am.a }, k);
       }
     }
-    emit(fight, { type: "strike", form: fu.form, hand: k.active, second: fu.isSecond, twin: !!isTwin, a: am.a, target: am.d ? am.d.i : null, charge: s.charge }, k);
-    if (fu.mods.has("twin") && !isTwin) k.twinQ = { t: M.twin.gap, fu, want, charge, first: am.d };
+    if (mv) { s.move = mv; s.set = set; if (mv === 3) { const X = C.combos.finisher; s.wind += X.wind; s.dur += X.wind + X.follow; } }
+    const se = emit(fight, { type: "strike", form: fu.form, hand: k.active, second: fu.isSecond, twin: !!isTwin, a: am.a, target: am.d ? am.d.i : null, charge: s.charge }, k);
+    if (mv) { se.move = mv; se.set = set; }
+    if (fu.mods.has("twin") && !isTwin) k.twinQ = mv ? { t: M.twin.gap, fu, want, charge, first: am.d, move: mv } : { t: M.twin.gap, fu, want, charge, first: am.d };
     return s;
   }
   function strikeStep(fight, k, dt) {
@@ -664,20 +710,26 @@
   function resolve(fight, k, s) {
     const C = data(), u = s.fu, [ox, oy] = chestOf(k), amount = u.hit * u.K * s.charge;
     const look = { el: u.element, mat: u.material };
-    const o = extra => Object.assign({ form: s.form, kind: "direct", from: [ox, oy], melee: true, fu: u }, extra || {});
+    // (design pass 20) a combo blow: its hits name the move, and in place of the crescent or the streaks the screen draws the move's swing
+    const mvName = s.move ? ((C.combos.sets || {})[s.set] || [])[s.move - 1] || null : null, fin = s.move === 3;
+    const o = extra => Object.assign(mvName ? { form: s.form, kind: "direct", from: [ox, oy], melee: true, fu: u, move: mvName } : { form: s.form, kind: "direct", from: [ox, oy], melee: true, fu: u }, extra || {});
+    const swing = () => emit(fight, Object.assign({ type: "fx", kind: "swing", x: ox, y: oy, r: u.reach, a: s.a, n: s.move, set: s.set, move: mvName, fin, twin: !!s.twin }, look), k);
     const struck = [];
     if (s.form === "slash") {
       const half = u.arc / 2 * RAD, a0 = s.a - half, a1 = s.a + half;
-      emit(fight, Object.assign({ type: "fx", kind: "smear", x: ox, y: oy, r: u.reach, a0: u.spin ? s.a : a0, a1: u.spin ? s.a + TAU : a1, style: u.spin ? "spin" : (SMEAR[u.fuse || u.base] || "crescent") }, look), k);
+      if (s.move) swing();
+      else emit(fight, Object.assign({ type: "fx", kind: "smear", x: ox, y: oy, r: u.reach, a0: u.spin ? s.a : a0, a1: u.spin ? s.a + TAU : a1, style: u.spin ? "spin" : (SMEAR[u.fuse || u.base] || "crescent") }, look), k);
       for (const d of targets(fight)) { if (!canHit(fight, k, d, u)) continue; const p = hitPoint(d), dd = dist(ox, oy, p[0], p[1]), a = Math.atan2(p[1] - oy, p[0] - ox);
         if (dd <= u.reach + d.r && (u.spin || Math.abs(angDiff(a, s.a)) <= half + C.forms.slash.slack)) { struck.push(d); hit(fight, d, amount, o()); } }
       if ((u.fuse || u.base) === "axe" && !u.spin) emit(fight, { type: "fx", kind: "dust", x: ox + Math.cos(s.a) * u.reach, y: k.y + Math.sin(s.a) * u.reach * 0.6 }, k);
     } else if (s.form === "thrust") {
       if (u.spin) {
-        emit(fight, Object.assign({ type: "fx", kind: "smear", x: ox, y: oy, r: u.reach, a0: s.a, a1: s.a + TAU, style: "spin" }, look), k);
+        if (s.move) swing();
+        else emit(fight, Object.assign({ type: "fx", kind: "smear", x: ox, y: oy, r: u.reach, a0: s.a, a1: s.a + TAU, style: "spin" }, look), k);
         for (const d of targets(fight)) { if (!canHit(fight, k, d, u)) continue; const p = hitPoint(d); if (dist(ox, oy, p[0], p[1]) <= u.reach + d.r) { struck.push(d); hit(fight, d, amount, o()); } }
       } else {
-        emit(fight, Object.assign({ type: "fx", kind: "streak", x: ox, y: oy, a: s.a, len: u.reach }, look), k);
+        if (s.move) swing();
+        else emit(fight, Object.assign({ type: "fx", kind: "streak", x: ox, y: oy, a: s.a, len: u.reach }, look), k);
         const hits = [], ca = Math.cos(s.a), sa = Math.sin(s.a);
         for (const d of targets(fight)) { if (!canHit(fight, k, d, u)) continue; const p = hitPoint(d), dx = p[0] - ox, dy = p[1] - oy, along = dx * ca + dy * sa, across = Math.abs(-dx * sa + dy * ca);
           if (along >= 0 && along <= u.reach + d.r && across <= u.width / 2 + d.r) hits.push([along, d]); }
@@ -690,16 +742,19 @@
       const R = u.land && s.target ? Math.min(u.reach, Math.max(0, dist(ox, oy, hitPoint(s.target)[0], hitPoint(s.target)[1]))) : u.reach;
       const cx = u.spin ? ox : ox + Math.cos(s.a) * R, cy = u.spin ? oy : oy + Math.sin(s.a) * R, r = u.spin ? u.reach : u.burst;
       const gy = u.spin ? k.y : k.y + Math.sin(s.a) * R * 0.6 + 2;
+      if (s.move) swing();
       emit(fight, Object.assign({ type: "fx", kind: u.spin ? "whirl" : "ring", x: cx, y: gy, r }, look), k);
       if (!u.spin) emit(fight, { type: "fx", kind: "crack", x: cx, y: gy, seed: fight.steps }, k);
       if (!u.spin && fight.marks) stamp(fight, "crack", cx, gy, Math.round(u.burst * (C.forms.smash.crack || 1)), k.z || 0);   // a smash form's crack stays on the field (section 3.6a)
-      emit(fight, { type: "shake", amp: C.forms.smash.shake, time: C.feel.shakeT }, k);
+      if (!fin) emit(fight, { type: "shake", amp: C.forms.smash.shake, time: C.feel.shakeT }, k);
       for (const d of targets(fight)) { if (!canHit(fight, k, d, u)) continue; const p = hitPoint(d); if (dist(cx, cy, p[0], p[1]) <= r + d.r) { struck.push(d); hit(fight, d, amount, o({ centre: u.spin ? null : [cx, cy + C.knight.chest] })); } }
     } else if (s.form === "shoot") {
       shoot(fight, k, s);
     } else if (s.form === "lob") {
       lob(fight, k, s);
     }
+    // the finisher shakes the screen (a smash's harder), in place of a smash's own shake
+    if (fin) { const X = C.combos.finisher; emit(fight, { type: "shake", amp: s.form === "smash" ? X.shakeSmash : X.shake, time: X.shakeT }, k); }
     if (u.melee) {
       // split, off a projectile: each attack also hits a second target within reach at 50 %
       if (u.mods.has("split")) {
@@ -1196,8 +1251,10 @@
     // in a level the wall is any solid: the troll's circle swept along the push for push / mass px meets one (section 3.2a)
     else if (d.foe && u.mods.has("bounce") && direct && o.form !== "shoot" && o.form !== "lob" && push > 0 && !d.st.freeze && !d.st.stun && sweeps(fight, d, ang, push / phys().massOf(d))) { dmg *= M.bounce.wall; if (!tag) tag = "WALL"; }
     const at = d.foe || d.piece ? drawnAt(d) : hp;
+    const XF = u.isFinisher && direct && o.melee ? C.combos.finisher : FEEL;   // (design pass 20) a finisher holds the screen longer
     const e = emit(fight, { type: "hit", d: d.i, dummy: d.kind, amount: dmg, tag, crit, form: o.form, element: u.element, kind: o.kind, why: o.why || null, x: at[0], y: at[1], melee: !!o.melee,
-      hold: direct && o.melee ? (crit ? FEEL.holdCrit : FEEL.hold) : 0, sum: !!o.sum }, k);
+      hold: direct && o.melee ? (crit ? XF.holdCrit : XF.hold) : 0, sum: !!o.sum }, k);
+    if (o.move && direct) { e.move = o.move; if (u.isFinisher) e.fin = true; }
     log(fight, d, dmg);
     // a level: a piece takes its hit points and nothing else (statuses do not act on it); a troll takes its hit points, then the rest
     if (d.piece) { if (direct) d.flash = FEEL.flash; damage(fight, d, dmg, null, foot, k); return e; }
@@ -1338,14 +1395,14 @@
   // a blow's stagger: a strike still in its wind-up is cut short (one past it finishes, and a held charge keeps charging)
   function stagger(fight, k, s) {
     k.stagger = Math.max(k.stagger, s);
-    if (k.strike && k.strike.t < k.strike.wind) { k.strike = null; k.twinQ = null; k.lunge = null; }
+    if (k.strike && k.strike.t < k.strike.wind) { k.strike = null; k.twinQ = null; k.lunge = null; breakChain(k); }
   }
   function fall(fight, k) {
     const C = data();
     if (k.carry) putRam(fight, k);   // a knight who goes down drops the ram
     if (k.climbing) phys().letGo(fight.world, k, false);   // and lets go of a ladder
     clearStatuses(fight, k, "down");   // being downed puts a burn out, and the cold goes with it
-    k.hp = 0; k.hurt = 0; k.stagger = 0; k.dodge = 0; k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.lunge = null; stopStream(fight, k);
+    k.hp = 0; k.hurt = 0; k.stagger = 0; k.dodge = 0; k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.lunge = null; stopStream(fight, k); breakChain(k);
     const solo = soloOf(fight) && full(k), brothers = fight.knights.some(b => !full(b));
     if (solo && k.secondWind) { k.secondWind = false; k.rise = C.secondWind.delay; emit(fight, { type: "secondWind", x: k.x, y: k.y, delay: k.rise }, k); return; }
     if (solo && !brothers) { wipe(fight); return; }   // alone, the second fall is a wipe
@@ -1362,7 +1419,7 @@
   function wipe(fight) {
     if (fight.wipe) return;
     fight.wipe = { t: data().wipe.wait }; fight.level.wipes++;
-    for (const k of fight.knights) { k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.lunge = null; k.dodge = 0; stopStream(fight, k); clearStatuses(fight, k, "wipe"); }
+    for (const k of fight.knights) { k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.lunge = null; k.dodge = 0; stopStream(fight, k); breakChain(k); clearStatuses(fight, k, "wipe"); }
     wipeMarks(fight);   // the live marks go, the lasting ones stay (section 3.6a)
     emit(fight, { type: "wipe", attempt: fight.level.attempt });
   }
@@ -1463,7 +1520,7 @@
   function freeze(fight, k) {
     const FZ = KSTAT().frozen;
     k.frozen = FZ.time * dX(fight, "knightStatusTime"); k.chill = null;
-    k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.lunge = null; k.dodge = 0; stopStream(fight, k);
+    k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.lunge = null; k.dodge = 0; stopStream(fight, k); breakChain(k);
     if (k.climbing) { phys().letGo(fight.world, k, false); emit(fight, { type: "letGo", x: k.x, y: k.y, z: k.z }, k); }
     emit(fight, { type: "kstatus", status: "frozen", on: true, x: k.x, y: k.y }, k);
     for (const f of fight.foes || []) if (f.act && f.act.phase === "wind" && f.act.seat === k.seat) cancelAct(fight, f, "frozen");
@@ -1746,7 +1803,7 @@
     const s = W.solids[W.ram], qx = clamp(k.x, s.x0, s.x1), qy = clamp(k.y, s.y0, s.y1);
     if (Math.hypot(k.x - qx, k.y - qy) > R.within + 1e-9) return false;
     phys().removeSolid(W, s); W.ram = null;
-    k.carry = ramHand(fight, k); k.r = R.carryR || data().knight.carryR || k.r; k.strike = null; k.twinQ = null; stopStream(fight, k);
+    breakChain(k); k.carry = ramHand(fight, k); k.r = R.carryR || data().knight.carryR || k.r; k.strike = null; k.twinQ = null; stopStream(fight, k);
     emit(fight, { type: "carry", what: "ram", on: true, x: k.x, y: k.y }, k);
     return true;
   }
@@ -1775,7 +1832,7 @@
     for (let r = 2; !spot && r <= (R.putWithin || 96); r += 2) for (let i = 0; i < 16 && !spot; i++) { const a = i * Math.PI / 8; spot = free(c0x + Math.cos(a) * r, c0y + Math.sin(a) * r); }
     if (!spot) return false;
     W.ram = P.addSolid(W, Object.assign({ kind: "ram", ht: ((fight.area.propKinds || {}).ram || {}).ht || 8 }, spot)).id;
-    k.carry = null; k.r = KN.r; k.strike = null;
+    k.carry = null; k.r = KN.r; k.strike = null; breakChain(k);
     emit(fight, { type: "carry", what: "ram", on: false, x: (spot.x0 + spot.x1) / 2, y: (spot.y0 + spot.y1) / 2 }, k);
     return true;
   }
@@ -3107,7 +3164,7 @@
           else {
             const a = Math.atan2(k.y - d.y, k.x - d.x), px = Q.push * (st.weaken ? 1 - S.weaken.less : 1);   // a weakened quintain shoves 40 % less
             k.bonk = Q.stagger; k.shove = { kind: "share", t: 0, T: Q.pushT, dx: Math.cos(a) * px, dy: Math.sin(a) * px };
-            k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.lunge = null; stopStream(fight, k);
+            k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.lunge = null; stopStream(fight, k); breakChain(k);
             emit(fight, { type: "bonk", x: k.x, y: k.y, push: px, d: d.i }, k);
           }
         }
@@ -3121,7 +3178,7 @@
     fight.board = { last: null, name: "", log: [], dps: 0 };
     for (const k of fight.knights) {
       for (const h of k.hands) { h.orbit = null; h.aura = null; h.recover = 0; h.cd = 0; h.acd = 0; }
-      k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.guardT = 0; stopStream(fight, k);
+      k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.guardT = 0; stopStream(fight, k); breakChain(k);
     }
     return fight;
   }
@@ -3129,6 +3186,7 @@
   root.Combat = { abilityUnits, abilities, units, unitsFor, newFight, step, hold, tip, aim, animOf, weaponPose, facingOf, hitPoint, reachOf, setHand, addHand, reset, affinity, railAhead, use, rng,
     hurt, afflict, waveStart, returnKnights, healKnight, FACINGS, NUMBERS,
     spawn, die, place, setView, targets, bodies, inView, canHit, reaches, foeShot, foeBurst, takeRam, putRam, remains, breakPiece, damage, trollKind, drawnAt, regrowing: knightRegrowing, foeRegrowing: regrowing, resetRam,
+    swingOf, setOf, combosOn,   // design pass 20: the melee combos
     fieldClass, nextToward, fieldReach, trollSets, standing, inAttackBox, lineClear, applyStatus, bestSpot, trenchCovered, trenchEnd, wireBetween,
     mark, endMark, stamp, fire, ice, puddle, crater, chunks, throwStone, stuck, groundBits, GBIT, clearSeat, setPost, manned, roarOf, emberRoll,
     emit, inThumb, drownPuddle, fieldsReady, difficultyOf, dX };

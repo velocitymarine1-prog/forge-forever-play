@@ -10,9 +10,15 @@
 // or upside down. The held drawing is the icon, except that the axe's bit leads and the spellbook is 70 % of its shelf size. The bow
 // keeps an upright drawing (the flat frame) turned by quarter turns. Every pose names a grip (the pixel that sits on the hand) and
 // a tip (where a shot, a shell or a stream leaves). spriteFor and the shelf icons are unchanged.
+// Since build 13 (card t74, design pass 20: the melee combos) it also draws the weapon in a swing: swingFor(thing, dir, lead, frame), in
+// one of eight directions on a 48 x 48 grid. The shapes are the held drawing's shapes turned by a symmetry of the pixel grid (nothing is
+// resampled) and drawn in place, so the light still comes from the top left and the edge, the axe's bit and the scythe's blade face
+// the way the swing turns. The icon, the held drawing and the four hold poses are unchanged pixel for pixel.
 (function (root) {
   "use strict";
-  const N = 32, OUT = "#181425", SHADOW = "rgba(10,6,18,0.5)";
+  // pass 20: N is the grid a drawing is made on: 32 for every icon and hold, 48 while a swing is drawn (withGrid)
+  let N = 32;
+  const OUT = "#181425", SHADOW = "rgba(10,6,18,0.5)";
 
   const RAMP = {
     steel: ["#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"],
@@ -57,9 +63,10 @@
   function rng(seed) { let a = seed >>> 0; return function () { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   function pickW(r, items) { let s = 0; for (const [, w] of items) s += w; let x = r() * s; for (const [k, w] of items) { x -= w; if (x <= 0) return k; } return items[0][0]; }
 
-  function Sprite() { this.px = new Array(N * N).fill(null); }
-  Sprite.prototype.get = function (x, y) { return x >= 0 && y >= 0 && x < N && y < N ? this.px[y * N + x] : null; };
-  Sprite.prototype.set = function (x, y, c) { if (x >= 0 && y >= 0 && x < N && y < N) this.px[y * N + x] = c; };
+  // pass 20: a sprite keeps the size of the grid it was made on (n: 32, or 48 for a swing)
+  function Sprite() { this.n = N; this.px = new Array(N * N).fill(null); }
+  Sprite.prototype.get = function (x, y) { const n = this.n; return x >= 0 && y >= 0 && x < n && y < n ? this.px[y * n + x] : null; };
+  Sprite.prototype.set = function (x, y, c) { const n = this.n; if (x >= 0 && y >= 0 && x < n && y < n) this.px[y * n + x] = c; };
   Sprite.prototype.setIfEmpty = function (x, y, c) { if (!this.get(x, y)) this.set(x, y, c); };
   // a sprite that only takes pixels inside a clip predicate: the two halves of a fused legend are each drawn through one
   function ClipSprite(clip) { Sprite.call(this); this.clip = clip; }
@@ -119,17 +126,26 @@
   }
 
   // ------------------------------------------------------------------ the diagonal frame: a = along the weapon, b = across
-  function frameFor(L, flat) {
-    if (flat) { const u = 1.25, ox = Math.floor((N - L * u) / 2), cy = 15.5;
-      return { L, ox, oy: cy, flat: true, ab: (x, y) => [(x - ox) / u, (y - cy) / u], xy: (a, b) => [ox + a * u, cy + b * u] }; }
-    const ox = Math.floor((N - L) / 2), oy = ox + L;
-    return { L, ox, oy, ab: (x, y) => [((x - ox) - (y - oy)) / 2, ((x - ox) + (y - oy)) / 2],
-      xy: (a, b) => [ox + a + b, oy - a + b] };
+  // pass 20: xf (a name of XF) turns the frame by a symmetry of the grid: the same shapes, turned on the pixels, nothing resampled. A
+  // swing's flat frame is 1.4 px a unit (the bow's stays 1.25), so a weapon is as long pointing east as it is on the diagonal (its
+  // units are 1.41 px there). lit is -1 when the turn puts the +b side toward the top-left light: the blade's and the haft's ramps
+  // follow it, so a turned weapon is lit from the top left like the icon (auto() is lit on the screen already). n is +b on the screen
+  function frameFor(L, flat, xf) {
+    let F;
+    if (flat) { const u = xf ? 1.4 : 1.25, ox = Math.floor((N - L * u) / 2), cy = (N - 1) / 2;
+      F = { L, ox, oy: cy, flat: true, ab: (x, y) => [(x - ox) / u, (y - cy) / u], xy: (a, b) => [ox + a * u, cy + b * u] }; }
+    else { const ox = Math.floor((N - L) / 2), oy = ox + L;
+      F = { L, ox, oy, ab: (x, y) => [((x - ox) - (y - oy)) / 2, ((x - ox) + (y - oy)) / 2], xy: (a, b) => [ox + a + b, oy - a + b] }; }
+    F.lit = 1; F.n = flat ? [0, 1] : [1, 1];
+    if (!xf || xf === "id") { F.xf = xf || null; return F; }
+    const T = XF[xf], Ti = XF[XINV[xf]], o = T(0, 0), t1 = T(F.n[0], F.n[1]), n = [t1[0] - o[0], t1[1] - o[1]], toLight = -n[0] - n[1];
+    return { L, ox: F.ox, oy: F.oy, flat: F.flat, xf, n, lit: toLight > 0 || (toLight === 0 && n[1] < 0) ? -1 : 1,
+      ab: (x, y) => { const p = Ti(x, y); return F.ab(p[0], p[1]); }, xy: (a, b) => { const p = F.xy(a, b); return T(p[0], p[1]); } };
   }
   function haft(c, a0, a1, ramp, o) {
     o = o || {}; const F = c.F, h = o.h || 0.5, off = o.c || (() => 0);
     const s = maskSet((x, y) => { const [a, b] = F.ab(x, y); return a >= a0 && a <= a1 && Math.abs(b - off(a)) <= h + 0.01; });
-    paint(c.sp, s, (x, y) => { const [a, b] = F.ab(x, y), u = (b - off(a)) / h; let l = u < -0.3 ? 2 : u > 0.3 ? 0 : 1;
+    paint(c.sp, s, (x, y) => { const [a, b] = F.ab(x, y), u = (b - off(a)) / h * (F.lit || 1); let l = u < -0.3 ? 2 : u > 0.3 ? 0 : 1;
       if (o.wrap && Math.floor(a * 2) % 3 === 0) l = Math.max(0, l - 1);
       if (o.bands && o.bands.some(q => Math.abs(a - q) < 0.6)) return (o.bandRamp || c.trim)[Math.min(3, l + 1)];
       return ramp[l]; });
@@ -140,7 +156,7 @@
     const s = maskSet((x, y) => { const [a, b] = F.ab(x, y); if (a < a0 || a > a1) return false;
       const cc = cf((a - a0) / Math.max(1, a1 - a0)), w = wf(a); let hi = cc + w; if (o.jag && Math.floor(a) % 2 === 0 && a < a1 - 2) hi += 1;
       return b >= cc - w - 0.01 && b <= hi + 0.01; });
-    paint(c.sp, s, (x, y) => { const [a, b] = F.ab(x, y), t = (a - a0) / Math.max(1, a1 - a0), cc = cf(t), w = Math.max(wf(a), 0.5), u = (b - cc) / w;
+    paint(c.sp, s, (x, y) => { const [a, b] = F.ab(x, y), t = (a - a0) / Math.max(1, a1 - a0), cc = cf(t), w = Math.max(wf(a), 0.5), u = (b - cc) / w * (F.lit || 1);
       if (!el) { if (u < -0.55) return mat[2]; if (u <= 0.05) return mat[3]; if (u <= 0.55) return mat[1]; return mat[0]; }
       if (u > 0.25) return u > 0.65 ? mat[0] : mat[1];
       const lvl = Math.min(3, Math.floor(t * 3) + (u < -0.5 ? 1 : 0));
@@ -326,9 +342,10 @@
   }
 
   // ------------------------------------------------------------------ element effects (after the outline, only on empty pixels; four frames)
-  function fx(sp, name, ramp, seed, f, upright, skip, flat) {
-    const pts = [];
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const p = sp.get(x, y); if (p && p !== OUT && (upright ? y < 18 : flat ? x > 13 : x - y > 2)) pts.push([x, y]); }
+  // pass 20: F, a swing's turned frame: the motes rise from the head's half, wherever the weapon points
+  function fx(sp, name, ramp, seed, f, upright, skip, flat, F) {
+    const pts = [], inHead = F ? (x, y) => F.ab(x, y)[0] > F.L * 0.45 : (x, y) => (upright ? y < 18 : flat ? x > 13 : x - y > 2);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const p = sp.get(x, y); if (p && p !== OUT && inHead(x, y)) pts.push([x, y]); }
     if (!pts.length) return;
     const P = i => pts[(i * 97 + seed) % pts.length];
     const kind = FXKIND[name] || "twinkle";
@@ -344,10 +361,12 @@
   }
 
   // ------------------------------------------------------------------ weapons
-  function drawWeapon(w, id, frameNo, isBase, flat, held) {
+  // pass 20: xf, a swing's turn of the grid (SWING); len, the length the held drawing settled on, so a weapon is as long in a swing as
+  // in the hand. A swing has no hallmark: a seal stamped in a corner of the grid cannot follow the weapon round
+  function drawWeapon(w, id, frameNo, isBase, flat, held, xf, len) {
     const v = w.visual || {}, base = BASES[v.base] ? v.base : "sword";
-    if (v.fuse && BASES[v.fuse] && v.fuse !== base && !flat) return drawFused(w, id, frameNo, held);   // pixel rule 10: a legend is fused and gilded
-    const L = Math.round((LENGTH[v.size] || LENGTH.M) * (LEN_SCALE[base] || 1));
+    if (v.fuse && BASES[v.fuse] && v.fuse !== base && (!flat || xf)) return drawFused(w, id, frameNo, held, xf ? flat : false, xf, len);   // pixel rule 10: a legend is fused and gilded
+    const L = len || Math.round((LENGTH[v.size] || LENGTH.M) * (LEN_SCALE[base] || 1));
     const style = styleFor(base, w, id || base, isBase);
     if (v.shape && BLADES[v.shape]) style.blade = v.shape;  // grammar 1.2 (proposed): the Oracle may name the shape and the trim
     if (v.trim && RAMP[v.trim]) style.trim = v.trim;
@@ -357,17 +376,18 @@
     // draw, and if anything but ink reaches the edge of the grid, shorten the weapon a pixel and draw again
     let c;
     for (let len = L; len >= L - 8; len--) {
-      c = { sp: new Sprite(), F: frameFor(len, flat && !UPRIGHT[base]), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null, held: !!held,
+      c = { sp: new Sprite(), F: frameFor(len, flat && !UPRIGHT[base], xf), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null, held: !!held,
         guardRamp: (v.attachments || []).includes("flame-guard") ? ELEM.fire : trim };
       BASES[base](c);
       for (const a of v.attachments || []) attach(c, a);
       if (!touchesEdge(c.sp)) break;
     }
     outline(c.sp);
-    const sealed = v.graft && !flat ? hallmark(c.sp, v.graft) : false;   // pixel rule 9: a gift is stamped with the giver's mark
-    if (el) fx(c.sp, w.element, el, fnv(id || base) % 997, frameNo || 0, !!c.upright, sealed ? IN_SEAL : null, flat && !c.upright);
+    const sealed = v.graft && !flat && !xf ? hallmark(c.sp, v.graft) : false;   // pixel rule 9: a gift is stamped with the giver's mark
+    if (el) fx(c.sp, w.element, el, fnv(id || base) % 997, frameNo || 0, !!c.upright, sealed ? IN_SEAL : null, flat && !c.upright, xf ? c.F : null);
     c.sp.grip = gripPoint(c, base);
     c.sp.tip = nearestPainted(c.sp, tipPoint(c, base));
+    c.sp.len = c.L; c.sp.n = N;
     return c.sp;
   }
 
@@ -433,8 +453,8 @@
       region(c, (a, b) => a >= a0 + 2.6 && a <= L - 1.8 && Math.abs(b) <= 1.5, g, { spec: (a, b) => b < -0.5 && a < a0 + 4.5 });
       region(c, (a, b) => a >= L - 1 && a <= L - 0.2 && Math.abs(b) <= 1.6, c.trim); }
   };
-  function context(len, mat, el, trim, style, guardRamp, clip, held) {
-    return { sp: clip ? new ClipSprite(clip) : new Sprite(), F: frameFor(len), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null, guardRamp, held: !!held };
+  function context(len, mat, el, trim, style, guardRamp, clip, held, F) {   // pass 20: F, a swing's frame
+    return { sp: clip ? new ClipSprite(clip) : new Sprite(), F: F || frameFor(len), L: len, mat, el, trim, grip: RAMP[style.grip], style, anchors: null, upright: null, guardRamp, held: !!held };
   }
   // the gold collar: a band two pixels deep across the join, one pixel wider than the weapon on each side, lit on the upper-left side
   function collar(sp, F, cut, uprightBody, headSp) {
@@ -462,9 +482,10 @@
     const [x, y] = edge[Math.min(edge.length - 1, Math.floor(edge.length * (((frameNo || 0) % 4) + 0.5) / 4))];
     sp.set(x, y, sp.get(x, y) === RAMP.gold[3] ? "#ffffff" : RAMP.gold[3]);
   }
-  function drawFused(w, id, frameNo, held) {
+  // pass 20: flat, xf and len as drawWeapon's, for a legend in a swing
+  function drawFused(w, id, frameNo, held, flat, xf, len0) {
     const v = w.visual || {}, body = BASES[v.base] ? v.base : "sword", head = BASES[v.fuse] ? v.fuse : "hammer";
-    const L0 = Math.round((LENGTH[v.size] || LENGTH.M) * (LEN_SCALE[body] || 1));
+    const L0 = len0 || Math.round((LENGTH[v.size] || LENGTH.M) * (LEN_SCALE[body] || 1));
     const style = styleFor(body, w, id || body + "*" + head, false); style.trim = "gold";
     if (v.shape && BLADES[v.shape]) style.blade = v.shape;
     const el = w.element && w.element !== "physical" && ELEM[w.element] ? ELEM[w.element] : null;
@@ -473,14 +494,14 @@
     const bodyUp = !!UPRIGHT[body], headUp = !!UPRIGHT[head];
     let out;
     for (let len = L0; len >= L0 - 8; len--) {
-      const F = frameFor(len), cut = cutFor(head, len);
-      const cb = context(len, mat, el, trim, style, guardRamp, bodyUp ? null : (x, y) => F.ab(x, y)[0] <= cut + 0.01, held && !bodyUp);
+      const F = frameFor(len, !!flat, xf), cut = cutFor(head, len);
+      const cb = context(len, mat, el, trim, style, guardRamp, bodyUp ? null : (x, y) => F.ab(x, y)[0] <= cut + 0.01, held && !bodyUp, F);
       BASES[body](cb);
-      const ch = context(len, mat, el, trim, style, guardRamp, headUp ? null : bodyUp ? (x, y) => x - y >= 4 : (x, y) => F.ab(x, y)[0] >= cut - 0.01, held);
+      const ch = context(len, mat, el, trim, style, guardRamp, headUp ? null : bodyUp ? (x, y) => x - y >= 4 : (x, y) => F.ab(x, y)[0] >= cut - 0.01, held, F);
       if (headUp) CHARMS[head](ch, cut); else BASES[head](ch);
       const sp = new Sprite();
       for (let i = 0; i < N * N; i++) sp.px[i] = ch.sp.px[i] || cb.sp.px[i];
-      const ca = context(len, mat, el, trim, style, guardRamp, null); ca.anchors = cb.anchors; ca.upright = cb.upright;
+      const ca = context(len, mat, el, trim, style, guardRamp, null, false, F); ca.anchors = cb.anchors; ca.upright = cb.upright;
       for (const a of v.attachments || []) attach(ca, a);
       for (let i = 0; i < N * N; i++) if (ca.sp.px[i]) sp.px[i] = ca.sp.px[i];
       collar(sp, F, cut, bodyUp, ch.sp);
@@ -489,10 +510,11 @@
     }
     outline(out.sp);
     glint(out.sp, out.F, frameNo || 0, bodyUp);
-    const sealed = v.graft ? hallmark(out.sp, v.graft) : false;
-    if (el) fx(out.sp, w.element, el, fnv(id || body + "*" + head) % 997, frameNo || 0, bodyUp, sealed ? IN_SEAL : null);
+    const sealed = v.graft && !xf ? hallmark(out.sp, v.graft) : false;
+    if (el) fx(out.sp, w.element, el, fnv(id || body + "*" + head) % 997, frameNo || 0, bodyUp, sealed ? IN_SEAL : null, false, xf ? out.F : null);
     out.sp.grip = gripPoint({ upright: out.upright, L: out.L, F: out.F }, body);
     out.sp.tip = nearestPainted(out.sp, headUp ? (([x, y]) => [Math.round(x), Math.round(y)])(out.F.xy(out.L - 2.5, 0)) : tipPoint({ upright: null, L: out.L, F: out.F }, head));
+    out.sp.len = out.L;
     return out.sp;
   }
 
@@ -629,8 +651,10 @@
   const FACINGS = ["right", "left", "away", "toward"];
   const MIRRORED = { left: true, away: true };
   // lossless transforms of a 32 x 32 sprite: each maps (x, y) to a new pixel
+  // (pass 20: and the two diagonal mirrors, tr across the main diagonal and atr across the other, and each one's inverse)
   const XF = { id: (x, y) => [x, y], mx: (x, y) => [N - 1 - x, y], my: (x, y) => [x, N - 1 - y], r180: (x, y) => [N - 1 - x, N - 1 - y],
-    cw: (x, y) => [N - 1 - y, x], ccw: (x, y) => [y, N - 1 - x] };
+    cw: (x, y) => [N - 1 - y, x], ccw: (x, y) => [y, N - 1 - x], tr: (x, y) => [y, x], atr: (x, y) => [N - 1 - y, N - 1 - x] };
+  const XINV = { id: "id", mx: "mx", my: "my", r180: "r180", cw: "ccw", ccw: "cw", tr: "tr", atr: "atr" };
   function transform(sp, name) {
     if (name === "id") return sp;
     const out = new Sprite(), f = XF[name];
@@ -667,6 +691,37 @@
   function gripOf(t, facing) { return (poseFor(t, facing, 0).grip || [6, 25]).slice(); }
   function tipOf(t, facing) { const sp = poseFor(t, facing, 0); return (sp.tip || sp.grip || [16, 8]).slice(); }
 
+  // ------------------------------------------------------------------ pass 20: the weapon in a swing
+  // dir: one of the eight directions on the screen; lead: "cw" or "ccw", the way the swing turns on the screen (the overhead and the
+  // rising cut's tip go round clockwise and anticlockwise for a knight facing right), so the edge, the axe's bit and the scythe's blade
+  // face where the weapon is going. The four diagonals are the held drawing's frame turned by a symmetry of the grid, the four straight
+  // ways the flat frame (1.4 px a unit) turned; each turn is listed for cw, then ccw (a mirror across the weapon's own line swaps them).
+  // The drawing is 48 x 48, the weapon centred at the held drawing's own length, its grip and tip named. ne + cw is the held drawing's
+  // pixels moved 8 right and 8 down (the motes aside, no hallmark). An upright base (the shield) never turns: its swing is its hold.
+  const SWING_DIRS = ["e", "ne", "n", "nw", "w", "sw", "s", "se"];
+  const SWING = { ne: ["id", "atr"], nw: ["ccw", "mx"], sw: ["r180", "tr"], se: ["cw", "my"], e: ["id", "my"], n: ["ccw", "atr"], w: ["r180", "mx"], s: ["cw", "tr"] };
+  const SWING_N = 48;
+  function withGrid(n, fn) { const keep = N; N = n; try { return fn(); } finally { N = keep; } }
+  function swingFor(t, dir, lead, frameNo) {
+    if (!SWING[dir]) dir = "ne";
+    const ccw = lead === "ccw" ? 1 : 0;
+    const key = "swing|" + (t.id || "") + "|" + dir + "|" + ccw + "|" + (frameNo || 0) + "|" + (t.weapon ? JSON.stringify(t.weapon.visual) + t.weapon.element : "");
+    if (poseCache.has(key)) return poseCache.get(key);
+    let sp;
+    const w = t.weapon;
+    if (!w) sp = spriteFor(t, frameNo);
+    else {
+      const v = w.visual || {}, base = BASES[v.base] ? v.base : "sword", isBase = !(t.parents && t.parents.length);
+      if (UPRIGHT[base]) sp = poseFor(t, "right", frameNo);
+      else {
+        const held = drawWeapon(w, t.id, frameNo, isBase, false, true), xf = SWING[dir][ccw], flat = dir.length === 1;
+        sp = withGrid(SWING_N, () => drawWeapon(w, t.id, frameNo, isBase, flat, true, xf, held.len));
+      }
+    }
+    poseCache.set(key, sp);
+    return sp;
+  }
+
   // ------------------------------------------------------------------ public api
   const cache = new Map();
   function spriteFor(t, frameNo) {
@@ -690,6 +745,7 @@
   function dataURL(t, o) { return canvasFor(t, o).toDataURL("image/png"); }
 
   root.PixelForge = { N, OUT, RAMP, ELEM, BASES: Object.keys(BASES), BLADES: Object.keys(BLADES), MARKS: Object.keys(MARKS), CHARMS: Object.keys(CHARMS),
-    NECK, UPRIGHT, cutFor, hallmark, drawFused, spriteFor, draw, canvasFor, dataURL, styleFor, fnv, rng, poseFor, gripOf, tipOf, FACINGS };
+    NECK, UPRIGHT, cutFor, hallmark, drawFused, spriteFor, draw, canvasFor, dataURL, styleFor, fnv, rng, poseFor, gripOf, tipOf, FACINGS,
+    swingFor, SWING_DIRS, SWING_N };   // pass 20
 })(typeof window !== "undefined" ? window : globalThis);
 

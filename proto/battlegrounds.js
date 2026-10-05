@@ -32,6 +32,7 @@
 (function () {
   "use strict";
   const PF = window.PixelForge, C = window.Cellar, Combat = window.Combat, SPEC = window.FORGE_COMBAT, Smithy = window.Smithy, Gate = window.Gate, Trolls = window.Trolls, Knight = window.Knight;
+  const Combos = window.Combos && PF && PF.swingFor ? window.Combos : null;   // design pass 20: the melee combos' drawing (proto/combos.js)
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   // the area: the cellar, or a level the query names (the Troll Gate's spec and painter must be loaded for it; a level that can't be read
@@ -57,6 +58,8 @@
   // less motion: the phone's setting, the game's own switch (forge-forever:less-motion, design pass 9) or ?motion=reduce
   const reduce = window.Settings ? Settings.reduce() : (params.get("motion") ? params.get("motion") === "reduce" : media("(prefers-reduced-motion: reduce)"));
   const harness = params.get("harness") === "1", stay = params.get("stay") === "1";
+  // ?combos=0 plays today's blows for the visit (the bench and the harness compare the two); a page without proto/combos.js does too
+  if ((params.get("combos") === "0" || !Combos) && SPEC && SPEC.combos) SPEC.combos.on = false;
   const coarse = params.get("pointer") ? params.get("pointer") === "coarse" : media("(pointer: coarse)");
   // the view is the stage: the area's own size in the cellar, 384 x 216 over a larger level (design pass 12, section 3.2)
   const VIEW = AREA.view || { w: AREA.w, h: AREA.h };
@@ -140,7 +143,8 @@
     plank: null, turned: false, left: false, leftTo: null, went: null, tookBack: false, stairs: 0, zone: null, booted: false, layout: { x: 0, y: 0, s: 1, k: 1, w: W, h: H, pl: 0, pt: 0 }, frames: 0, log: [],
     done: false, shut: false, askTo: null, brothers: 0, lv: null,   // a level: the run is over (the tally shows), the gate is shut, where leaving asks to go
     legendNoted: false, noteUntil: 0, noteText: "",   // the first legend of the visit: a note under the plate for 3 s (design pass 10)
-    perf: perf ? { steps: [], frames: [], last: 0, hitches: 0, batchT: 0, batchN: 0 } : null, stress: null };
+    perf: perf ? { steps: [], frames: [], last: 0, hitches: 0, batchT: 0, batchN: 0 } : null, stress: null,
+    swings: [], warm: [], warmed: new Set() };   // (design pass 20: each knight's live swing smears; the swing drawings still to draw)
   function firstHands() {
     let ids = [], active = 0;
     const asked = (params.get("weapons") || "").split(",").map(s => s.trim()).filter(id => world.has(id));
@@ -413,6 +417,9 @@
     if (LEVEL) levelTick();
     particles();
     for (const f of state.fx) f.t += STEP;
+    for (const w of state.swings) w.t += STEP;
+    state.swings = state.swings.filter(w => w.t < w.sm.life);
+    for (let i = 0; i < 4 && state.warm.length; i++) { const q = state.warm.shift(); try { PF.swingFor(q[0], q[1], q[2], 0); } catch (e) { /* drawn, or not, when it is first wanted */ } }
     state.fx = state.fx.filter(f => f.t < f.life);
     for (const n of state.nums) n.t += STEP;
     state.nums = state.nums.filter(n => n.t < n.life);
@@ -436,7 +443,8 @@
     lessonOn("events", events);
     for (const e of events) {
       if (LEVEL && takeLevel(e)) continue;
-      if (e.type === "fx") addFx(e, e.kind === "blast" && e.small ? { life: 0.25 } : null);
+      if (e.type === "fx" && e.kind === "swing") onSwing(e);
+      else if (e.type === "fx") addFx(e, e.kind === "blast" && e.small ? { life: 0.25 } : null);
       else if (e.type === "hit") onHit(e);
       else if (e.type === "shake") { if (!reduce) state.shake = { t: e.time, amp: e.amp }; }
       else if (e.type === "bonk") say(e.x, e.y - 36, "BONK", INK.bonk);
@@ -649,9 +657,78 @@
     if (e.sum) { const s = state.sums[e.d] || (state.sums[e.d] = { acc: 0, at: state.t, x: e.x, y: e.y, tag: null }); s.acc += e.amount; s.x = e.x; s.y = e.y; if (e.tag) s.tag = e.tag; return; }
     if (e.kind === "dot") { say(e.x + (rnd() * 6 - 3), e.y - 6, Math.max(1, Math.round(e.amount)), e.why === "bleed" ? INK.bleed : elemRamp(e.why)[2]); return; }
     if (e.tag === "IMMUNE") { say(e.x, e.y - 10, "IMMUNE", INK.IMMUNE); return; }   // the word instead of a number
-    say(e.x, e.y - 10, Math.round(e.amount) + (e.crit ? "!" : ""), e.crit ? INK.crit : tagged ? INK[e.tag] : e.kind === "raw" ? INK.raw : INK.normal, e.crit);
+    say(e.x, e.y - 10, Math.round(e.amount) + (e.crit ? "!" : ""), e.crit ? INK.crit : tagged ? INK[e.tag] : e.fin ? INK.COMBO : e.kind === "raw" ? INK.raw : INK.normal, e.crit || !!e.fin);
+    if (e.fin && e.move) finisherHit(e);   // (design pass 20) a finisher's flash, star and sparks, and its move's own
     if (e.tag) say(e.x, e.y - 17, e.tag, INK[e.tag] || INK.normal);
     if (e.crit) addFx({ kind: "star", x: e.x, y: e.y - 4, c: INK.crit, big: true, life: 0.2 });
+  }
+  // ------------------------------------------------------------------ the melee combos (design pass 20, build 13)
+  // a combo blow's swing (the rules' fx swing): its smear is kept by the knight that struck it and painted by drawKnight, behind and in
+  // front of it; a whip's crack at the end of the smear, a charge's speed lines and a landing's dust go off now. Facing: the blow's aim
+  const FWD = { right: [1, 0], left: [-1, 0], toward: [0, 1], away: [0, -1] };
+  function onSwing(e) {
+    if (!Combos) return;
+    const facing = Combat.facingOf(e.a), move = Combos.known(e.move, e.n), seat = e.seat || 0, k = fight.knights[seat] || fight.k, z = LEVEL ? (k.z || 0) : 0;
+    const sm = Combos.smearOf(move, facing, (e.r || 24) + 2, { finisher: !!e.fin, twin: !!e.twin });
+    if (!sm) return;
+    const rp = ramp(e.el, e.mat), f = FWD[facing];
+    state.swings.push({ seat, sm, t: 0, x: e.x, y: e.y, ramp: rp, move });
+    while (state.swings.length > 16) state.swings.shift();
+    for (const x of Combos.impactOf(move, !!e.fin)) {
+      if (x.at === "tip") { const p = Combos.tipOf(sm); addFx({ kind: x.kind, x: e.x + p[0], y: e.y + p[1] - z, big: x.big, c: x.c, life: x.life }); }
+      else if (x.at === "feet") addFx({ kind: x.kind, x: k.x + (x.dx || 0), y: k.y - z, life: x.life });
+      else if (x.at === "knight") addFx({ kind: x.kind, x: e.x, y: e.y - z, f, life: x.life });
+    }
+  }
+  // a finisher's hit: a white flash ring, a big star, sparks, and its move's own (cracks and chunks at the ground under the hit, blood,
+  // a ring, wisps, the Rising Moon's pale crescent lingering); in a level a crack is a lasting mark, as a smash's
+  function finisherHit(e) {
+    if (!Combos) return;
+    const move = Combos.known(e.move, 3), k = fight.knights[e.seat || 0] || fight.k, dx = e.x - k.x, dy = e.y - (k.y - CHEST), dl = Math.hypot(dx, dy) || 1;
+    const f = [dx / dl, dy / dl], rp = ramp(e.element, null), gy = e.y + 13;
+    Combos.impactOf(move, true).forEach((x, i) => {
+      if (x.at !== "hit" && x.at !== "ground") return;
+      const y = x.at === "ground" ? gy : e.y;
+      if (x.kind === "crack" && LEVEL) { scene.stamp({ type: "mark", kind: "crack", id: 700000 + ((state.frames * 4 + i) % 100000), x: e.x, y: gy, z: 0, r: 8 }); return; }
+      if (x.kind === "moon") { const w = state.swings.filter(s => s.seat === (e.seat || 0)).pop(); if (w) addFx({ kind: "moon", sm: w.sm, ox: w.x, oy: w.y, life: x.life }); return; }
+      addFx({ kind: x.kind, x: e.x, y, r: x.r, n: x.n, big: x.big, c: x.c, life: x.life, seed: state.frames * 7 + i, f, ramp: rp });
+    });
+  }
+  // the knight's frame in a combo blow: the move's keyframe (its pose, the weapon's direction and lead, the knight moved), unless a
+  // level's own frame comes first (in the air, on a ladder, down, the hurt blink, at a ledge)
+  const OWN = { fall: 1, climb: 1, down: 1, crawl: 1, hurt: 1, teeter: 1 };
+  function swingFrame(k, a) {
+    if (!Combos || OWN[a.anim]) return null;
+    const sw = Combat.swingOf(fight, k); if (!sw) return null;
+    const fr = Combos.frameAt(Combos.known(sw.move, sw.n), Combat.facingOf(sw.a), sw.s, sw.T);
+    return fr ? { sw, fr } : null;
+  }
+  // a swing drawing as a canvas (mirrored facing left), its grip and tip; a record the renderer can't turn draws its hold (said once)
+  const scache = new Map();
+  let swingFailed = false;
+  function swingCanvas(t, dir, lead, f, mirror) {
+    const key = t.id + "|" + dir + "|" + lead + "|" + f + "|" + (mirror ? 1 : 0);
+    if (scache.has(key)) return scache.get(key);
+    let sp; try { sp = PF.swingFor(t, dir, lead, f); } catch (err) { if (!swingFailed && window.console) { swingFailed = true; window.console.warn("Forge Forever: a swing drawing failed (" + t.id + "); its hold is drawn"); } sp = PF.poseFor(t, mirror ? "left" : "right", f); mirror = false; }
+    const n = sp.n || 32, m = (p, q) => mirror ? [n - 1 - p[0], p[1]] : (p || q).slice();
+    const out = { c: C.canvasOf(sp.px, n, n, { flip: mirror }), grip: m(sp.grip || [n / 2, n / 2]), tip: m(sp.tip || sp.grip || [n / 2, n / 2]) };
+    scache.set(key, out);
+    return out;
+  }
+  // the smears a knight's blows left, painted round it: "back" before its sprite (the far half of a flat curve; everything facing away),
+  // "front" after its weapon
+  function paintSwings(k, c, pass) {
+    const seat = k.seat || 0;
+    for (const w of state.swings) { if (w.seat !== seat) continue;
+      Combos.paintSmear((x, y, col) => { c.fillStyle = col; c.fillRect(Math.round(w.x + x), Math.round(w.y + y), 1, 1); }, w.sm, w.t, w.ramp, pass); }
+  }
+  // the swing drawings of every knight's hands, drawn a few a step before they are wanted (after the boot, a swap, the rack)
+  function warmSwings() {
+    if (!Combos || !fight) return;
+    for (const k of fight.knights) for (const h of k.hands) {
+      if (!h.u.melee || !Combat.setOf(h.u)) continue;
+      for (const d of PF.SWING_DIRS) for (const l of ["cw", "ccw"]) { const key = h.thing.id + d + l; if (state.warmed.has(key)) continue; state.warmed.add(key); state.warm.push([h.thing, d, l]); }
+    }
   }
   // stream ticks are summed per dummy and shown every half second; so are the knight's small heals
   function flushSums(all) {
@@ -883,30 +960,47 @@
   // the knight (c: a context in world coordinates; the painter lifts a knight by its height before calling this in a level)
   function drawKnight(fxf, k, c) {
     k = k || fight.k; c = c || ctx;
-    const a = LEVEL ? levelAnim(k) : Combat.animOf(fight), h = Combat.hold(fight, a.anim, a.i, k), look = LEVEL ? lookOf(k) : null, kf = look ? Knight.frame(h.facing, a.anim, a.i, h.reach, look) : h.frame;
+    const a = LEVEL ? levelAnim(k) : Combat.animOf(fight), h = Combat.hold(fight, a.anim, a.i, k), look = LEVEL ? lookOf(k) : null, SW = swingFrame(k, a);
+    const kf = SW ? Knight.frame(SW.fr.facing, SW.fr.pose, 0, 0, look) : look ? Knight.frame(h.facing, a.anim, a.i, h.reach, look) : h.frame;
     if (!LEVEL) C.shadow(c, k.x, k.y, 7);   // (in a level the painter draws the shadow on the surface under the knight)
     // the dodge draws the walk frame with three fading afterimages; so does a lunge
     if (!reduce && k === fight.k) for (let g = 1; g <= 3; g++) { const p = state.trail[g * 3 - 1]; if (!p) break; c.globalAlpha = 0.3 / g; c.drawImage(kf.canvas(), Math.round(p[0]) - 16, Math.round(p[1]) - 31); c.globalAlpha = 1; }
-    const wc = weaponCanvas(h.thing, h.facing, fxf), sheathed = k.swapT > SPEC.knight.swap / 2, noWeapon = LEVEL && (k.down || k.climbing || k.air || k.carry);
+    const sheathed = k.swapT > SPEC.knight.swap / 2, noWeapon = LEVEL && (k.down || k.climbing || k.air || k.carry);
+    // (design pass 20) in a combo blow: the move's pose, moved by its step, the weapon turned on the pose's hand; else the hold
+    let x0 = h.x0, y0 = h.y0, behind = h.behind, wc, wx, wy;
+    if (SW) {
+      const fr = SW.fr; x0 = Math.round(k.x) - 16 + fr.dx; y0 = Math.round(k.y) - 31 + fr.dy; behind = fr.behind;
+      wc = swingCanvas(h.thing, fr.dir, fr.lead, fxf, fr.mirror); wx = x0 + kf.hand[0] - wc.grip[0]; wy = y0 + kf.hand[1] - wc.grip[1];
+    } else { wc = weaponCanvas(h.thing, h.facing, fxf); wx = h.hx - wc.grip[0]; wy = h.hy - wc.grip[1]; }
     const drawW = () => {
       if (sheathed || noWeapon) return;   // swapping: the knight sheathes, then draws; down, on the ladder or in the air the weapon is away
       const S = k.stream;
       if (S && S.charging && !reduce && (state.frames >> 2) & 1) c.globalAlpha = 0.6;
-      c.drawImage(wc.c, h.hx - wc.grip[0], h.hy - wc.grip[1]);
+      c.drawImage(wc.c, wx, wy);
       c.globalAlpha = 1;
-      if (k.charging) {   // a charge: a glow building on the weapon
+      if (k.charging && !SW) {   // a charge: a glow building on the weapon
         const q = clamp(k.chargeT / SPEC.modifiers.charge.time, 0, 1);
         if (!wc.white) wc.white = C.canvasOf(wc.px, 32, 32, { tint: () => "#fff6c8" });
         c.globalAlpha = 0.15 + 0.55 * q * (reduce || q >= 1 || (state.frames >> 2) & 1 ? 1 : 0.6);
-        c.drawImage(wc.white, h.hx - wc.grip[0], h.hy - wc.grip[1]);
+        c.drawImage(wc.white, wx, wy);
         c.globalAlpha = 1;
       }
     };
-    if (h.behind) drawW();   // facing away the weapon is further from the camera, so it is drawn behind the knight
-    c.drawImage(k.bonk > SPEC.dummies.quintain.stagger - 0.15 ? kf.white() : kf.canvas(), h.x0, h.y0);
-    if (!h.behind) drawW();
+    // a finisher's leap or charge drags the knight's wind-up pose behind the blow (two afterimages; not under less motion)
+    if (SW && SW.sw.T.finisher && !reduce && (SW.fr.phase === "hit" || SW.fr.phase === "follow")) {
+      const c0 = Combos.frameAt(Combos.known(SW.sw.move, 3), Combat.facingOf(SW.sw.a), SW.sw.T.wind - 0.01, SW.sw.T);
+      if (c0 && Math.abs(c0.dx - SW.fr.dx) + Math.abs(c0.dy - SW.fr.dy) >= 4) for (const [q, al] of [[0.66, 0.3], [0.33, 0.15]]) {
+        c.globalAlpha = al; c.drawImage(Knight.frame(c0.facing, c0.pose, 0, 0, look).canvas(), Math.round(Math.round(k.x) - 16 + c0.dx + (SW.fr.dx - c0.dx) * q), Math.round(Math.round(k.y) - 31 + c0.dy + (SW.fr.dy - c0.dy) * q)); c.globalAlpha = 1; }
+    }
+    if (Combos) paintSwings(k, c, "back");
+    if (behind) drawW();   // facing away the weapon is further from the camera, so it is drawn behind the knight
+    c.drawImage(k.bonk > SPEC.dummies.quintain.stagger - 0.15 ? kf.white() : kf.canvas(), x0, y0);
+    if (!behind) drawW();
+    if (Combos) paintSwings(k, c, "front");
+    // a finisher's glint on the weapon's tip for the last 0.06 s of its wind-up (still under less motion: it says what is coming)
+    if (SW && SW.fr.glint && !sheathed && !noWeapon) { const tx = wx + wc.tip[0], ty = wy + wc.tip[1]; c.fillStyle = "#ffffff"; c.fillRect(tx - 2, ty, 5, 1); c.fillRect(tx, ty - 2, 1, 5); c.fillStyle = "#fee761"; c.fillRect(tx - 1, ty - 1, 1, 1); c.fillRect(tx + 1, ty + 1, 1, 1); }
     // the statuses a level puts on a knight (section 3.8): burning, chill and frozen as overlays made from the frame's own pixels
-    if (LEVEL) { const ov = k.frozen > 0 ? "frozen" : k.chill && k.chill.n > 0 ? "chill" : k.burn ? "burning" : null; if (ov) { const o = kf.over(ov, reduce ? 0 : Math.floor(state.t * 8) & 1); if (o) c.drawImage(o.canvas(), h.x0, h.y0); } }
+    if (LEVEL) { const ov = k.frozen > 0 ? "frozen" : k.chill && k.chill.n > 0 ? "chill" : k.burn ? "burning" : null; if (ov) { const o = kf.over(ov, reduce ? 0 : Math.floor(state.t * 8) & 1); if (o) c.drawImage(o.canvas(), x0, y0); } }
   }
   function drawReach() {
     const c = "#2ce8f5", dot = (x, y) => px(x, y, c);
@@ -964,7 +1058,21 @@
     } else if (f.kind === "straw") {
       const r = C.rng(f.seed); for (let i = 0; i < 6; i++) { const a = r() * TAU, v = 6 + r() * 10; px(f.x + Math.cos(a) * v * q * 1.4, f.y + Math.sin(a) * v * q + q * q * 10, i % 2 ? "#feae34" : "#e4a672"); }
     } else if (f.kind === "sparks") {
-      const r = C.rng(f.seed); for (let i = 0; i < 6; i++) { const a = r() * TAU, v = 8 + r() * 12; if (q < 0.8) px(f.x + Math.cos(a) * v * q, f.y + Math.sin(a) * v * q, i % 2 ? "#ffffff" : "#fee761"); }
+      const r = C.rng(f.seed); for (let i = 0; i < (f.n || 6); i++) { const a = r() * TAU, v = 8 + r() * 12; if (q < 0.8) px(f.x + Math.cos(a) * v * q, f.y + Math.sin(a) * v * q, i % 3 === 2 && f.ramp ? f.ramp[3] : i % 2 ? "#ffffff" : "#fee761"); }
+    // (design pass 20) what a finisher throws off: a white ring of light growing from the hit; stones thrown up from the ground and
+    // falling; drops of blood along the blow; speed lines behind a charging knight; dark wisps curling up; the Rising Moon's pale crescent
+    } else if (f.kind === "flash") {
+      const rad = (f.r || 13) * (0.35 + 0.65 * Math.sqrt(q)), n = Math.ceil(rad * 7); for (let i = 0; i < n; i++) { const a = i / n * TAU, x = f.x + Math.cos(a) * rad, y = f.y + Math.sin(a) * rad; if (dith(x, y, 1 - q)) px(x, y, i % 2 ? "#ffffff" : "#fff6c8"); }
+    } else if (f.kind === "chunks") {
+      const r = C.rng(f.seed), age = f.t; for (let i = 0; i < (f.n || 8); i++) { const vx = (r() * 2 - 1) * 46, vy = -50 - r() * 50, x = f.x + vx * age, y = Math.min(f.y, f.y + vy * age + 260 * age * age), col = ["#6e6a70", "#9a948c", "#4a4450", "#c4bcae"][i % 4]; px(x, y, col); if (i % 2) px(x + 1, y, col); }
+    } else if (f.kind === "bleed") {
+      const r = C.rng(f.seed), age = f.t, a0 = f.f ? Math.atan2(f.f[1], f.f[0]) : 0; for (let i = 0; i < (f.n || 8); i++) { const a = a0 + (r() - 0.5) * 1.6, v = 40 + r() * 40; if (q < 0.9) px(f.x + Math.cos(a) * v * age, f.y + Math.sin(a) * v * age - 30 * age + 160 * age * age, i % 3 ? "#e43b44" : "#a22633"); }
+    } else if (f.kind === "speed") {
+      const b = f.f ? [-f.f[0], -f.f[1]] : [-1, 0]; for (const o of [-4, 0, 4]) for (let i = 0; i < 12; i++) { const d = 8 + i + q * 10, x = f.x + b[0] * d - b[1] * o, y = f.y + b[1] * d + b[0] * o; if (dith(x, y, (1 - q) * (1 - i / 14))) px(x, y, "#c0cbdc"); }
+    } else if (f.kind === "wisp") {
+      const r = C.rng(f.seed); for (let i = 0; i < (f.n || 6); i++) { const a = r() * TAU, rad = 4 + r() * 8, x = f.x + Math.cos(a + q * 2) * rad, y = f.y + Math.sin(a + q * 2) * rad * 0.6 - q * 14; if (dith(x, y, 1 - q)) { px(x, y, i % 2 ? "#68386c" : "#3e2753"); px(x, y - 1, "#b55088"); } }
+    } else if (f.kind === "moon" && f.sm && Combos) {
+      Combos.paintSmear((x, y, col) => px(f.ox + x, f.oy + y, col), Object.assign({}, f.sm, { fin: false, life: f.life, band: 2 }), f.t * 0.6, ["#5a6988", "#c0cbdc", "#e8f0ff", "#fff6c8"], "front");
     } else if (f.kind === "arc") {
       // a jagged line hopping target to target
       const r = C.rng((f.seed || 1) + Math.floor(f.t * 30)), [x0, y0] = f.from, [x1, y1] = f.to, n = Math.ceil(dist(x0, y0, x1, y1) / 3), c = f.el === "lightning" ? "#fee761" : Rr[3];
@@ -1111,6 +1219,7 @@
     return (ramIconCanvas = out);
   }
   function syncHud() {
+    warmSwings();   // (design pass 20) the hands' swing drawings, a few a step
     const k = fight.k, hand = fight.hands[k.active], ram = LEVEL && k.carry ? k.carry : null, t = ram ? ram.thing : hand.thing;
     // while a knight carries the ram it is the active weapon: Strike shows the ram, Swap the knight's own weapon (Swap puts the ram down)
     const other = ram ? hand.thing : fight.hands.length > 1 ? fight.hands[1 - k.active].thing : null;
@@ -1344,7 +1453,7 @@
   $("mClose").addEventListener("click", closePlank);
   $("upBtn").addEventListener("click", () => askLeave("forge"));
   $("homeBtn").addEventListener("click", () => askLeave("menu"));
-  function clearFx() { state.fx = []; state.nums = []; state.parts = []; state.rings = []; state.sums = {}; state.heal = { n: 0, at: state.t }; state.hold = 0; state.shake = { t: 0, amp: 0 }; state.trail = []; }
+  function clearFx() { state.fx = []; state.nums = []; state.parts = []; state.rings = []; state.sums = {}; state.heal = { n: 0, at: state.t }; state.hold = 0; state.shake = { t: 0, amp: 0 }; state.trail = []; state.swings = []; }
   function reset() { Combat.reset(fight); clearFx(); }
   // the gate plate (section 3.14), opened from the door on the cellar's left wall: Go alone, Bring sword-brothers 1 to 3 (the last choice
   // remembered), Back to the cellar; Raise and Join a party wait for the second build; "Cleared" once the smith has cleared it
