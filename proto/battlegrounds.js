@@ -1212,8 +1212,13 @@
     // (design pass 20) in a combo blow: the move's pose, moved by its step, the weapon turned on the pose's hand; else the hold
     let x0 = h.x0, y0 = h.y0, behind = h.behind, wc, wx, wy;
     if (SW) {
-      const fr = SW.fr; x0 = Math.round(k.x) - 16 + fr.dx; y0 = Math.round(k.y) - 31 + fr.dy; behind = fr.behind;
-      wc = swingCanvas(h.thing, fr.dir, fr.lead, fxf, fr.mirror); wx = x0 + kf.hand[0] - wc.grip[0]; wy = y0 + kf.hand[1] - wc.grip[1];
+      const fr = SW.fr, v = (h.thing.weapon && h.thing.weapon.visual) || {}, up = !!(PF.UPRIGHT && PF.UPRIGHT[v.base]);
+      // (card t84, the animation audit) an upright base's swing drawing is its hold, so it is mirrored where the hold is: facing left, and
+      // facing away (the shield used to flip at a move's start and end facing away); an old combos.js keeps the left-only rule
+      const mirror = Combos.mirrorOf ? Combos.mirrorOf(fr.facing, up) : fr.mirror;
+      x0 = Math.round(k.x) - 16 + fr.dx; y0 = Math.round(k.y) - 31 + fr.dy; behind = fr.behind;
+      wc = swingCanvas(h.thing, fr.dir, fr.lead, fxf, mirror); wx = x0 + kf.hand[0] - wc.grip[0]; wy = y0 + kf.hand[1] - wc.grip[1];
+      if (k === fight.k) state.lastSwing = { move: SW.sw.move, n: SW.sw.n, facing: fr.facing, phase: fr.phase, mirror, ring: false };   // (the harness reads it)
     } else { wc = weaponCanvas(h.thing, h.facing, fxf); wx = h.hx - wc.grip[0]; wy = h.hy - wc.grip[1]; }
     const drawW = () => {
       if (sheathed || noWeapon) return;   // swapping: the knight sheathes, then draws; down, on the ladder or in the air the weapon is away
@@ -1240,6 +1245,14 @@
     c.drawImage(k.bonk > SPEC.dummies.quintain.stagger - 0.15 ? kf.white() : kf.canvas(), x0, y0);
     if (!behind) drawW();
     if (Combos) paintSwings(k, c, "front");
+    // (card t84) the whip circling over the head in Thunder Crack's wind-up: the ring of motion over the helm, in the weapon's ramp, from
+    // the first wind-up frame (pass 20 section 3.4); the smear keeps the ring as it fades after the hit, so it never pops. Still under less motion
+    if (SW && SW.fr.circling && Combos.ringOf) {
+      const R = Combos.ringOf(Combos.known(SW.sw.move, SW.sw.n), Combat.facingOf(SW.sw.a));
+      if (R) { const rp = ramp(h.thing.weapon.element, h.thing.weapon.visual.material), cx = x0 + 16, cy = y0 + 31 - CHEST;
+        Combos.paintRing((x, y, col) => { c.fillStyle = col; c.fillRect(Math.round(cx + x), Math.round(cy + y), 1, 1); }, R, rp, 0);
+        if (k === fight.k && state.lastSwing) state.lastSwing.ring = true; }
+    }
     // a finisher's glint on the weapon's tip for the last 0.06 s of its wind-up (still under less motion: it says what is coming)
     if (SW && SW.fr.glint && !sheathed && !noWeapon) { const tx = wx + wc.tip[0], ty = wy + wc.tip[1]; c.fillStyle = "#ffffff"; c.fillRect(tx - 2, ty, 5, 1); c.fillRect(tx, ty - 2, 1, 5); c.fillStyle = "#fee761"; c.fillRect(tx - 1, ty - 1, 1, 1); c.fillRect(tx + 1, ty + 1, 1, 1); }
     // the statuses a level puts on a knight (section 3.8): burning, chill and frozen as overlays made from the frame's own pixels

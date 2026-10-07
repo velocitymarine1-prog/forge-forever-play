@@ -186,7 +186,19 @@
     if (f === "left") dx = -dx;
     if (f === "away") { dir = AWAY[dir]; dx = -dx; dy = dy > 0 ? -dy : dy; lead = lead === "cw" ? "ccw" : "cw"; }   // forward is up the screen
     return { phase, move, name: M.name, pose, facing: f, dir, lead, dx, dy, mirror: f === "left", behind: f === "away" || (f === "right" || f === "left") && flags.includes("b"),
-      glint: T.finisher && flags.includes("g") && s >= T.wind - 0.06 && s < T.wind };
+      glint: T.finisher && flags.includes("g") && s >= T.wind - 0.06 && s < T.wind, circling: flags.includes("o") };
+  }
+  // (card t84, the animation audit) the screen's two rules a swing drawing shares with the hold. A swing drawing is mirrored facing left;
+  // an upright base's (the shield: swingFor gives its hold, which never turns) facing away too, since that is how its hold is drawn
+  // (pass 7: right and toward hold the held drawing, left and away its mirror). Without this the shield flipped at a move's start and end
+  function mirrorOf(facing, upright) { return facing === "left" || (!!upright && facing === "away"); }
+  // the ring of motion over the helm while the weapon circles (the whirl's wind-up, pass 20 section 3.4): { cx, cy, rx, ry } in px from
+  // the chest (x right, y down), mirrored facing left and away, or null for a move without one
+  function ringOf(move, facing) {
+    const M = MOVES[move] || MOVES.cleave, A = ARCH[M.arch], S = A.smear[VIEW[facing] || "side"];
+    if (!S || !S.whirl) return null;
+    const sx = facing === "left" || facing === "away" ? -1 : 1;
+    return { cx: S.whirl.c[0] * sx, cy: S.whirl.c[1], rx: S.whirl.r[0], ry: S.whirl.r[1] };
   }
 
   // ------------------------------------------------------------------ the smear of a move
@@ -245,12 +257,15 @@
         if (sm.style === "bash" && fade < 0.6) for (let j = -4; j <= 4; j++) P(sm.x + ca * (sm.len - 3) - sa * j, sm.y + sa * (sm.len - 3) + ca * j, j % 2 ? ramp[2] : ramp[3]);
       }
       if (sm.arc) paintArc(P, Object.assign({}, sm.arc, { style: "crescent", band: 3, fin: sm.fin }), fade, white, ramp, pass);
-      if (sm.whirl && (pass === "back") === !!sm.behind) { const W = sm.whirl, n = 40; for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; if (dith(i, 0, (1 - fade) * 0.8)) P(W.cx + Math.cos(a) * W.rx, W.cy + Math.sin(a) * W.ry, i % 3 ? ramp[2] : ramp[3]); } }
+      if (sm.whirl && (pass === "back") === !!sm.behind) paintRing(P, sm.whirl, ramp, fade);
       return true;
     }
     paintArc(P, sm, fade, white, ramp, pass);
     return true;
   }
+  // the ring of motion (ringOf's, or a smear's whirl): forty points round the ellipse, dithered by (1 - fade) x 0.8, in the ramp's two
+  // lightest tones. The screen paints it over the helm while the weapon circles in the wind-up, and the smear keeps it as it fades
+  function paintRing(P, W, ramp, fade) { const n = 40; for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; if (dith(i, 0, (1 - (fade || 0)) * 0.8)) P(W.cx + Math.cos(a) * W.rx, W.cy + Math.sin(a) * W.ry, i % 3 ? ramp[2] : ramp[3]); } }
   function paintArc(P, sm, fade, white, ramp, pass) {
     const span = sm.a1 - sm.a0, steps = Math.ceil(Math.abs(span) * Math.max(sm.rx, sm.ry) * 1.3) + 2;
     const back = p => sm.behind || (sm.far && p);   // a far point: on the upper half of a flat curve
@@ -304,7 +319,7 @@
     return out;
   }
 
-  const api = { rules, MOVES, ARCH, FORMS, MELEE, ORBIT, TURN, setFor, moveOf, known, times, phaseAt, frameAt, smearOf, paintSmear, arcPoint, tipOf, impactOf, MIRROR, DIRS: ["e", "ne", "n", "nw", "w", "sw", "s", "se"] };
+  const api = { rules, MOVES, ARCH, FORMS, MELEE, ORBIT, TURN, setFor, moveOf, known, times, phaseAt, frameAt, mirrorOf, ringOf, smearOf, paintSmear, paintRing, arcPoint, tipOf, impactOf, MIRROR, DIRS: ["e", "ne", "n", "nw", "w", "sw", "s", "se"] };
   root.Combos = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);
