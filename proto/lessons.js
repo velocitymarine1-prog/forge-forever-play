@@ -6,7 +6,8 @@
 //     off: { step: taps off the glow }, done, skipped, gift } (section 3.7): pure functions, and a controller that keeps it;
 //   the playtest notes (section 3.8), pure;
 //   where his plank goes (section 3.3), pure;
-//   his plank: his face (a 16 x 16 crop of Grycus.frame("idle", 0), x 13 to 28 and y 6 to 21), GRYCUS (or Grycus · from the stairs),
+//   his plank: his face (a 16 x 16 crop of Grycus.frame("idle", 0), x 13 to 28 and y 6 to 21; since build 17 a page may give another
+//     face, Nell's in the courtyard: view.face), GRYCUS (or Grycus · from the stairs, or whoever view.who names),
 //     his words with {name} filled and <em> in red, TAP TO CONTINUE, the pips, Skip the lessons, a button, a counter (0 / 3), a tail
 //     down to his head, four kinds (plank, big, tiny, ribbon), the rise in three steps (0.27 s), a nudge;
 //   the glow: the ember ring (3 px gold, breathing every 1.1 s) on each glowing thing, the bobbing pixel pointer (Smithy's pointer
@@ -34,7 +35,8 @@
 //       anchor: { x, y },                   his head, in root coordinates: the plank sits over it with a tail (L.pointIn helps)
 //       box: { x, y | bottom, w },          the plank at this box (the cellar's back wall, the plaque's top edge)
 //       bounds: { x, y, w, h },             where the plank may sit (default the root less 8 px: pass the room below the sign)
-//       kind, words, who, foot, button, pointer: "auto" | "side" | "above" | "below" | "left" | "right" | "none",
+//       kind, words, who, face (an Element for the plank's head in place of his; null for none), foot, button,
+//       pointer: "auto" | "side" | "above" | "below" | "left" | "right" | "none",
 //       manual: bool,                       a tap on the target does not end the step: the page sends L.event(name) itself when its
 //                                            action is done (the bought Fire's flight; anything that leaves the page should too)
 //       plank: false }                      the glow without his plank
@@ -63,7 +65,8 @@
   const steps = () => D().steps || [];
   const step = id => steps().find(s => s.id === id) || null;
   const index = id => steps().findIndex(s => s.id === id);
-  const FIRST = "f.welcome";
+  // the first step after the menu's (f.welcome until build 17; the courtyard's y.gate since: whatever the data lists first)
+  const FIRST = () => { const s = steps().find(x => x.page !== "menu"); return s ? s.id : "f.welcome"; };
   function next(id) { const i = index(id), all = steps(); return i >= 0 && i + 1 < all.length ? all[i + 1].id : null; }
   const pageOf = id => { const s = step(id); return s ? s.page : null; };
   const words = () => D().words || {};
@@ -78,13 +81,13 @@
     const at = {}, off = {};
     for (const [k, v] of Object.entries(s.at && typeof s.at === "object" ? s.at : {})) if (step(k) && ms(v) !== null) at[k] = v;
     for (const [k, v] of Object.entries(s.off && typeof s.off === "object" ? s.off : {})) if (step(k) && Number.isInteger(v) && v > 0) off[k] = v;
-    return { v: 1, step: step(s.step) && s.step !== "m.name" ? s.step : FIRST, started: ms(s.started) !== null ? s.started : null, at, off,
+    return { v: 1, step: step(s.step) && s.step !== "m.name" ? s.step : FIRST(), started: ms(s.started) !== null ? s.started : null, at, off,
       done: ms(s.done) !== null ? s.done : null, skipped: s.skipped === true, gift: ms(s.gift) !== null ? s.gift : null };
   }
   // begin(now, named): a new record at the welcome; named (when the menu's plank first showed) stamps m.name for the notes
   function begin(now, named) {
     const r = record(null), t = isoOf(now);
-    r.started = t; r.at[FIRST] = t;
+    r.started = t; r.at[FIRST()] = t;
     if (named !== undefined && named !== null && ms(isoOf(named)) <= ms(t)) r.at["m.name"] = isoOf(named);
     return r;
   }
@@ -483,13 +486,14 @@
       })();
       const btn = !beat && (v.button !== undefined ? v.button : st.button);
       const fsc = kind === "tiny" ? 2 : kind === "ribbon" ? ((rt.clientHeight || 0) >= 420 ? 3 : 2) : 3;
-      const key = [kind, text, label, foot, btn, fsc, !!(root.Grycus), who ? who.name : ""].join("|");   // (the name too: a rename refills it)
+      const key = [kind, text, label, foot, btn, fsc, !!(root.Grycus), who ? who.name : "", v.face === null ? "noface" : v.face && v.face.nodeType === 1 ? "face:" + (v.face.dataset.face || "x") : ""].join("|");   // (the name too: a rename refills it)
       if (plank.dataset.key === key) return kind;
       plank.dataset.key = key;
       plank.className = "lsn-plank " + kind;
       plank.innerHTML = `<div class="lsn-body"><span class="lsn-who">${esc(label)}</span><p class="lsn-words${beat ? " beat" : ""}">${fill(text, who ? who.name : "")}</p>${foot || ""}${btn ? `<button type="button" class="lsn-btn f-ember" data-lsn-btn>${esc(btn)}</button>` : ""}</div>`;
-      const body = plank.firstChild, f = face(fsc, doc);
-      if (f) body.prepend(f); else body.classList.add("noface");
+      // (build 17) the face: the page's own when it gives one (Nell's, in the courtyard), his by default, none when asked
+      const body = plank.firstChild, f = v.face === null ? null : v.face && v.face.nodeType === 1 ? v.face : face(fsc, doc);
+      if (f) { if (f.classList && !f.classList.contains("lsn-face")) f.classList.add("lsn-face"); body.prepend(f); } else body.classList.add("noface");
       const sk = plank.querySelector("[data-lsn-skip]"); if (sk) sk.addEventListener("click", e => { e.stopPropagation(); openAsk(); });
       const b = plank.querySelector("[data-lsn-btn]"); if (b) b.addEventListener("click", () => {
         if (typeof o.onButton === "function") { try { o.onButton(st.id, L); } catch (e) { report(e); } }
@@ -662,7 +666,7 @@
     return L;
   }
 
-  const api = { KEY_PREFIX, FIRST, RING_OUT, CLEAR, TAIL_H, TAIL_IN, get data() { return D(); }, steps, step, next, index, pageOf, words, record, begin, moveTo, advance, finish, offTap, giveGift, where,
+  const api = { KEY_PREFIX, get FIRST() { return FIRST(); }, RING_OUT, CLEAR, TAIL_H, TAIL_IN, get data() { return D(); }, steps, step, next, index, pageOf, words, record, begin, moveTo, advance, finish, offTap, giveGift, where,
     load, save, start, forgetAll, times, notes, span, fill, wordsFor, pips, place, pointerAt, widest, facePixels, face, boxIn, mount, version: 1 };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Lessons = api;

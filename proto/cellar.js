@@ -1,8 +1,9 @@
 // FORGE FOREVER: the Training Cellar's art (design pass 7 sections 3.3 and 3.4, revised by card t64; built by card t65).
 // The first area of the Battlegrounds, drawn in code like every Thing: a cellar of 384 x 216 pixels under the smithy, made with the
-// smithy's own bricks, beam, posts, floor tones and firelight (the helpers of proto/smithy.js), with the stairs up to the Forge, three
-// wall torches, a weapon rack, a chalk tally board and the rail; and the four kinds of training dummy (straw, the armored dummy at
-// 48 x 48, the rail dummy, the quintain and its arm), the 3 x 5 pixel font and the torch flame.
+// smithy's own bricks, beam, posts, floor tones and firelight (the helpers of proto/smithy.js), with the stairs up (to the Forge until
+// design pass 24, build 17; to the Courtyard since), three wall torches, a weapon rack, a chalk tally board and the rail; and the four
+// kinds of training dummy (straw, the armored dummy at 48 x 48, the rail dummy, the quintain and its arm), the 3 x 5 pixel font and the
+// torch flame. The left wall is plain: the door to the levels that design pass 12 cut into it is drawn only for a spec that still has one.
 // The pixels are made without a DOM, so node can check them; canvases are made only when a page asks (bake, dummySprite).
 // Plain script, defines window.Cellar. Needs proto/smithy.js; reads the room from spec/cellar.js (window.FORGE_CELLAR).
 (function (root) {
@@ -96,7 +97,10 @@
       for (let x = side; x < W - side; x++) set(x, H - front - 1, OUT, 0);
     }
     this.props = {};
-    if (o.door) this.door(o.door);   // the door to the Troll Gate in the left wall (design pass 12, section 3.14)
+    // the door to the levels in the left wall (design pass 12, section 3.14). Design pass 24 (section 4.12, build 17) took it out of
+    // spec/cellar.json, so the wall is plain; a spec that still has one gets it drawn (the twin of the build before, cached on a phone
+    // while a deploy is fresh)
+    if (o.door) this.door(o.door);
     if (o.stairs !== undefined && o.stairs !== null) this.stairs(o.stairs);
     this.torches = [];
     for (const tx of (o.torches || [])) this.torch(tx, o.torchY || 24);
@@ -107,7 +111,8 @@
     this.light = Object.assign({ radius: 58, flicker: 3, floor: 0.62, fps: 8 }, spec.light || {});
     this.frames = null;
   }
-  // the stairs up to the Forge: an arched opening with six steps rising into the dark, the smithy's firelight on the top steps
+  // the stairs up (to the Courtyard since design pass 24, build 17; drawn as they were when they led to the Forge): an arched opening
+  // with six steps rising into the dark, firelight on the top steps
   Scene.prototype.stairs = function (x0) {
     const set = this.set, top = 18, bot = this.wallBot - 1, w = 34, cx = x0 + w / 2;
     this.props.stairs = { x0, x1: x0 + w, y: bot };
@@ -137,7 +142,8 @@
   // the passage's floor, going dark to the west, with two worn steps; jamb stones above and below; an oak leaf swung open against the
   // north jamb with two iron straps; a worn sill over the floor's edge at x 8 to 9; and above the north jamb a small iron plate with the
   // trolls' smeared green hand, saying where it goes. Like the rest of that wall it is drawn with light 0, so the torches never change it.
-  // o: { side: "w", y0, y1 }; the door's rectangle (x 0 to 9, y0 - 6 to y1 + 4) is the only part of the room that changes
+  // o: { side: "w", y0, y1 }; the door's rectangle (x 0 to 9, y0 - 6 to y1 + 4) is the only part of the room that changes.
+  // (The cellar's own spec has had no door since design pass 24, build 17: this draws one for a spec that still does.)
   Scene.prototype.door = function (o) {
     const set = this.set, y0 = o.y0 === undefined ? 88 : o.y0, y1 = o.y1 === undefined ? 112 : o.y1;
     this.props.door = { side: o.side || "w", x0: 0, x1: 9, y0: y0 - 6, y1: y1 + 4, open: { y0, y1 } };

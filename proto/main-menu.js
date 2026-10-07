@@ -10,6 +10,10 @@
 // (proto/lessons.js) at the welcome and walks into the Forge. While the field has the focus and the keyboard is up, the plank rises
 // into what the keyboard leaves of the screen (visualViewport). While the lessons run, Forge and Battlegrounds both go to the lesson's
 // page. Settings (settings.js) has Your name and Copy my playtest notes, and Erase forgets the player and the lessons.
+// Since build 17 (design pass 24 section 4.13, settled by pass 26): the buttons are Play and General Settings. Play (the gate glyph,
+// the old Forge button's id) opens the castle page, which opens the Courtyard, the game's hub; while the lessons run it goes to the
+// lesson's page (the cellar for its steps). The name plank's button says Into the castle (spec/lessons.json words.menu.button), and a
+// new player's first step is the courtyard's. The Battlegrounds button is a hidden stub for the script of the build before.
 (function () {
   "use strict";
   const $ = id => document.getElementById(id);
@@ -82,7 +86,8 @@
     window.setTimeout(() => { if (window.Nav) went = Nav.go(to, target); else window.location.href = target; }, still ? 0 : 260);
     return went;
   }
-  // (build 8) while the lessons run, both go where the lesson is: the cellar for its steps, the Forge for the rest
+  // (build 8) while the lessons run, Play goes where the lesson is: the cellar for its steps, the castle page for the rest
+  // (build 17: Play is the one way in, to the castle page's courtyard; the Battlegrounds button is a hidden stub)
   $("menuForge").addEventListener("click", () => go(lessonPage() || "forge"));
   $("menuBattle").addEventListener("click", () => go(lessonPage() || "cellar"));
   $("menuSettings").addEventListener("click", () => openPlank("set"));

@@ -5,6 +5,7 @@
 // level's curve (100 XP to reach Lv 2, each later level the one before plus 5 % through Lv 25, plus 2.5 % from Lv 26), what a forge
 // pays by the rarity of what it makes, what a cleared Battleground level pays (and its replay), and the back pay of a save made under
 // the old rules. All of it in whole numbers (tenths of a percent, halves up), so tools/rules.py gives the same tables.
+// Since build 17 (design pass 24 section 4.8) a class bought from Vorn with coins (profile.bought) does not use up a rack earned.
 (function (root) {
   "use strict";
   const START_CHOICES = ["sword", "bow", "axe", "flail"];
@@ -64,7 +65,15 @@
   }
   function levelFor(xp) { let level = 1; while (level < MAX_LEVEL && xp >= xpForLevel(level + 1)) level++; return level; }
   function picksEarned(level) { let picks = 1 + 2 * Math.min(9, Math.floor(level / 5)); if (level >= 50) picks += 1; return Math.min(picks, 20); }
-  function picksLeft(profile) { return Math.max(0, picksEarned(profile.level) - profile.classes.length); }
+  // free picks left (design pass 24 section 4.8, build 17): what the level has earned, less the classes held that were not paid for.
+  // `profile.bought` lists the classes bought from Vorn with coins, so a class paid for never uses up a free pick; a save from before
+  // build 17 has no `bought`, which counts as none bought. Never more than the classes still to open (the grammar's twenty, less
+  // those held): a pick with no class left to take is not left, so a smith who paid for some has none waiting once every rack is up
+  const CLASS_COUNT = 20;
+  function picksLeft(profile) {
+    const held = profile.classes, bought = Array.isArray(profile.bought) ? profile.bought : [];
+    return Math.max(0, Math.min(picksEarned(profile.level) - held.filter(c => !bought.includes(c)).length, CLASS_COUNT - held.length));
+  }
   function nextUnlock(level) { if (level >= 50) return null; return (Math.floor(level / 5) + 1) * 5; }
   function crucibleAwake(profile, G) { return profile.level >= G.fuse.level; }
   function classOf(t) { if (!(t.kind === "weapon" && t.weapon)) return null; return t.hybrid ? "legendary" : t.weapon.visual.base; }
@@ -75,10 +84,12 @@
     return profile.classes.includes(cls);
   }
   // `runs` holds the ids of the last runs brought home and `cleared` the areas cleared once (design pass 12 section 3.11.5); `xpRules`
-  // says which XP rules the save was paid under (2 since design pass 19: no back pay due)
+  // says which XP rules the save was paid under (2 since design pass 19: no back pay due); `bought` lists the classes paid for with
+  // coins at Vorn's (design pass 24 section 4.8, build 17). The well's `daily` (section 4.9) is not here: a save has none until its
+  // first claim
   function newProfile(id, name) {
     return { id, name: name || id, joined: new Date().toISOString().replace(/\.\d+Z$/, "Z"), level: 1, xp: 0, coins: 0, embers: 0, classes: [], picks: 1,
-      firsts: { weapons: [], legends: [], ingredients: [] }, kinds: [], found: [], terms: {}, unnamed: [], runs: [], cleared: {}, xpRules: XP_RULES };
+      firsts: { weapons: [], legends: [], ingredients: [] }, kinds: [], found: [], terms: {}, unnamed: [], runs: [], cleared: {}, xpRules: XP_RULES, bought: [] };
   }
   // a run brought home is counted once: false when its id is already in profile.runs, else it is added (the last RUNS_KEPT kept) and
   // true; the caller pays or banks only on true, in the same save
@@ -90,7 +101,7 @@
     if (profile.runs.length > RUNS_KEPT) profile.runs.splice(0, profile.runs.length - RUNS_KEPT);
     return true;
   }
-  const api = { START_CHOICES, MAX_LEVEL, RUNS_KEPT, XP_RULES, xpToNext, xpForLevel, levelFor, forgeXp, clearXp, replayXp, backPay, picksEarned, picksLeft, nextUnlock, crucibleAwake, canEquip, classOf, newProfile, rememberRun };
+  const api = { START_CHOICES, MAX_LEVEL, CLASS_COUNT, RUNS_KEPT, XP_RULES, xpToNext, xpForLevel, levelFor, forgeXp, clearXp, replayXp, backPay, picksEarned, picksLeft, nextUnlock, crucibleAwake, canEquip, classOf, newProfile, rememberRun };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Progress = api;
 })(typeof window !== "undefined" ? window : globalThis);

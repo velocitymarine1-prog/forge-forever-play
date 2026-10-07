@@ -31,6 +31,13 @@
 // record with no save is a new player (newSmith: level 1, 60 coins, the Sword), no record sends the page to the main menu, which asks
 // the name (under ?stay=1 the dev smith boots as before), and Grycus's lessons (forge-lessons.js, through the lessonOn hooks) teach
 // the first forge and say good luck; while they run he says none of his own lines.
+// Since build 17 (design passes 24 and 25, settled by design pass 26; cards t79 and t82) the page is the castle: four rooms under one
+// sign. The Courtyard (state.room "yard": proto/courtyard.js's yard walked at the cellar's scale with proto/stick.js's stick, tap to
+// go, a prompt over the knight; Nell's cart and Vorn's weapons as planks, the well's daily coins) is the game's hub and where the
+// menu's Play lands; the Forge's left door goes out to it and its right wall is the Rack of the two hands; the Armory is entered
+// from the yard; and the Map Table (state.room "map": proto/map-table.js's map on its table, by the yard's gate) is where a level is
+// picked and Go leaves for the Battlegrounds page. Vorn's classes and the well's coins are Coin.arm and Coin.daily (and the service's
+// /arm and /daily); the unlock plaque and the Cart's cabinet are gone. Only the Map Table is an entry in the phone's history.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -41,6 +48,15 @@
   document.documentElement.classList.toggle("still", reduce || params.get("harness") === "1");
   const CLASS_COUNT = G.visual.bases.length;
   const TIER = G.tiers;
+  // (build 17) the castle's rooms and the modules the Courtyard and the Map Table need (the section "the castle" below says the rest)
+  const ROOMS = { yard: "The Courtyard", forge: "The Forge", armory: "The Armory", map: "The Map Table" };
+  const Y = window.Courtyard || null, FK = window.Folk || null, MT = window.MapTable || null, KN = window.Knight || null, ST = window.Stick || null, TR = window.Trolls || null;
+  const hasYard = !!(Y && FK && KN && ST && window.Physics && window.FORGE_COMBAT && window.FORGE_COURTYARD && window.FORGE_FOLK);
+  const hasMap = !!(MT && KN && TR && window.FORGE_MAP);
+  const noyard = params.get("noyard") === "1" || !hasYard;
+  const stay = params.get("stay") === "1";
+  const SPOT_OF = { menu: "menu", cellar: "cellar", level: "road", road: "road", lessons: "lessons", forge: "forge", armory: "armory", table: "table" };
+
   const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const clone = x => JSON.parse(JSON.stringify(x));
   const plural = b => ({ staff: "Staves", scythe: "Scythes", lance: "Lances", book: "Books", dagger: "Daggers", axe: "Axes", orb: "Orbs", claw: "Claws", whip: "Whips", flail: "Flails", cannon: "Cannons", lantern: "Lanterns", horn: "Horns", bow: "Bows", crossbow: "Crossbows", wand: "Wands", shield: "Shields", spear: "Spears", hammer: "Hammers", sword: "Swords", legendary: "Legendary" })[b] || (b[0].toUpperCase() + b.slice(1) + "s");
@@ -72,6 +88,17 @@
     for (const t of world.values()) if (F.isWeapon(t) && !t.base) t.base = F.baseOf(t, world);
     ledgerRows = new Set(rows.keys()); ledgerKinds = new Set(kinds.map(k => k.key));
   }
+  // every weapon in the world whose form is not its class's is repaired in place (F.repairForm); returns how many were
+  function repairForms() {
+    if (typeof F.repairForm !== "function") return 0;
+    let n = 0;
+    for (const [id, t] of [...world.entries()]) {
+      if (!F.isWeapon(t)) continue;
+      try { const [r, changed] = F.repairForm(t, G); if (!changed) continue; world.set(id, r); for (const row of rows.values()) if (row.thing && row.thing.id === id) row.thing = r; n++; }
+      catch (e) { (window.__errors || []).push("repair " + id + ": " + (e && e.message || e)); }
+    }
+    return n;
+  }
   function rowKey(r) { const kase = r.case || (r.thing && r.thing.hybrid ? "fuse" : F.roles(world.get(r.pair[0]) || { id: r.pair[0], kind: "ingredient" }, world.get(r.pair[1]) || { id: r.pair[1], kind: "ingredient" })[0]); return F.keyText(kase, r.pair[0], r.pair[1]); }
   loadLedger(ledgerAt);
 
@@ -86,7 +113,7 @@
   function gain(id, n) { const k = n === undefined ? 1 : n, o = own.get(id); if (o) { o.n += k; } else own.set(id, { n: k, seq: ++seq }); if ((n === undefined || n > 0) && !got[id]) got[id] = nowIso(); }
   function have(id) { const o = own.get(id); return o ? o.n : 0; }
   let profile = Progress.newProfile("isaac");
-  const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, noPayToastShown: false, backPay: null, levelSaved: null, loadFailed: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false };
+  const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, noPayToastShown: false, backPay: null, levelSaved: null, loadFailed: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false, roomSet: false };
   const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
     room: "forge", page: "armory", hallX: { armory: 0, legends: 0 }, lastCabKind: null, hold: null, wallsOpen: false, picking: false };
   const svc = { url: null, player: null, smiths: 0, spare: null };
@@ -107,7 +134,7 @@
     const stock = {}; for (const [id, o] of own) stock[id] = o.n;
     const at = nowIso();
     const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
-    const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players, grycus: gry.mem };
+    const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players, grycus: gry.mem, folk: folk.mem };   // (build 17: the folk's memory beside Grycus's)
     // (build 9) on the Cloudflare copy the save then goes online too (proto/cloud.js sends it a moment later)
     const put = d => { localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify(d)); session.savedAt = at; if (window.Cloud) Cloud.touch(); return true; };
     try { return put(data); }
@@ -143,6 +170,9 @@
       for (const k of (d.kinds || [])) if (k && k.key && !kinds.some(x => x.key === k.key)) kinds.push(k);
       for (const p of (d.players || [])) if (p && p.id && !players.some(x => x.id === p.id)) players.push(p);
       for (const t of world.values()) if (F.isWeapon(t) && !t.base) t.base = F.baseOf(t, world);
+      // (forge rules 3, 2026-10-07) a weapon forged before the rule attacks with its class's form again (a Horn-Blown Axe swings, it
+      // does not lob): the repaired record replaces the old one in the world and in its row, and boot saves it
+      session.formsRepaired = repairForms();
       own.clear(); seq = 0;
       // the dates acquired come back as saved, and none is invented: a thing the save has no date for stays undated
       for (const k of Object.keys(got)) delete got[k];
@@ -153,6 +183,7 @@
       session.assistTap = !!d.assist;
       session.savedAt = d.at || null;
       gry.mem = GRY ? GRY.memory(d.grycus) : null;   // (a save from before build 6 has none: he meets the player)
+      folk.mem = FK ? FK.memory(d.folk) : null;   // (build 17: Nell's and Vorn's; a save from before has none: they meet the knight)
       return true;
     } catch (e) { session.loadFailed = true; (window.__errors || []).push("load: " + (e && e.message || e)); return false; }
   }
@@ -201,7 +232,8 @@
     session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
     save();
     const sent = writeHandoff(tryId);
-    const url = cellarUrl(), stay = params.get("stay") === "1";
+    markWent("cellar"); saveYardMark();   // (build 17: the next boot or the back gesture opens the courtyard at the top of the cellar's stairs)
+    const url = cellarUrl();
     const went = window.Nav ? Nav.go("cellar", url, { stay }) : { to: "cellar", url, how: "push" };
     window.TheForge.wentDown = { url, sent, try: tryId, how: went.how };
     if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
@@ -210,13 +242,19 @@
   // the house on the sign: back to the main menu (design pass 9 section 3.4), the handoff written so Battlegrounds from the menu
   // carries the smith's weapons; nothing while forging or pouring, like the door
   const menuUrl = () => document.body.getAttribute("data-menu") || "main-menu.html";
+  // (build 17: from the Map Table its history entry comes off first, so the menu is right behind as nav.js expects)
   function goHome() {
     if (state.forging || state.pouring || session.leaving) return null;
-    gryHush();
+    if (state.room === "map" && map.pushed) { popMap(() => goHomeNow()); return { to: "menu", how: "popmap" }; }
+    return goHomeNow();
+  }
+  function goHomeNow() {
+    if (state.forging || state.pouring || session.leaving) return null;
+    gryHush(); closeFolk(); saveYardMark();
     session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
     save();
     writeHandoff(null);
-    const url = menuUrl(), stay = params.get("stay") === "1";
+    const url = menuUrl();
     const went = window.Nav ? Nav.go("menu", url, { stay }) : { to: "menu", url, how: "push" };
     window.TheForge.wentTo = went;
     if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
@@ -225,7 +263,7 @@
   // the handoff whenever the page is left or hidden (the app switched away or closed), except right after going down, so a door
   // handoff with `try` is never overwritten
   // (the handoff only: the save is already current after every action, and a save here would write an erased smithy back)
-  function handoffOnLeave() { if (!session.booted || session.erased || window.TheForge.wentDown) return; writeHandoff(null); }
+  function handoffOnLeave() { if (!session.booted || session.erased || window.TheForge.wentDown) return; writeHandoff(null); saveYardMark(); }
   window.addEventListener("pagehide", handoffOnLeave);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") handoffOnLeave(); });
   // in comes the loadout, and nothing else: taken when it is for this world and newer than the Forge's own save
@@ -436,6 +474,38 @@
       save();
       return { ok: true, cost };
     },
+    // (build 17, design pass 24 section 4.8) Vorn's stall: one class taken up, on the house while a pick waits, else for its group's
+    // coins (Coin.arm; the service's POST /arm). The class weapon joins the things; a class paid for joins profile.bought
+    async arm(cls) {
+      const t = classWeaponOf(cls);
+      if (svc.url) {
+        const { code, body } = await api("POST", "/arm", { player: svc.player, class: cls });
+        if (code === 200) { await refreshProfile(); if (t && !own.has(t.id)) gain(t.id); }
+        return { ok: code === 200, free: !!body.free, cost: body.cost | 0, reason: body.reason };
+      }
+      const r = Coin.arm(cls, SHOP, profile);
+      if (!r.ok) return r;
+      profile.classes = profile.classes.concat([cls]);
+      if (!r.free) { profile.coins -= r.cost; profile.bought = (Array.isArray(profile.bought) ? profile.bought : []).concat([cls]); }
+      if (t) { gain(t.id); if (!profile.found.includes(t.id)) profile.found.push(t.id); }
+      profile.picks = Progress.picksLeft(profile);
+      save();
+      return { ok: true, free: r.free, cost: r.cost };
+    },
+    // (build 17, design pass 24 section 4.9) the well: the day's coins once a calendar day (Coin.daily; the service's POST /daily).
+    // `today` is the phone's local date, YYYY-MM-DD
+    async daily(today) {
+      if (svc.url) {
+        const { code, body } = await api("POST", "/daily", { player: svc.player, today });
+        if (code === 200) await refreshProfile();
+        return { ok: code === 200, coins: body.coins | 0, reason: body.reason };
+      }
+      const r = Coin.daily(profile, today, SHOP);
+      if (!r.ok) return r;
+      profile.coins += r.coins; profile.daily = { last: today };
+      save();
+      return { ok: true, coins: r.coins };
+    },
     async pick(classes) {
       if (svc.url) {
         const { code, body } = await api("POST", "/pick", { player: svc.player, classes });
@@ -624,10 +694,7 @@
     $("stCruc").classList.toggle("dim", !awake);
     $("stCrucLv").hidden = awake;
     if (room.crucible !== (awake ? "lit" : "cold")) room.setCrucible(awake ? "lit" : "cold");
-    const picks = Progress.picksLeft(profile);
-    profile.picks = picks;
-    $("pickBadge").hidden = !(picks > 0 && profile.classes.length);
-    $("pickBadge").textContent = picks + (picks === 1 ? " rack to open" : " racks to open");
+    profile.picks = Progress.picksLeft(profile);   // (build 17: the picks are Vorn's, in the courtyard; the Weapons tab has no badge)
     if (!awake && state.station === "crucible") setStation("anvil");
   }
 
@@ -638,15 +705,16 @@
   // anvil, so with the walls open the station fills the pane's height on any screen a phone has)
   const ROOM_H = 112, W_MIN = 232, W_MAX = 320, STATION = 76;
   let roomW = W_MIN;
-  let room = Smithy.mount($("scene"), { w: roomW, h: ROOM_H, wide: true, crucible: "cold", still: reduce });
+  let room = Smithy.mount($("scene"), { w: roomW, h: ROOM_H, wide: true, yard: !noyard, crucible: "cold", still: reduce });   // (build 17: yard: the door out and the Rack; the old walls under ?noyard=1 or without the yard's modules)
   // mount the smithy again at the width W, keeping the crucible's mode and the fire's heat; the old room's loop is stopped first so two
   // fires never draw into one canvas, and the forging's overlay is sized with the scene
   function mountRoom(W) {
     const mode = room ? room.crucible : "cold", heat = room ? room.heat : 0;
     if (room) room.stop = true;
-    room = Smithy.mount($("scene"), { w: W, h: ROOM_H, wide: true, crucible: mode, still: reduce });
+    room = Smithy.mount($("scene"), { w: W, h: ROOM_H, wide: true, yard: !noyard, crucible: mode, still: reduce });
     room.heat = heat; roomW = W; room.figure = gryFigure; room.redraw();   // (the new room draws him at once, also when still)
     const fx = $("forgeFx"); if (fx) { fx.width = W; fx.height = ROOM_H; }
+    renderPegs();
     return room;
   }
   function setMotion(still) {
@@ -667,7 +735,7 @@
   // cane tap every seventh loop, a glint every fourth, a twitch toward the anvil every fifth
   function gryFigure(ms) {
     if (!GRY || !gry.spot) return null;
-    if ($("lens").classList.contains("near") || state.wallsOpen || state.room === "armory") return null;
+    if ($("lens").classList.contains("near") || state.wallsOpen || state.room !== "forge") return null;
     const p = gry.spot, at = (pose, i) => ({ px: GRY.frame(pose, i).px, n: GRY.N, x: p.x, y: p.y });
     if (reduce) return at(gry.pose, 0);
     if (gry.pose !== "idle") {
@@ -769,12 +837,15 @@
     const lw = roomW * s, lh = ROOM_H * s, bw = Math.min(boxW, lw);
     el.style.width = bw + "px"; el.style.height = lh + "px";
     lens.style.width = lw + "px"; lens.style.height = lh + "px"; lens.style.left = (bw - lw) / 2 + "px";
-    const sc = room.scene, pct = (v, of) => (100 * v / of).toFixed(3) + "%";
-    for (const [id, d] of [["cellarDoor", sc.door], ["armoryDoor", sc.armory]]) {
+    const sc = room.scene, pct = (v, of) => (100 * v / of).toFixed(3) + "%", castle = !!sc.handsRack;
+    // (build 17) the castle's Forge: the door out on the left and the Rack on the right; the old graph (no yard) keeps the cellar's arch
+    // and the Armory's door. Whichever pair the scene lacks stays hidden
+    for (const [id, d] of [["outDoor", castle ? sc.door : null], ["rackDoor", castle ? sc.rack : null], ["cellarDoor", castle ? null : sc.door], ["armoryDoor", castle ? null : sc.armory]]) {
       const b = $(id); if (!b) continue;
       b.hidden = !d; if (!d) continue;
       b.style.left = pct(d.x0 - 1, roomW); b.style.width = pct(d.x1 - d.x0 + 3, roomW); b.style.top = pct(d.y0, ROOM_H); b.style.height = pct(d.y1 - d.y0 + 1, ROOM_H);
     }
+    renderPegs();
     gryPlace();
     const view = bw / s;
     window.TheForge.layout = { paneW: pane.clientWidth, paneH: pane.clientHeight, roomW: el.clientWidth, roomH: el.clientHeight, W: roomW, s, view: [roomW / 2 - view / 2, roomW / 2 + view / 2], turned: turn.turned, plate: turn.plate };
@@ -791,10 +862,12 @@
     else { el.style.width = ""; el.style.height = ""; el.style.transform = ""; }
     el.classList.toggle("forced", turn.turned);
     turn.plate = portrait && coarse && !turn.forced;
+    turn.v = v;   // (build 17: toGame turns a viewport point back when the frame is turned)
     $("turnPlate").hidden = !turn.plate;
     $("tFull").hidden = !(document.documentElement.requestFullscreen && screen.orientation && screen.orientation.lock);
     const fitted = fitRoom();
     fitArmory(); fitPlaque();   // (function declarations below: the Armory's hall at the room's scale, and an open plaque refitted to its card)
+    fitYard(); fitMap();   // (build 17: the Courtyard's view and the Map Table's, whichever room shows)
     return fitted;
   }
   function lockLandscape() { try { const o = screen.orientation; if (o && o.lock) { const p = o.lock("landscape"); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* this browser doesn't lock */ } }
@@ -842,8 +915,11 @@
   $("stCruc").addEventListener("click", () => setStation("crucible"));
   // the two doors (design pass 14 section 3.4): the cellar's goes down, the Armory's goes through into the Armory's own room (design
   // pass 15); neither while forging or pouring
-  $("cellarDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; goDown(null); });
-  $("armoryDoor").addEventListener("click", () => openArmory("armory"));
+  $("cellarDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; goDown(null); });   // (the old graph only)
+  $("armoryDoor").addEventListener("click", () => openArmory("armory"));   // (the old graph only)
+  // (build 17, design pass 24 section 4.10) the door out to the courtyard, and the Rack of the two hands
+  $("outDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; enter("yard", { at: "forge" }); });
+  $("rackDoor").addEventListener("click", () => { if (state.forging || state.pouring) return; openFolk("rack"); });
 
   function forecast() {
     const st = $("state");
@@ -942,6 +1018,7 @@
     }
     const which = state.b === id && !slid ? $("slotB") : $("slotA");
     which.classList.remove("pulse"); which.classList.remove("slide"); void which.offsetWidth; which.classList.add(slid ? "slide" : "pulse");
+    lessonOn("picked", id);   // (build 17: the lessons' f.pick, Fire onto the anvil)
     if (slid && !session.slideToastShown) { session.slideToastShown = true; toast("The weapon is the base: it goes on the left"); }
     closePlaque(); renderSlots();
     if (state.a && state.b && state.view === "cabinet") closeCabinet(); else if (state.view === "cabinet") drawShelves(true);
@@ -1226,12 +1303,13 @@
     lessonOn("plaque", claim, view);   // (build 8) the lessons' F6: the plaque in lesson mode
   }
   function tryRow(t) { return `<button class="f-iron tryit" id="tryBtn">↓ Try it in the cellar${Progress.canEquip(t, profile, G) ? "" : "<small>practice only</small>"}</button>`; }
-  function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.forms || []), ...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
+  // (forge rules 3) an ingredient's hinted forms are not said: it never changes how a weapon attacks
+  function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
   // To the anvil (a weapon opened from the Armory, pass 10 section 3.4.2): back through the door to the Forge, the station is the
   // anvil, the anvil is emptied and this weapon goes on it as the base
   function toAnvil(t) { closePlaque(); closeArmory(); if (state.station !== "anvil") setStation("anvil"); state.a = null; state.b = null; pick(t.id); }
   function equip(t, btn) {
-    if (!Progress.canEquip(t, profile, G)) { toast(classOf(t) === "legendary" ? "Legends can be wielded from level 25" : `The ${plural(classOf(t))} rack is chained: open the class to wield it`); return; }
+    if (!Progress.canEquip(t, profile, G)) { toast(classOf(t) === "legendary" ? "Legends can be wielded from level 25" : `The ${plural(classOf(t))} rack is chained: Vorn sells the class, in the courtyard`); return; }
     if (!session.equipped.includes(t.id)) { session.equipped.push(t.id); if (session.equipped.length > 2) session.equipped.shift(); }
     if (btn) btn.textContent = "Equipped"; save(); toast(`${t.name} goes to the Battlegrounds with you`);
   }
@@ -1418,7 +1496,7 @@
   // ------------------------------------------------------------------ the wall
   function renderWallHead() {
     const open = profile.classes.length, nxt = Progress.nextUnlock(profile.level);
-    if (state.tab === "weapons") $("wallHead").textContent = `Weapon classes: ${open} of ${CLASS_COUNT} open · Legendary ${Progress.crucibleAwake(profile, G) ? "open" : "at 25"} · ${nxt ? "next unlock at level " + nxt : "all open"}`;
+    if (state.tab === "weapons") $("wallHead").textContent = `Weapon classes: ${open} of ${CLASS_COUNT} open · Legendary ${Progress.crucibleAwake(profile, G) ? "open" : "at 25"} · ${nxt ? "next two on the house at level " + nxt : "all open"}`;
     else { const n = owned(t => t.kind !== "weapon").reduce((s, t) => s + have(t.id), 0); $("wallHead").textContent = `Crafting materials: ${n} things · ${profile.coins.toLocaleString()} coins${Progress.crucibleAwake(profile, G) ? " · " + profile.embers + " Legend Ember" + (profile.embers === 1 ? "" : "s") : ""}`; }
   }
   function rackButton(cls, list, opts) {
@@ -1429,7 +1507,7 @@
     const count = list.reduce((s, t) => s + own.get(t.id).n, 0);
     b.insertAdjacentHTML("beforeend", `<b>${plural(cls)}</b><span>${opts.chained ? (opts.label || "chained") : count}</span>`);
     b.setAttribute("aria-label", `${plural(cls)}: ${list.length} kinds${opts.chained ? ", chained" : ""}`);
-    b.addEventListener("click", () => { if (opts.chained && !list.length) { toast(opts.tip || `The ${plural(cls)} rack is chained: open the class to wield its weapons`); return; } openCabinet({ kind: "class", key: cls }); });
+    b.addEventListener("click", () => { if (opts.chained && !list.length) { toast(opts.tip || `The ${plural(cls)} rack is chained: Vorn sells the class, in the courtyard`); return; } openCabinet({ kind: "class", key: cls }); });
     return b;
   }
   function silhouetteClass(cls) {
@@ -1449,7 +1527,7 @@
       for (const r of rs) if (r.c !== "legendary") { if (classOpen(r.c)) wall.appendChild(rackButton(r.c, r.list, {})); }
       for (const r of rs) if (r.c !== "legendary" && !classOpen(r.c)) wall.appendChild(rackButton(r.c, r.list, { chained: true, label: r.list.length + " chained" }));
       const seen = new Set(rs.map(r => r.c));
-      for (const c of Progress.START_CHOICES) if (!seen.has(c) && !classOpen(c) && profile.classes.length) wall.appendChild(rackButton(c, [], { chained: true, label: "not taken", tip: `You did not take the ${cap(c)}: open the class at a level-up` }));
+      for (const c of Progress.START_CHOICES) if (!seen.has(c) && !classOpen(c) && profile.classes.length) wall.appendChild(rackButton(c, [], { chained: true, label: "not taken", tip: `You did not take the ${cap(c)}: Vorn has it, in the courtyard` }));
       const known = new Set([...rs.map(r => r.c), ...Progress.START_CHOICES.filter(c => profile.classes.length)]);
       known.delete("legendary");
       const left = CLASS_COUNT - known.size;
@@ -1460,8 +1538,9 @@
       for (const s of STORES) { const list = owned(t => t.kind !== "weapon" && storeOf(t) === s); if (!list.length) continue;
         const b = document.createElement("button"); b.className = "rack f-plank"; b.appendChild(sprite(list[list.length - 1], 2));
         b.insertAdjacentHTML("beforeend", `<b>${s}</b><span>${list.reduce((n, t) => n + have(t.id), 0)}</span>`); b.addEventListener("click", () => openCabinet({ kind: "store", key: s })); wall.appendChild(b); }
+      // (build 17, design pass 24 section 4.7) the Cart is Nell's, in the courtyard: a tile that leaves the Forge and walks the knight to her
       const cart = document.createElement("button"); cart.className = "rack f-plank"; cart.appendChild(sprite(world.get("gold-nugget"), 2));
-      cart.insertAdjacentHTML("beforeend", `<b>The Cart</b><span>${profile.coins.toLocaleString()} coins</span>`); cart.setAttribute("aria-label", "The Trader's Cart"); cart.addEventListener("click", () => openCabinet({ kind: "cart", key: "The Trader's Cart" })); wall.appendChild(cart);
+      cart.insertAdjacentHTML("beforeend", `<b>Nell's cart</b><span>${noyard ? profile.coins.toLocaleString() + " coins" : "Go to the cart"}</span>`); cart.setAttribute("aria-label", noyard ? "The Trader's Cart" : "Nell's cart is in the courtyard. Go to the cart"); cart.addEventListener("click", () => goToNell(null)); wall.appendChild(cart);
     }
     state.glow = null;
   }
@@ -1540,7 +1619,7 @@
         const s = document.createElement("span"); s.textContent = t.name; b.appendChild(s);
         if (n > 1 || (t.kind !== "weapon" && !isForged(t))) b.insertAdjacentHTML("beforeend", `<span class="x">×${n}</span>`);
         if (n === 0 && t.kind !== "weapon") b.insertAdjacentHTML("beforeend", `<span class="buy">BUY</span>`);
-        b.addEventListener("click", () => { if (n === 0 && t.kind !== "weapon") { if (isForged(t)) toast(`You're out of ${t.name}: forge more`); else { openCabinet({ kind: "cart", key: "The Trader's Cart" }); toast(`You're out of ${t.name}: the Trader sells it`); } return; } if (dimWhy) { toast(dimWhy); return; } pick(t.id); });
+        b.addEventListener("click", () => { if (n === 0 && t.kind !== "weapon") { if (isForged(t)) toast(`You're out of ${t.name}: forge more`); else { toast(`You're out of ${t.name}: Nell sells it`); goToNell(t.id); } return; } if (dimWhy) { toast(dimWhy); return; } pick(t.id); });
         row.appendChild(b);
       }
       sp.appendChild(row);
@@ -1586,9 +1665,8 @@
   $("search").addEventListener("input", e => { state.q = e.target.value.trim(); $("shelves").scrollTop = 0; renderCabinet(); });
   $("sort").addEventListener("click", () => { state.sort = { newest: "tier", tier: "name", name: "newest" }[state.sort]; renderCabinet(); });
   function setTab(t) { if (t === "materials" && state.station === "crucible") return; state.tab = t; $("tabWeapons").setAttribute("aria-selected", String(t === "weapons")); $("tabMaterials").setAttribute("aria-selected", String(t === "materials")); closeCabinet(); }
-  $("tabWeapons").addEventListener("click", () => { if (state.tab === "weapons" && Progress.picksLeft(profile) > 0 && profile.classes.length) { openUnlock(); return; } setTab("weapons"); });
+  $("tabWeapons").addEventListener("click", () => setTab("weapons"));
   $("tabMaterials").addEventListener("click", () => setTab("materials"));
-  $("pickBadge").addEventListener("click", e => { e.stopPropagation(); openUnlock(); });
 
   // ------------------------------------------------------------------ the class ladder: the first weapon, the unlock plaque
   const STARTER_LINES = { sword: "Swings in an arc", bow: "Shoots", axe: "Splits, slowly and hard", flail: "Spins and smashes" };
@@ -1620,46 +1698,16 @@
     });
     $("cfNo").addEventListener("click", () => { $("confirmPlank").hidden = true; });
   }
-  function openUnlock() {
-    const picks = Progress.picksLeft(profile);
-    if (picks <= 0) return;
-    const el = $("unlockPlaque");
-    const locked = G.visual.bases.filter(c => !profile.classes.includes(c));
-    const chosen = new Set();
-    el.innerHTML = `<div class="head">Level ${profile.level}. The armory grows: choose ${picks === 1 ? "one" : picks === 2 ? "two" : picks}.</div><div class="sub">Tap the racks to unchain, then open them.</div><div class="choices" id="unlockChoices"></div><div class="pbtns"><button class="f-ember primary" id="openRacks" disabled>Open the racks</button><button class="f-iron" id="unlockLater">Later</button></div>`;
-    const box = el.querySelector("#unlockChoices");
-    for (const c of locked) {
-      const t = classWeapon(c);
-      const b = document.createElement("button"); b.className = "choice chained f-plank"; b.setAttribute("aria-pressed", "false"); b.appendChild(sprite(t, 2)); b.insertAdjacentHTML("beforeend", `<b>${plural(c)}</b><span>${G.classes[c].forms.join(", ")}</span>`);
-      b.addEventListener("click", () => {
-        if (chosen.has(c)) { chosen.delete(c); b.setAttribute("aria-pressed", "false"); b.classList.add("chained"); }
-        else if (chosen.size < picks) { chosen.add(c); b.setAttribute("aria-pressed", "true"); b.classList.remove("chained"); }
-        $("openRacks").disabled = chosen.size !== Math.min(picks, locked.length);
-        $("openRacks").textContent = chosen.size ? `Open the rack${chosen.size === 1 ? "" : "s"}` : "Open the racks";
-      });
-      box.appendChild(b);
-    }
-    $("openRacks").addEventListener("click", async () => {
-      const list = Array.from(chosen);
-      const r = await World.pick(list);
-      if (!r.ok) { toast(r.reason || "The world refused"); return; }
-      for (const c of list) { const t = classWeapon(c); gain(t.id); if (!profile.found.includes(t.id)) profile.found.push(t.id); }
-      el.hidden = true; state.glow = list[0]; save();
-      renderSign(); setTab("weapons"); renderInfo();
-      toast(`The chains fall: ${list.map(plural).join(" and ")}`);
-    });
-    $("unlockLater").addEventListener("click", () => { el.hidden = true; renderSign(); });
-    el.hidden = false;
-  }
+  // (the unlock plaque, "The armory grows: choose two", stood here until build 17: Vorn hands the classes over in the courtyard, design pass 24 section 4.8)
   // (build 12, design pass 19) `wait` holds the level's toasts back that long: a run brought home says what it paid first ("Home with a
   // clear: 250 XP, …"), and since a clear now lifts the level nearly every time, "Level N" follows it instead of replacing it at once
   const AFTER_HOME_MS = 1800;
   function afterLevelChange(before, res, wait) {
     renderSign();
     const woke = res ? res.crucible_woke : (before < G.fuse.level && profile.level >= G.fuse.level), ms = wait > 0 ? wait : 0;
-    if (profile.level > before) { const line = `Level ${profile.level}` + (profile.level >= 50 ? ": Champion of the Forge" : ""); if (ms) setTimeout(() => toast(line), ms); else toast(line); }
-    const picks = Progress.picksLeft(profile);
-    if (picks > 0 && profile.classes.length) openUnlock();
+    const picks = Progress.picksLeft(profile), words = n => n === 1 ? "one" : n === 2 ? "two" : n === 3 ? "three" : n === 4 ? "four" : String(n);
+    // (build 17) a level-up says where the new racks are: Vorn's, in the courtyard (design pass 24 section 4.8)
+    if (profile.level > before) { const line = `Level ${profile.level}` + (picks > 0 && profile.classes.length ? ` · Vorn has ${words(picks)} weapon${picks === 1 ? "" : "s"} on the house` : profile.level >= 50 ? ": Champion of the Forge" : ""); if (ms) setTimeout(() => toast(line), ms); else toast(line); }
     if (woke) {
       room.setCrucible("lit");
       setTimeout(() => { toast("The Crucible wakes: melt two rare weapons into a legend"); if (!profile.embers) setTimeout(() => toast(EMBER_WHERE), 1800); }, ms + (picks > 0 ? 400 : 0));
@@ -1677,30 +1725,31 @@
   // sign, Esc and To the anvil go back. Neither way while forging or pouring. The Roll and the Book of Kinds are gone from the page.
   const PAGES = [["pgArmory", "armory"], ["pgLegends", "legends"]];
   const hall = window.Armory ? Armory.mount({ hall: $("hall"), track: $("track") }, {
-    sprite, tierWord: t => TIER[t.tier] || "", onOpen: t => viewWeapon(t), onDoor: () => closeArmory(), turned: () => turn.turned,
+    sprite, tierWord: t => TIER[t.tier] || "", onOpen: t => viewWeapon(t), onBay: cls => openBay(cls), onDoor: () => armoryOut(), turned: () => turn.turned,
     onScroll(x, max) { $("armPrev").hidden = x < 4; $("armNext").hidden = x > max - 4; if (state.room === "armory" && hall) state.hallX[state.page] = hall.x; }
   }) : null;
-  // the smith's weapons: everything held now or ever found (a weapon melted into another, or poured into a legend, stays, marked gone).
+  // the smith's weapons: everything held now. (Until 2026-10-07 everything ever found stood here too, a weapon melted into another
+  // greyed; Isaac's call: one no longer held leaves the Armory altogether. profile.found still remembers it for the ledger.)
   // Class weapons are in (the plain Sword is a common sword); ingredients are not (they live on the Materials wall)
-  function armoryWeapons() { const out = [], seen = new Set(); for (const id of [...own.keys(), ...(profile.found || [])]) { if (seen.has(id)) continue; seen.add(id); const t = world.get(id); if (t && F.isWeapon(t)) out.push(t); } return out; }
-  // what the hall shows. The Armory: the classes with weapons in the grammar's order, which never moves; in a bay the weapons held
-  // come first, the rarest first and by name within a tier, then those no longer held. The Legends: newest first by the date
+  function armoryWeapons() { const out = []; for (const id of own.keys()) { const t = world.get(id); if (t && F.isWeapon(t)) out.push(t); } return out; }
+  // what the hall shows. The Armory: the classes with weapons in the grammar's order, which never moves; in a bay the rarest first
+  // and by name within a tier (the shelves show the first six; the plate opens them all). The Legends: newest first by the date
   // acquired; legends with no date (a save from before build 4) after the dated ones, newest first by the order they were gained
   function armoryModel() {
-    const item = t => { const o = own.get(t.id); return { t, n: o ? o.n : 0, gone: !o, mine: (t.discovery || {}).first === profile.id }; };
+    const item = t => { const o = own.get(t.id); return { t, n: o ? o.n : 0, mine: (t.discovery || {}).first === profile.id }; };
     const all = armoryWeapons();
     if (state.page === "legends") {
       const when = t => got[t.id] || "";
       const list = all.filter(t => classOf(t) === "legendary").sort((a, b) => String(when(b)).localeCompare(String(when(a))) || ((own.get(b.id) || { seq: 0 }).seq - (own.get(a.id) || { seq: 0 }).seq));
-      return { page: "legends", empty: "No legends yet. The Crucible wakes at level 25.", legends: list.map(t => {
+      return { page: "legends", empty: "No legends yet. The Crucible wakes at level 25.", door: noyard ? "forge" : "yard", legends: list.map(t => {
         const k = t.hybrid && kinds.find(x => x.id === t.hybrid.kind), ab = abilityOf(t);
         return Object.assign(item(t), { sub: [(k ? "A " + k.name : cap(t.hybrid.classes[0]) + " ✦ " + cap(t.hybrid.classes[1])) + (ab ? " · ✦ " + ab.name : ""), when(t) ? "acquired " + fmtDate(when(t)) : ""].filter(Boolean) });
       }) };
     }
     const by = new Map(G.visual.bases.map(c => [c, []]));
     for (const t of all) { const c = classOf(t); if (by.has(c)) by.get(c).push(item(t)); }
-    const classes = G.visual.bases.filter(c => by.get(c).length).map(c => ({ cls: c, label: plural(c), items: by.get(c).sort((a, b) => (a.gone - b.gone) || (b.t.tier - a.t.tier) || a.t.name.localeCompare(b.t.name)) }));
-    return { page: "armory", classes, missing: G.visual.bases.length - classes.length, empty: "No weapons yet." };
+    const classes = G.visual.bases.filter(c => by.get(c).length).map(c => ({ cls: c, label: plural(c), items: by.get(c).sort((a, b) => (b.t.tier - a.t.tier) || a.t.name.localeCompare(b.t.name)) }));
+    return { page: "armory", classes, missing: G.visual.bases.length - classes.length, empty: "No weapons yet.", door: noyard ? "forge" : "yard" };   // (build 17: the hall's door shows the yard and says ← Courtyard)
   }
   // the hall at the Forge's own scale: as tall as the pane leaves after its line of words, 112 world pixels high
   function fitArmory() {
@@ -1715,50 +1764,29 @@
   }
   // draw the wall the tabs name (nothing unless the smith is in the Armory); keep leaves the hall where it was walked to
   function renderArmory(keep) {
-    $("armoryBtn").textContent = state.room === "armory" ? "FORGE" : "ARMORY";
     if (!hall || state.room !== "armory") return null;
     for (const [id, pg] of PAGES) $(id).setAttribute("aria-selected", String(state.page === pg));
     const m = armoryModel(), L = hall.render(m, keep !== false);
     if (m.page === "legends") { const n = m.legends.length; $("armState").textContent = n ? `${n} legend${n === 1 ? "" : "s"}, the newest first` : "No legends yet"; }
-    else { const n = m.classes.reduce((a, c) => a + c.items.length, 0), gone = m.classes.reduce((a, c) => a + c.items.filter(it => it.gone).length, 0);
-      $("armState").textContent = `${n} weapon${n === 1 ? "" : "s"} in ${m.classes.length} class${m.classes.length === 1 ? "" : "es"}` + (gone ? ` · ${gone} no longer held` : "") + " · tap one to read its plaque"; }
+    else { const n = m.classes.reduce((a, c) => a + c.items.length, 0);
+      $("armState").textContent = `${n} weapon${n === 1 ? "" : "s"} in ${m.classes.length} class${m.classes.length === 1 ? "" : "es"} · tap one to read its plaque`; }
     return L;
   }
   // through the door: the room walked into comes out of soot (nothing under less motion, or under the harness)
   const quiet = () => reduce || params.get("harness") === "1";
   function walkThrough() { if (quiet()) return; const a = $("app"); a.classList.remove("walk"); void a.offsetWidth; a.classList.add("walk"); setTimeout(() => a.classList.remove("walk"), 340); }
-  function openArmory(page) {
-    if (!hall || state.forging || state.pouring) return false;
-    closePlaque(); closeWalls(); gryHush();
-    const was = state.room;
-    state.room = "armory"; if (page === "armory" || page === "legends") state.page = page;
-    const at = state.hallX[state.page] || 0;   // (where this wall was walked to the last time; drawing it starts it at the door)
-    $("app").classList.add("in-armory");
-    $("signName").textContent = "The Armory";
-    $("armoryBtn").setAttribute("aria-pressed", "true"); $("armoryBtn").setAttribute("aria-label", "Back to the Forge");
-    fitArmory();
-    renderArmory(false);
-    hall.x = at;
-    if (was !== "armory") walkThrough();
-    return true;
-  }
-  function closeArmory() {
-    if (state.room !== "armory") return false;
-    if (plaqueMode === "view") closePlaque();
-    state.room = "forge";
-    $("app").classList.remove("in-armory");
-    $("signName").textContent = "The Forge";
-    $("armoryBtn").setAttribute("aria-pressed", "false"); $("armoryBtn").setAttribute("aria-label", "Into the Armory");
-    renderArmory();
-    fitRoom(); walkThrough();
-    return true;
-  }
-  $("armoryBtn").addEventListener("click", () => { if (state.room === "armory") closeArmory(); else openArmory("armory"); });
+  // (build 17) the three ways: in through enter(); closeArmory back to the Forge (To the anvil, a forge, the bench); armoryOut through the
+  // hall's door or Esc, out to the courtyard (the Forge under the old graph)
+  function openArmory(page) { if (!hall || state.forging || state.pouring) return false; return enter("armory", { page: page === "legends" ? "legends" : "armory" }); }
+  function closeArmory() { if (state.room !== "armory") return false; if (plaqueMode === "view") closePlaque(); return enter("forge"); }
+  function armoryOut() { if (state.room !== "armory") return false; if (plaqueMode === "view") closePlaque(); return enter(noyard ? "forge" : "yard", { at: "armory" }); }
   for (const [id, pg] of PAGES) $(id).addEventListener("click", () => { if (state.page === pg) return; state.page = pg; const at = state.hallX[pg] || 0; renderArmory(false); if (hall) hall.x = at; });
   $("armPrev").addEventListener("click", () => hall && hall.walk(-1, quiet()));
   $("armNext").addEventListener("click", () => hall && hall.walk(1, quiet()));
   // Esc leaves the Armory when nothing stands over it (a plaque, a plank and Settings take the key first)
-  window.addEventListener("keydown", e => { if (e.key !== "Escape" || e.defaultPrevented || state.room !== "armory" || plaqueOpen() || plankOpen() || !$("setPlank").hidden) return; if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return; e.preventDefault(); closeArmory(); });
+  window.addEventListener("keydown", e => { if (e.key !== "Escape" || e.defaultPrevented || state.room !== "armory" || plaqueOpen() || plankOpen() || !$("setPlank").hidden) return; if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return; e.preventDefault(); if (folkOpen()) closeFolk(); else armoryOut(); });
+  // the plate before a bay opens the whole class on the folk's plank: every weapon of it the smith holds, the rarest first; a row opens its plaque
+  function openBay(cls) { if (state.room !== "armory" || !cls) return false; if (folkOpen() && folk.who === "bay" && folk.cls === cls) { closeFolk(); return false; } return openFolk("bay", { cls }); }
   // the ★ chip counts the smith's firsts; in the Armory they carry the star
   $("chipLevel").addEventListener("click", () => toast(levelLine()));   // (build 12) where the player stands: "Lv 3 · 45 of 110 XP to Lv 4"
   $("chipFirsts").addEventListener("click", () => { const n = profile.firsts.weapons.length; toast(n ? `${n} weapon${n === 1 ? "" : "s"} you forged first in the world: ${n === 1 ? "it carries" : "they carry"} a ★ in the Armory` : "No weapon forged first in the world yet: a first carries a ★ in the Armory"); });
@@ -1766,6 +1794,743 @@
     const claim = { thing: t, status: t.oracle && t.oracle.provisional && svc.url ? "pending" : "known", kind: t.hybrid ? kinds.find(k => k.id === t.hybrid.kind) || null : null };
     if (classOf(t) === "legendary") showLegend(claim, null, null, { view: true }); else showPlaque(claim, null, null, { view: true });
   }
+
+  function enter(room, o) {
+    o = o || {};
+    if (room === "yard" && noyard) room = "forge";
+    if (room === "map" && (noyard || !hasMap)) { toast("The map could not be read"); return false; }
+    if (!ROOMS[room] || state.forging || state.pouring) return false;
+    const was = state.room;
+    closePlaque(); closeWalls(); closeFolk(); gryHush();
+    if (was === "map" && room !== "map") mapLeave();
+    if (was === "yard" && room !== "yard") yardLeave();
+    state.room = room; session.roomSet = true;
+    const app = $("app");
+    app.classList.toggle("in-armory", room === "armory"); app.classList.toggle("in-yard", room === "yard"); app.classList.toggle("in-map", room === "map");
+    $("signName").textContent = ROOMS[room];
+    $("armoryBtn").hidden = room !== "map";
+    if (room === "armory") { if (o.page === "armory" || o.page === "legends") state.page = o.page; const at = state.hallX[state.page] || 0; fitArmory(); renderArmory(false); if (hall) hall.x = at; }   // (the hall opens where that wall was left: hallX is kept per wall by onScroll, which the re-render also fires with the scroll at 0 once the room is named, so the place is read before it, as the tabs do; card t83)
+    if (room === "forge") { fitRoom(); renderPegs(); }
+    if (room === "yard") yardEnter(o);
+    if (room === "map") mapEnter(o);
+    if (was !== room && !o.cut) walkThrough();
+    saveYardMark();
+    lessonOn("room", room, was);
+    return true;
+  }
+  // the room and spot the page keeps in its own history entry (pass 26 section 3.3): read at the next boot, with no note in the address
+  function histState() { try { const st = window.history.state; return st && typeof st === "object" ? st : {}; } catch (e) { return {}; } }
+  function putState(o) { try { window.history.replaceState(Object.assign({}, histState(), o), ""); return true; } catch (e) { return false; } }
+  function saveYardMark() {
+    const k = yard.kn, mark = { room: state.room };
+    if (k) { mark.x = Math.round(k.x); mark.y = Math.round(k.y); mark.face = k.facing; }
+    putState({ ffYard: mark });
+  }
+  // the mark of where the page went (pass 24 section 4.6): the cellar, or the road to a level. Read by the next boot or the back gesture
+  function markWent(where) { putState({ ffWent: where }); }
+  function clearWent() { const st = histState(); if (st.ffWent !== undefined) { const rest = Object.assign({}, st); delete rest.ffWent; try { window.history.replaceState(rest, ""); } catch (e) { /* kept */ } } }
+  // a point of the viewport in the app's own space (turned back when the frame is turned a quarter: the cellar's rule)
+  function toGame(cx, cy) {
+    const app = $("app");
+    if (turn.turned && turn.v) return [cy - app.offsetLeft, turn.v.w - cx - app.offsetTop];
+    const r = app.getBoundingClientRect(); return [cx - r.left, cy - r.top];
+  }
+  const walkKeys = { w: [0, -1], arrowup: [0, -1], s: [0, 1], arrowdown: [0, 1], a: [-1, 0], arrowleft: [-1, 0], d: [1, 0], arrowright: [1, 0] };
+
+  // ------------------------------------------------------------------ the Courtyard (design pass 24 with its revisions, pass 25 section 4.1, pass 26 sections 3.3 and 3.4)
+  // The yard itself is proto/courtyard.js (the painter, the walk, the camera, the zones, tap to go); this is the page's side: the canvas
+  // and its fit at the cellar's scale, the baked ground, the frame loop, the stick, the keys, the taps, the prompt over the knight, what a
+  // place does when used, the arrivals, and what the page draws over the yard (the lessons' ring, arrow and chevron, the "!" over Vorn,
+  // the well's purse)
+  const yard = { Y: null, ground: [], bakeId: 0, pieces: [], knCache: new Map(), folkCache: new Map(), kn: null, cam: { x: 0, y: 0 }, L: null, stick: null, t0: 0, last: 0, t: 0, raf: 0, zone: null, promptText: "", keys: {},
+    fx: { purse: null, flick: 0, lit: null }, toastedWell: false, bakeMs: null, arrows: null };
+  const yardPaused = () => !!(state.room !== "yard" || plaqueOpen() || plankOpen() || folkOpen() || !$("setPlank").hidden || document.hidden || session.leaving || turn.plate || !$("firstWeapon").hidden);
+  function canvasOf(fr) { const c = document.createElement("canvas"); c.width = fr.w; c.height = fr.h; const g = c.getContext("2d"), id = g.createImageData(fr.w, fr.h); id.data.set(fr.d); g.putImageData(id, 0, 0); return c; }
+  function pxCanvas(px, w, h, flip) { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d"); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const col = px[y * w + x]; if (col) { g.fillStyle = col; g.fillRect(flip ? w - 1 - x : x, y, 1, 1); } } return c; }
+  function knightSprite(facing, anim, i) { const key = facing + anim + i; let c = yard.knCache.get(key); if (!c) { c = pxCanvas(KN.frame(facing, anim, i).px, 32, 32); yard.knCache.set(key, c); } return c; }
+  function folkSprite(who, pose, i, flip) { const key = who + pose + i + (flip ? "f" : ""); let s = yard.folkCache.get(key); if (!s) { const fr = FK.frame(who, pose, i); s = fr ? { c: pxCanvas(fr.layer.px, fr.layer.w, fr.layer.h, flip), ox: fr.ox, oy: fr.oy } : null; yard.folkCache.set(key, s); } return s; }
+  function yardBoot() {
+    if (yard.Y || !hasYard) return !!yard.Y;
+    yard.Y = new Y.Yard();
+    yard.pieces = yard.Y.pieces.map(P => ({ P, c: canvasOf(yard.Y.pieceFrame(P)) }));
+    return true;
+  }
+  // the ground, baked whole (pass 26 section 3.2 row 4): phase 0 before the room shows, timed; the other three in idle slices of 44
+  // rows, the flicker starting when all four are ready. Under less motion only phase 0 is ever drawn
+  function yardBake() {
+    const t0 = performance.now(), id = ++yard.bakeId;
+    yard.ground = [canvasOf(yard.Y.groundFrame(0))];
+    yard.bakeMs = Math.round(performance.now() - t0);
+    if (reduce) return;
+    const W = yard.Y.W, H = yard.Y.H, rows = 44, bufs = [1, 2, 3].map(() => new Uint8ClampedArray(W * H * 4));
+    let f = 1, y = 0;
+    const idle = cb => (window.requestIdleCallback ? window.requestIdleCallback(cb, { timeout: 120 }) : setTimeout(cb, 30));
+    const slice = () => {
+      if (id !== yard.bakeId || !yard.Y) return;
+      yard.Y.groundFrame(f, bufs[f - 1], y, Math.min(H, y + rows)); y += rows;
+      if (y >= H) { yard.ground[f] = canvasOf({ w: W, h: H, d: bufs[f - 1] }); f++; y = 0; }
+      if (f <= 3) idle(slice);
+    };
+    idle(slice);
+  }
+  // the view: a whole number of device pixels to a world pixel, taken as the cellar takes it (the whole frame over 384 x 216), and as
+  // much of the yard as the pane under the sign holds; a pane bigger than the yard centres it on the stone
+  function fitYard() {
+    if (state.room !== "yard" || !yard.Y) return null;
+    const pane = $("yardpane"), cv = $("yard");
+    if (!pane.clientWidth || !pane.clientHeight) return null;
+    const app = $("app"), dpr = window.devicePixelRatio || 1;
+    const f = Y.fit(app.clientWidth, app.clientHeight, pane.clientWidth, pane.clientHeight, dpr);
+    cv.width = f.vw; cv.height = f.vh; cv.style.width = (f.vw * f.per) + "px"; cv.style.height = (f.vh * f.per) + "px";
+    yard.L = { k: f.k, per: f.per, vw: f.vw, vh: f.vh, dpr, paneW: pane.clientWidth, paneH: pane.clientHeight };
+    if (yard.kn) { yard.Y.camera(yard.cam, yard.kn, f.vw, f.vh); yardPaint(yard.t); syncYardPrompt(); }
+    return yard.L;
+  }
+  // where the knight stands as the room opens: a spot by name (spec.arrive), { x, y, face } from the page's own mark, or the menu's
+  function yardEnter(o) {
+    if (!yardBoot()) return;
+    const at = typeof o.at === "string" ? (SPOT_OF[o.at] || o.at) : o.at;
+    const spot = typeof at === "string" ? (yard.Y.spec.arrive[at] ? at : "menu") : at && typeof at.x === "number" ? { x: at.x, y: at.y, face: at.face } : "menu";
+    yard.kn = yard.Y.knight(spot);
+    if (!yard.Y.free(yard.kn.x, yard.kn.y)) yard.Y.settle(yard.kn);
+    yard.zone = null; yard.promptText = ""; yard.keys = {}; yard.fx.purse = null;
+    if (!yard.ground.length) yardBake();
+    if (!yard.stick && ST) {
+      const origin = () => { const p = $("yardpane"); return [p.offsetLeft, p.offsetTop]; };
+      const stickPaused = () => yardPaused() && !folkOpen();   // (a thumb on the stick closes a folk's plank and walks: pass 24 section 4.7)
+      yard.stick = ST.mount({ zone: $("yardZone"), stick: $("yardStick"), knob: $("yardKnob"), toGame, origin, paused: stickPaused, onTap: (gx, gy) => yardTap(gx, gy) });
+      ST.tap($("yard"), { toGame, paused: stickPaused, onTap: (gx, gy) => yardTap(gx, gy) });
+    }
+    $("app").classList.toggle("lefty", !!(window.Settings && Settings.isOn("lefty")));
+    fitYard();
+    yard.Y.camera(yard.cam, yard.kn, yard.L ? yard.L.vw : 384, yard.L ? yard.L.vh : 216);
+    yard.t0 = performance.now(); yard.last = yard.t0; yard.t = 0;
+    yardPaint(0); syncYardPrompt();
+    if (!yard.toastedWell && wellReady() && !(lessonOn("quiet") === true)) { yard.toastedWell = true; toast("Your daily coins are in the well"); }
+    if (yard.raf) cancelAnimationFrame(yard.raf);
+    yard.raf = requestAnimationFrame(yardFrame);
+  }
+  function yardLeave() { if (yard.raf) cancelAnimationFrame(yard.raf); yard.raf = 0; if (yard.stick) yard.stick.up(); yard.keys = {}; $("yardPrompt").hidden = true; }
+  // the frame: the stick's or the keys' wish, one step of the walk (none while a plank stands over the yard), the camera, the paint, the
+  // prompt. Time moves on the page's clock; the harness moves it through TheForge.yard.step(ms)
+  function yardWish() {
+    let wx = 0, wy = 0;
+    if (yard.stick && yard.stick.held) { wx = yard.stick.x; wy = yard.stick.y; }
+    else { for (const k of Object.keys(yard.keys)) if (yard.keys[k] && walkKeys[k]) { wx += walkKeys[k][0]; wy += walkKeys[k][1]; } const m = Math.hypot(wx, wy); if (m > 1) { wx /= m; wy /= m; } }
+    return [wx, wy];
+  }
+  function yardTick(dt) {
+    const k = yard.kn; if (!k) return;
+    const [wx, wy] = yardWish();
+    if ((wx || wy) && folkOpen()) closeFolk();   // the knight walking closes a plank
+    if (yardPaused()) { yard.Y.camera(yard.cam, k, yard.L.vw, yard.L.vh, dt); return; }
+    const lv = lessonOn("yardView") || null, allow = lv && lv.allow ? lv.allow : null;
+    const r = yard.Y.tick(k, wx, wy, dt, allow);
+    yard.t += dt;
+    if (r.zone !== yard.zone || (r.zone && yardPromptFor(r.zone) !== yard.promptText)) { yard.zone = r.zone; syncYardPrompt(); }
+    lessonOn("yardTick", k, yard.t);
+    if (r.use) yardUse(r.use);
+    yard.Y.camera(yard.cam, k, yard.L.vw, yard.L.vh, dt);
+  }
+  function yardFrame(now) {
+    if (state.room !== "yard") { yard.raf = 0; return; }
+    const dt = Math.max(0, Math.min(0.05, (now - yard.last) / 1000)); yard.last = now;
+    if (!harnessClock) yardTick(dt);
+    if (yard.L) yardPaint(yard.t);
+    if (yard.zone) syncYardPrompt(true);
+    yard.raf = requestAnimationFrame(yardFrame);
+  }
+  const harnessClock = params.get("harness") === "1" && params.get("clock") === "harness";   // (the harness steps the yard itself)
+  function shadow(g, x, y, w) { g.fillStyle = "rgba(18,14,26,0.45)"; g.fillRect(x - w, y, w * 2 + 1, 1); g.fillRect(x - Math.round(w * 0.7), y - 1, Math.round(w * 1.4) + 1, 1); g.fillRect(x - Math.round(w * 0.7), y + 1, Math.round(w * 1.4) + 1, 1); }
+  // the yard at time t into the canvas: the baked ground at the camera, the pieces, the folk and the knight sorted by their feet, the
+  // flames, the smoke and sparks, the well's glint; then what the page adds: the "!" over Vorn while picks wait, the purse rising from
+  // the well, the lessons' ring, arrow and chevron
+  function yardPaint(t) {
+    const cv = $("yard"), g = cv.getContext("2d"), L = yard.L, k = yard.kn, YD = yard.Y; if (!L || !k || !YD) return;
+    const still = reduce, f = still ? 0 : Math.floor(t * 8) % 4, gc = yard.ground[f] || yard.ground[0], cx = Math.round(yard.cam.x), cy = Math.round(yard.cam.y), vw = L.vw, vh = L.vh;
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = "#181425"; g.fillRect(0, 0, vw, vh);
+    if (gc) g.drawImage(gc, -cx, -cy);
+    const live = YD.live(t, still, { wellReady: wellReady() }), acts = [];
+    for (const { P, c } of yard.pieces) acts.push({ y: P.sy, fn: () => g.drawImage(c, P.x - cx, P.y - cy) });
+    for (const fk of live.folk) {
+      let i = fk.i; if (fk.who === "biscuit" && yard.fx.flick > t) i = 1;
+      const sp = folkSprite(fk.who, fk.pose || "idle", i, fk.flip); if (!sp) continue;
+      acts.push({ y: fk.y, fn: () => { if (!fk.onRoof) shadow(g, Math.round(fk.x) - cx, Math.round(fk.y) - cy, fk.who === "biscuit" ? 13 : fk.who === "hen" ? 3 : 6); g.drawImage(sp.c, Math.round(fk.x) - sp.ox - cx, Math.round(fk.y) - sp.oy - cy); } });
+    }
+    acts.push({ y: k.y, fn: () => { shadow(g, Math.round(k.x) - cx, Math.round(k.y) - cy, 6); g.drawImage(knightSprite(k.facing, k.anim, k.i), Math.round(k.x) - 16 - cx, Math.round(k.y) - 31 - cy); } });
+    acts.sort((a, b) => a.y - b.y); for (const a of acts) a.fn();
+    for (const fl of live.flames) { const FR = Y.FLAME[fl.f]; if (!FR) continue; for (let j = 0; j < 6; j++) for (let i = 0; i < 5; i++) { const ch = FR[j][i]; if (ch !== ".") { g.fillStyle = Y.FIRE[ch]; g.fillRect(fl.x - 2 + i - cx, fl.y - 6 + j - cy, 1, 1); } } }
+    const BAY = Smithy.BAYER;
+    for (const s of live.smoke) { g.fillStyle = s.c; const R = s.r, sx = Math.round(s.x), sy = Math.round(s.y); for (let dy = -Math.ceil(R); dy <= R; dy++) for (let dx = -Math.ceil(R); dx <= R; dx++) if (dx * dx + dy * dy <= R * R && BAY[((sy + dy) & 3) * 4 + ((sx + dx) & 3)] < s.a * 0.75) g.fillRect(sx + dx - cx, sy + dy - cy, 1, 1); }
+    for (const s of live.sparks) { g.fillStyle = s.c; g.fillRect(Math.round(s.x) - cx, Math.round(s.y) - cy, 1, 1); }
+    if (live.glint && live.glint.on) for (const [dx, dy, c] of [[0, 0, "#fee761"], [1, 0, "#feae34"], [0, 1, "#feae34"], [3, -1, "#fffaf0"], [-2, 1, "#feae34"]]) { g.fillStyle = c; g.fillRect(live.glint.x + dx - cx, live.glint.y + dy - cy, 1, 1); }
+    // "!" over Vorn's head while classes wait on the house (pass 26 section 3.7)
+    if (Progress.picksLeft(profile) > 0 && profile.classes.length && !(lessonOn("quiet") === true)) { const V = YD.spec.folk.vorn, bob = still ? 0 : Math.floor(t * 2) % 2, x = V.x - cx, y = V.y - 40 - bob - cy; g.fillStyle = "#181425"; g.fillRect(x - 2, y - 1, 5, 9); g.fillStyle = "#fee761"; g.fillRect(x - 1, y, 3, 4); g.fillRect(x - 1, y + 5, 3, 2); }
+    // the purse coming up out of the well's mouth for 0.7 s (pass 26 row 9; a 6 x 5 purse, drawn here)
+    if (yard.fx.purse) { const d = t - yard.fx.purse.t0, W0 = YD.spec.well; if (d > 0.7 || still) yard.fx.purse = null; else { const x = W0.x - 3 - cx, y = W0.y - 4 - Math.round(d / 0.7 * 14) - cy; for (let j = 0; j < 5; j++) for (let i = 0; i < 6; i++) { const edge = j === 0 || j === 4 || i === 0 || i === 5, knot = j === 0 && (i === 2 || i === 3); if (knot) g.fillStyle = "#733e39"; else if (edge) g.fillStyle = "#181425"; else g.fillStyle = (i + j) % 3 ? "#733e39" : "#feae34"; if (!(j === 0 && !knot)) g.fillRect(x + i, y + j, 1, 1); } } }
+    // the lessons' marks (pass 26 section 3.2 row 5): an ember ring on the floor at the target's stand, a yellow arrow over it, and a
+    // chevron at the view's edge while it is off screen
+    const lv = lessonOn("yardView") || null;
+    if (lv && lv.target) {
+      const tg = YD.targetOf(lv.target), P = YD.placeOf(lv.target); if (tg && P) {
+        const rx = 16, ry = 9, n = Math.ceil(Math.PI * (rx + ry)), ph = still ? 0 : Math.floor(t * 12);
+        for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, x = Math.round(tg.x + rx * Math.cos(a)) - cx, y = Math.round(tg.y + ry * Math.sin(a)) - cy; g.fillStyle = "#181425"; g.fillRect(x, y + 1, 1, 1); if (((i + ph) % 6) < 3) { g.fillStyle = ((i + ph) % 6) === 1 ? "#feae34" : "#f77622"; g.fillRect(x, y, 1, 1); } }
+        const ax = Math.round(tg.x) - cx, top = P.y0 !== undefined && P.side === "e" ? P.y0 : P.top !== undefined ? P.top : (P.zone ? P.zone[1] : tg.y) ;
+        const ay = Math.round((P.side === "n" ? top - 6 : P.zone ? P.zone[1] - 14 : tg.y - 40) - (still ? 0 : (Math.floor(t * 4) % 2) * 2)) - cy;
+        const inView = ax >= 0 && ax < vw && ay >= 0 && ay < vh;
+        if (inView) { g.fillStyle = "#181425"; for (let j = 0; j < 9; j++) { const w = j < 5 ? 1 + j * 2 : 3; g.fillRect(ax - (w >> 1) - 1, ay + j, w + 2, 1); } g.fillStyle = "#fee761"; for (let j = 1; j < 8; j++) { const w = j < 5 ? 1 + (j - 1) * 2 : 1; g.fillRect(ax - (w >> 1), ay + j, w, 1); } }
+        else {
+          const ex = Math.max(4, Math.min(vw - 5, ax)), ey = Math.max(4, Math.min(vh - 5, ay)), dx = Math.sign(ax - ex), dy = Math.sign(ay - ey), bob = still ? 0 : (Math.floor(t * 4) % 2);
+          g.fillStyle = "#181425"; for (let s = 0; s < 4; s++) { const w = 7 - s * 2; if (dx) g.fillRect(ex + dx * (s + bob) - 1, ey - (w >> 1) - 1, 1, w + 2); else g.fillRect(ex - (w >> 1) - 1, ey + dy * (s + bob) - 1, w + 2, 1); }
+          g.fillStyle = "#fee761"; for (let s = 0; s < 3; s++) { const w = 5 - s * 2; if (dx) g.fillRect(ex + dx * (s + bob), ey - (w >> 1), 1, w); else g.fillRect(ex - (w >> 1), ey + dy * (s + bob), w, 1); }
+        }
+      }
+    }
+  }
+  // the prompt over the knight (pass 24 section 4.5): the place's own words, the well's by whether the day's coins wait; "←" and "→"
+  // fall back to plain words when Pixelify Sans lacks them, as the cellar's do
+  function yardPromptFor(z) { if (!z) return ""; const w = YD_WELL(); const s = z.kind === "well" ? (wellReady() ? w.prompt : w.spent) : z.prompt || ""; return yard.arrows === false ? String(s).replace(/^[←→]\s*/, "").replace(/\s*[←→]$/, "") : s; }
+  const YD_WELL = () => yard.Y ? yard.Y.spec.well : { prompt: "", spent: "" };
+  function syncYardPrompt(moveOnly) {
+    const el = $("yardPrompt"), z = yard.zone, k = yard.kn, L = yard.L;
+    if (!z || !k || !L || state.room !== "yard" || folkOpen() || plaqueOpen() || plankOpen()) { el.hidden = true; return; }
+    const cv = $("yard");
+    if (!moveOnly || el.hidden) { yard.promptText = yardPromptFor(z); if (el.textContent !== yard.promptText) el.textContent = yard.promptText; el.hidden = false; }
+    el.style.left = Math.round(cv.offsetLeft + (k.x - yard.cam.x) * L.per) + "px";
+    el.style.top = Math.round(cv.offsetTop + (k.y - 34 - yard.cam.y) * L.per) + "px";
+  }
+  (function yardArrows() {
+    const FS = document.fonts; if (!FS || !FS.ready) return;
+    FS.ready.then(() => { try {
+      const c = document.createElement("canvas").getContext("2d"), w = (f, s) => { c.font = f; return c.measureText(s).width; }, inFont = ch => Math.abs(w("40px 'Pixelify Sans', monospace", ch) - w("40px 'Pixelify Sans', serif", ch)) < 0.01;
+      yard.arrows = inFont("A") ? inFont("←") && inFont("→") && inFont("↑") : null;
+      if (yard.zone) syncYardPrompt();
+    } catch (e) { /* the arrows stay */ } }, () => {});
+  })();
+  // a tap on the yard (pass 24 section 4.5, Isaac's call 6): on a place's tap box the knight walks there and uses it; on bare floor
+  // nothing. (gx, gy) is in the app's own space
+  function yardTap(gx, gy) {
+    const L = yard.L, k = yard.kn; if (!L || !k || state.room !== "yard") return null;
+    if (folkOpen()) { closeFolk(); return null; }
+    const pane = $("yardpane"), cv = $("yard"), x0 = pane.offsetLeft + cv.offsetLeft, y0 = pane.offsetTop + cv.offsetTop;
+    const wx = (gx - x0) / L.per + yard.cam.x, wy = (gy - y0) / L.per + yard.cam.y;
+    const hit = yard.Y.tapAt(wx, wy);
+    const lv = lessonOn("yardView") || null;
+    if (!hit || (lv && lv.allow && !lv.allow(hit.id))) { if (lv && lv.allow && hit) lessonOn("offTap"); return null; }
+    yard.Y.goTo(k, hit.id);
+    return hit.id;
+  }
+  // E, the prompt, a door's dwell or a tap's arrival: what the place does (pass 26 section 3.3, every trip)
+  function yardUse(z) {
+    if (!z || state.room !== "yard") return false;
+    const k = yard.kn; if (k) { k.path = null; k.goal = null; }
+    lessonOn("yardUse", z.id);
+    if (z.kind === "folk") return openFolk(z.id);
+    if (z.kind === "well") { wellUse(); return true; }
+    if (z.kind === "table") return enter("map");
+    const d = z.door; if (!d) return false;
+    if (d.shut) { toast(d.shut); return true; }
+    if (d.goes === "forge") return enter("forge");
+    if (d.goes === "armory") return enter("armory", { page: "armory" });
+    if (d.goes === "map") return enter("map");
+    if (d.goes === "cellar") { goDown(null); return true; }
+    return false;
+  }
+  function yardUseHere() { const k = yard.kn; if (!k || !yard.Y) return false; const lv = lessonOn("yardView") || null; let z = yard.Y.zoneAt(k.x, k.y); if (z && lv && lv.allow && !lv.allow(z.id)) z = null; return yardUse(z); }
+  $("yardPrompt").addEventListener("click", e => { e.stopPropagation(); yardUseHere(); });
+  window.addEventListener("keydown", e => {
+    if (state.room !== "yard" || e.defaultPrevented) return;
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    const key = e.key.toLowerCase();
+    if (walkKeys[key]) { if (!yardPaused() || folkOpen()) { yard.keys[key] = true; if (yard.kn) { yard.kn.path = null; yard.kn.goal = null; } e.preventDefault(); } return; }
+    if ((key === "e" || key === "enter") && !yardPaused()) { yardUseHere(); e.preventDefault(); return; }
+    if (key === "escape" && folkOpen()) { closeFolk(); e.preventDefault(); }
+  });
+  window.addEventListener("keyup", e => { delete yard.keys[e.key.toLowerCase()]; });
+  window.addEventListener("blur", () => { yard.keys = {}; });
+
+  // ------------------------------------------------------------------ the well (design pass 24 section 4.9, pass 26 section 3.2 rows 7 and 9)
+  const localDate = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  function wellReady() { return !!(Coin.daily && Coin.daily(profile, localDate(), SHOP).ok); }
+  function shakeCoins() { const c = $("chipCoins"); c.classList.remove("shake"); void c.offsetWidth; c.classList.add("shake"); }
+  // "+50" rising into the coin chip as "+N XP" rises into the Lv chip (pass 24 section 4.9); the chip counts up meanwhile
+  let coinRiseTimer = null, coinCount = 0;
+  function coinRise(n, from) {
+    let el = $("coinRise"); if (!el) { el = document.createElement("span"); el.className = "coinrise"; el.id = "coinRise"; el.setAttribute("aria-hidden", "true"); $("chipCoins").appendChild(el); }
+    if (!(n > 0)) return;
+    el.textContent = "+" + n.toLocaleString();
+    el.classList.remove("go", "hold"); void el.offsetWidth; el.classList.add(reduce ? "hold" : "go");
+    clearTimeout(coinRiseTimer); coinRiseTimer = setTimeout(() => el.classList.remove("go", "hold"), reduce ? 1200 : 950);
+    const to = profile.coins, f0 = typeof from === "number" ? from : to - n, chip = $("coins");
+    clearInterval(coinCount);
+    if (reduce || f0 === to) { chip.textContent = to.toLocaleString(); return; }
+    const t0 = Date.now(); chip.textContent = f0.toLocaleString();
+    coinCount = setInterval(() => { const q = Math.min(1, (Date.now() - t0) / 900); chip.textContent = Math.round(f0 + (to - f0) * q).toLocaleString(); if (q >= 1) clearInterval(coinCount); }, 40);
+    window.TheForge.rises.push(el.textContent);
+  }
+  async function wellUse() {
+    if (lessonOn("quiet") === true) return false;   // (inert under the lessons: its coins wait)
+    if (!wellReady()) { toast("The bucket's empty. Back tomorrow."); return false; }
+    const r = await World.daily(localDate());
+    if (!r || !r.ok) { shakeCoins(); toast(r && r.reason ? r.reason : "The well can't pay just now"); return false; }
+    yard.fx.purse = { t0: yard.t };
+    renderSign(); coinRise(r.coins);
+    toast("Your daily coins: +" + r.coins);
+    syncYardPrompt();
+    return true;
+  }
+
+  // ------------------------------------------------------------------ the folk's planks: Nell's cart, Vorn's weapons, the Rack (design pass 24 sections 4.7, 4.8, 4.10)
+  // One oak plank, #folkPlank: a head (a face or a crest, the title, the folk's line, the coins), a bar, a list. Nell's rows are the
+  // Cart's rows moved (World.buy); Vorn's are the classes still chained, free while picks wait and for the group's coins after (World.arm);
+  // the Rack's are the two hands over every weapon the knight can wield (session.equipped, session.active). They close by ✕, Esc, a tap
+  // outside, or the knight walking. The folk's memory (what each has said: Folk.memory) is saved beside Grycus's
+  const folk = { who: null, cls: null, mem: FK ? FK.memory(null) : null, bulk: false, said: null };
+  const folkOpen = () => !$("folkPlank").hidden;
+  function faceCanvas(who) {
+    const cv = document.createElement("canvas"); cv.width = 16; cv.height = 16; cv.setAttribute("aria-hidden", "true");
+    try { const f = FK.face(who), g = cv.getContext("2d"); f.px.forEach((c, i) => { if (c) { g.fillStyle = c; g.fillRect(i % 16, Math.floor(i / 16), 1, 1); } }); } catch (e) { /* a blank face */ }
+    return cv;
+  }
+  function folkSay(who, pool, o) { if (!FK || !folk.mem) return ""; const r = FK.say(folk.mem, who, pool, o); folk.mem = r.mem; save(); return r.text || ""; }
+  function folkOpening(who, o) { if (!FK || !folk.mem) return ""; const op = FK.opening(folk.mem, who, Object.assign({ now: Date.now() }, o || {})); folk.mem = op.mem; return folkSay(who, op.pool); }
+  const classWeaponOf = c => window.FORGE_THINGS.find(t => t.kind === "weapon" && t.weapon.visual.base === c && !(t.parents && t.parents.length));
+  function openFolk(who, o) {
+    o = o || {};
+    if (state.forging || state.pouring) return false;
+    if (!$("setPlank").hidden) return false;
+    closePlaque();
+    if (yard.stick) yard.stick.up();
+    folk.who = who; folk.cls = who === "bay" ? o.cls : null;
+    const bayList = who === "bay" ? armoryWeapons().filter(t => classOf(t) === o.cls).sort((a, b) => (b.tier - a.tier) || a.name.localeCompare(b.name)) : [];
+    const P = $("folkPlank"); P.innerHTML = ""; P.setAttribute("aria-label", who === "nell" ? "Nell's cart" : who === "vorn" ? "Vorn's weapons" : who === "bay" ? "The " + plural(o.cls) + " rack" : "The Rack");
+    const head = document.createElement("div"); head.className = "fhead";
+    if (who === "bay") head.appendChild(bayList.length ? sprite(bayList[0], 2) : document.createElement("canvas"));
+    else if (who === "rack") { const cv = document.createElement("canvas"); try { Smithy.glyph(cv, "sword", 3); } catch (e) { /* no crest */ } head.appendChild(cv); }
+    else head.appendChild(faceCanvas(who));
+    const t = document.createElement("div"); t.style.minWidth = "0"; t.innerHTML = '<div class="fwho"></div><div class="fsays" id="folkSays"></div>';
+    t.querySelector(".fwho").textContent = who === "bay" ? plural(o.cls).toUpperCase() + " · " + bayList.length : who === "rack" ? "THE RACK" : FK.title(who);
+    head.appendChild(t);
+    const x = document.createElement("button"); x.className = "fx f-iron"; x.id = "folkClose"; x.textContent = "✕"; x.setAttribute("aria-label", "Close"); x.addEventListener("click", closeFolk); head.appendChild(x);
+    P.appendChild(head);
+    if (who === "nell") renderNell(P, o); else if (who === "vorn") renderVorn(P, o); else if (who === "bay") renderBay(P, o, bayList); else renderRack(P, o);
+    P.hidden = false;
+    $("yardPrompt").hidden = true;
+    return true;
+  }
+  function closeFolk() { if (!folkOpen()) return false; $("folkPlank").hidden = true; $("folkPlank").innerHTML = ""; folk.who = null; folk.cls = null; yard.fx.lit = null; if (!$("confirmPlank").hidden && $("confirmPlank").dataset.folk) { $("confirmPlank").hidden = true; delete $("confirmPlank").dataset.folk; } syncYardPrompt(); return true; }
+  function says(text, red) { const el = $("folkSays"); if (!el) return; el.textContent = text || ""; el.classList.toggle("red", !!red); }
+  function priceTag(text, cls) { const tag = document.createElement("span"); tag.className = "tag" + (cls ? " " + cls : ""); tag.textContent = text; return tag; }
+  function listRow(spriteOf, name, sub, tag) {
+    const b = document.createElement("button"); b.className = "cartrow"; b.type = "button";
+    if (spriteOf) b.appendChild(spriteOf); else { const cv = document.createElement("canvas"); cv.width = 33; cv.height = 33; const g = cv.getContext("2d"); g.fillStyle = "#f77622"; g.fillRect(12, 6, 9, 21); g.fillStyle = "#fee761"; g.fillRect(14, 10, 5, 12); b.appendChild(cv); }
+    const d = document.createElement("div"); d.innerHTML = '<div class="n"></div><div class="s"></div>'; d.firstChild.textContent = name; d.lastChild.textContent = sub; b.appendChild(d);
+    if (tag) b.appendChild(tag);
+    return b;
+  }
+  // Nell: today's Cart moved, unchanged in what it sells and what it costs (pass 24 section 4.7)
+  function renderNell(P, o) {
+    const n = folk.bulk ? SHOP.bulk : 1;
+    const bar = document.createElement("div"); bar.className = "fbar"; bar.innerHTML = '<span><b id="folkCoins"></b> coins · crafting materials only · tap to buy ' + (n === 1 ? "one" : n) + '</span><button class="bulk f-iron" id="folkBulk" aria-pressed="' + folk.bulk + '">×5</button>';
+    bar.querySelector("#folkCoins").textContent = profile.coins.toLocaleString();
+    bar.querySelector("#folkBulk").addEventListener("click", () => { folk.bulk = !folk.bulk; openFolk("nell", { keep: true }); });
+    P.appendChild(bar);
+    const list = document.createElement("div"); list.className = "flist"; list.id = "folkList"; P.appendChild(list);
+    const items = SHOP.items.map(it => ({ id: it.id, thing: world.get(it.id), store: it.store })).filter(it => it.thing);
+    const order = { Elements: 0, Materials: 1, Curios: 2, Trophies: 3 }; items.sort((a, b) => order[a.store] - order[b.store]);
+    const bundle = SHOP.bundles[0];
+    const rowsOut = [{ id: bundle.id, name: bundle.name, sub: "one of each element · 60 off the singles", sprite: world.get("arcane-dust"), price: Coin.price(bundle.id, SHOP, profile, profile.found) }];
+    for (const it of items) rowsOut.push({ id: it.id, name: it.thing.name, sub: it.store + " · you have " + have(it.id), sprite: it.thing, price: Coin.price(it.id, SHOP, profile, profile.found) });
+    let litRow = null;
+    for (const r of rowsOut) {
+      const [unit, why] = r.price, count = r.id === bundle.id ? 1 : n;
+      const tag = priceTag(unit === null ? "—" : (unit * count).toLocaleString(), unit === null ? "off" : "");
+      const b = listRow(r.sprite ? sprite(r.sprite, 1) : null, r.name, why ? why : r.sub, tag);
+      if (unit === null) b.classList.add("sold");
+      if (yard.fx.lit === r.id) { b.classList.add("lit"); litRow = b; }
+      b.addEventListener("click", async () => {
+        const res = await World.buy(r.id, count);
+        if (!res.ok) { tag.classList.add("red"); shakeCoins(); says(folkSay("nell", res.reason === Coin.EMBER_NOT_SOLD ? "ember" : "poor") || res.reason || "Not sold", true); setTimeout(() => tag.classList.remove("red"), 900); return; }
+        toast("Bought " + (count === 1 ? "" : count + " ") + r.name + " for " + res.cost + " coins");
+        yard.fx.flick = yard.t + 0.6;
+        renderSign(); renderInfo();
+        const keep = list.scrollTop; yard.fx.lit = null; openFolk("nell", { keep: true, said: folkSay("nell", count > 1 ? "bulk" : r.sub.startsWith("Trophies") ? "trophy" : "bought") }); const l2 = $("folkList"); if (l2) l2.scrollTop = keep;
+        lessonOn("bought", r.id, res);
+      });
+      list.appendChild(b);
+    }
+    says(o.said !== undefined ? o.said : o.keep ? "" : folkOpening("nell"));
+    if (litRow) requestAnimationFrame(() => { try { litRow.scrollIntoView({ block: "center" }); } catch (e) { /* in view enough */ } });
+  }
+  // Vorn: every class not yet held, by group, on the house while a pick waits and for coins after (pass 24 section 4.8)
+  function renderVorn(P, o) {
+    const C = SHOP.classes || { first: "sword", groups: [] }, free = Progress.picksLeft(profile), left = C.groups.flatMap(g => g.classes).filter(c => !profile.classes.includes(c)), all = !left.length;
+    const bar = document.createElement("div"); bar.className = "fbar";
+    bar.innerHTML = '<span><b id="folkCoins"></b> coins</span>' + (free > 0 ? '<span class="free">On the house: ' + free + '</span>' : "") + '<span>a class opens its rack in the Armory</span>';
+    bar.querySelector("#folkCoins").textContent = profile.coins.toLocaleString();
+    P.appendChild(bar);
+    const list = document.createElement("div"); list.className = "flist"; list.id = "folkList"; P.appendChild(list);
+    for (const g of C.groups) {
+      const h = document.createElement("div"); h.className = "grp"; h.textContent = g.name + " · " + g.coins + " coins"; list.appendChild(h);
+      for (const c of g.classes) {
+        const t = classWeaponOf(c), own = profile.classes.includes(c), held = owned(x => classOf(x) === c).length;
+        const tag = priceTag(own ? "Yours ✓" : free > 0 ? "On the house" : g.coins.toLocaleString(), own ? "own" : free > 0 ? "free" : "");
+        const b = listRow(t ? sprite(t, 1) : null, t ? t.name : cap(c), (FK.arms(c) || "") + (held && !own ? " · you hold " + held + ", chained" : ""), tag);
+        if (!own && held) b.classList.add("chained");
+        if (own) b.disabled = true; else b.addEventListener("click", () => confirmClass(c, g, t, tag));
+        list.appendChild(b);
+      }
+    }
+    says(o.said !== undefined ? o.said : o.keep ? "" : folkOpening("vorn", { free, all }));
+  }
+  // taking a class (pass 24 section 4.8): the confirm, then World.arm; a free pick is always spent before coins
+  function confirmClass(c, g, t, tag) {
+    const free = Progress.picksLeft(profile) > 0, name = t ? t.name : cap(c);
+    plank($("confirmPlank"), `<h3>Take up the ${esc(name)}?</h3><div class="body">Its rack goes up in the Armory, and every ${esc(name.toLowerCase())} you forge or find can be equipped.</div><div class="pbtns"><button class="f-ember primary" id="cfYes">Take it · ${free ? "on the house" : g.coins + " coins"}</button><button class="f-iron" id="cfNo">Not this one</button></div>`);
+    $("confirmPlank").dataset.folk = "1";
+    $("cfNo").addEventListener("click", () => { $("confirmPlank").hidden = true; delete $("confirmPlank").dataset.folk; });
+    $("cfYes").addEventListener("click", async () => {
+      $("confirmPlank").hidden = true; delete $("confirmPlank").dataset.folk;
+      const r = await World.arm(c);
+      if (!r || !r.ok) {
+        if (r && r.reason === Coin.ARM_LINES.poor) { if (tag) { tag.classList.add("red"); setTimeout(() => tag.classList.remove("red"), 900); } shakeCoins(); says(folkSay("vorn", "poor") || r.reason, true); }
+        else toast(r && r.reason ? r.reason : "The world refused");
+        return;
+      }
+      state.glow = c; renderAll();
+      toast("The " + plural(c) + " rack goes up" + (r.free ? "" : " · " + r.cost + " coins"));
+      if (!r.free) coinRise(0, profile.coins + r.cost);
+      if (folkOpen() && folk.who === "vorn") { const keep = $("folkList") ? $("folkList").scrollTop : 0; openFolk("vorn", { keep: true, said: folkSay("vorn", "bought") }); const l2 = $("folkList"); if (l2) l2.scrollTop = keep; }
+    });
+  }
+  // the Rack (pass 24 section 4.10): the two hands and every weapon the knight can wield, newest first; a chained one says who sells it
+  function handsNow() { session.equipped = session.equipped.filter(id => own.has(id) && world.has(id)); const a = Math.max(0, Math.min(session.equipped.length - 1, session.active | 0)); const front = session.equipped[a], back = session.equipped.find((id, i) => i !== a); return { front: front || null, back: back || null }; }
+  function setHands(front, back) { session.equipped = [front, back].filter(Boolean); session.active = 0; save(); renderPegs(); }
+  function renderRack(P, o) {
+    const H = handsNow();
+    const hands = document.createElement("div"); hands.className = "hands";
+    const slot = (id, label, front) => { const t = id ? world.get(id) : null, b = document.createElement("button"); b.type = "button"; b.className = "hand f-slot" + (front ? " front" : "") + (t ? "" : " empty"); if (t) b.appendChild(sprite(t, 2)); else { const cv = document.createElement("canvas"); cv.width = 1; cv.height = 1; b.appendChild(cv); } const d = document.createElement("div"); d.style.minWidth = "0"; d.innerHTML = "<b></b><span></span>"; d.querySelector("b").textContent = t ? t.name : "Empty"; d.querySelector("span").textContent = label; b.appendChild(d); b.disabled = true; return b; };
+    hands.appendChild(slot(H.front, "In front · you strike with it", true)); hands.appendChild(slot(H.back, "Behind · Swap in the cellar", false));
+    const sw = document.createElement("button"); sw.type = "button"; sw.className = "swaphands f-iron"; sw.id = "swapHands"; sw.textContent = "Swap hands"; sw.disabled = !(H.front && H.back);
+    sw.addEventListener("click", () => { const h = handsNow(); setHands(h.back, h.front); openFolk("rack", { keep: true }); toast((handsNow().front ? world.get(handsNow().front).name : "Nothing") + " is in front"); });
+    hands.appendChild(sw);
+    P.appendChild(hands);
+    const list = document.createElement("div"); list.className = "flist"; list.id = "folkList"; P.appendChild(list);
+    const mine = owned(t => F.isWeapon(t)).sort((a, b) => own.get(b.id).seq - own.get(a.id).seq);
+    if (!mine.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = "No weapons yet. Forge one."; list.appendChild(e); }
+    for (const t of mine) {
+      const can = canWield(t), where = t.id === H.front ? "in front" : t.id === H.back ? "behind" : "on the shelf";
+      const tag = priceTag(can ? where : "chained", can ? (t.id === H.front ? "free" : "own") : "off");
+      const b = listRow(sprite(t, 1), t.name, can ? (TIER[t.tier] || "") + " " + (classOf(t) || "") : "Vorn sells the class, in the courtyard", tag);
+      if (!can) b.classList.add("chained");
+      if (!can || t.id === H.front) b.disabled = true;
+      else b.addEventListener("click", () => { const h = handsNow(); setHands(t.id, h.front && h.front !== t.id ? h.front : (h.back !== t.id ? h.back : null)); const keep = list.scrollTop; openFolk("rack", { keep: true }); const l2 = $("folkList"); if (l2) l2.scrollTop = keep; toast(t.name + " is in front"); });
+      list.appendChild(b);
+    }
+    says(o.said !== undefined ? o.said : "Your two hands. The one in front is the one you strike with.");
+  }
+  // a bay of the Armory opened from its plate (2026-10-07): every weapon of the class the smith holds, the rarest first and by name within
+  // a tier, the same order as the shelves, which show only the first six. A row opens the weapon's plaque in view mode over the hall
+  function renderBay(P, o, list) {
+    const cls = o.cls, n = list.length, shown = Math.min(n, window.Armory ? Armory.SHOW : 6);
+    const bar = document.createElement("div"); bar.className = "fbar"; bar.innerHTML = "<span></span>";
+    bar.firstChild.textContent = n > shown ? `${n} ${plural(cls).toLowerCase()} held · the shelves show the rarest ${shown} · tap one to read its plaque` : `every ${cls} you hold · tap one to read its plaque`;
+    P.appendChild(bar);
+    const el = document.createElement("div"); el.className = "flist"; el.id = "folkList"; P.appendChild(el);
+    if (!n) { const e = document.createElement("div"); e.className = "empty"; e.textContent = `No ${plural(cls).toLowerCase()} held.`; el.appendChild(e); }
+    list.forEach((t, i) => {
+      const o2 = own.get(t.id), mine = (t.discovery || {}).first === profile.id;
+      const sub = [TIER[t.tier] || "", mine ? "★ first forged by you" : "", i >= shown ? "not on the shelves" : ""].filter(Boolean).join(" · ");
+      const b = listRow(sprite(t, 1), t.name, sub, o2 && o2.n > 1 ? priceTag("×" + o2.n, "own") : null);
+      b.dataset.id = t.id; b.classList.add("bayrow");
+      b.addEventListener("click", () => { closeFolk(); viewWeapon(t); });
+      el.appendChild(b);
+    });
+    says(o.said !== undefined ? o.said : (n > shown ? "The rarest stand on the shelves; the rest are here." : "Everything of the kind you hold."));
+  }
+  // the two hands hung on the Rack's pegs in the Forge's room (pass 24 section 4.10), drawn over the room's canvas at the rack's box
+  function renderPegs() {
+    const cv = $("pegs"), sc = room && room.scene, R = sc && sc.handsRack; if (!cv) return;
+    if (!R || state.wallsOpen) { cv.hidden = true; return; }
+    const w = R.x1 - R.x0 + 1, h = R.y1 - R.y0 + 1; cv.width = w; cv.height = h; cv.hidden = false;
+    const pct = (v, of) => (100 * v / of).toFixed(3) + "%";
+    cv.style.left = pct(R.x0, roomW); cv.style.width = pct(w, roomW); cv.style.top = pct(R.y0, ROOM_H); cv.style.height = pct(h, ROOM_H);
+    const g = cv.getContext("2d"); g.clearRect(0, 0, w, h); g.imageSmoothingEnabled = false;
+    const H = handsNow(), pegs = R.pegs || [];
+    [H.front, H.back].forEach((id, n) => { const t = id ? world.get(id) : null, p = pegs[n]; if (!t || !p) return; try { g.drawImage(PF.canvasFor(t, { scale: 1, shadow: false }), Math.round(p.x - R.x0 - 16), Math.round(p.y - R.y0 - 16)); } catch (e) { /* no sprite */ } });
+  }
+  // from the Forge's Materials wall: Go to the cart, or a used-up thing's BUY (pass 24 section 4.7): out to the yard, the knight walks to
+  // Nell and her plank opens with that row lit; under the old room graph her plank opens here
+  function goToNell(litId) {
+    yard.fx.lit = litId || null;
+    if (noyard) { openFolk("nell"); return; }
+    if (!enter("yard", { at: "forge" })) return;
+    if (yard.kn && yard.Y) yard.Y.goTo(yard.kn, "nell");
+  }
+  $("app").addEventListener("pointerdown", e => { if (!folkOpen()) return; if (e.target.closest("#folkPlank, #confirmPlank, .sign, #setPlank, #yardZone, #yardPrompt")) return; closeFolk(); }, true);
+
+  // ------------------------------------------------------------------ the Map Table (design pass 25 with its revision 1, pass 26 sections 3.2 to 3.4)
+  // The map itself is proto/map-table.js (the painter, the live layer, the rules, the trip, the reveal); this is the page's side: the
+  // canvas at the largest whole scale that fits the sheet under the sign, the names as buttons over it, the taps, the area's plate and
+  // the legend's, Go (two steps, the soot curtain, the level's address), the trip's clock, the reveal once, and the room's one history
+  // entry (pass 26 section 3.2 row 2)
+  const map = { M: null, pieces: [], ground: [], bakeId: 0, L: null, raf: 0, t0: 0, last: 0, t: 0, plate: null, legend: false, trip: null, going: null, reveal: null, queue: [], wobble: null, pushed: false, then: null, cache: new Map() };
+  const KEY_BROTHERS = "forge-forever:gate-brothers", KEY_PICK = "forge-forever:level-pick";
+  const mstore = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, String(v)); } catch (e) { /* no storage */ } } };
+  const once = (key, make) => { let v = map.cache.get(key); if (!v) { v = make(); map.cache.set(key, v); } return v; };
+  const clearedNow = () => Object.assign({}, profile.cleared || {});
+  const areaStates = () => { const o = {}; for (const A of MT.SPEC.areas) o[A.id] = MT.areaState(A, clearedNow()); return o; };
+  function mapBoot() { if (map.M || !hasMap) return !!map.M; map.M = new MT.Room(); map.pieces = map.M.pieces.map(P => ({ P, c: [0, 1, 2, 3].map(f => canvasOf(map.M.pieceFrame(P, f))) })); return true; }
+  function fitMap() {
+    if (state.room !== "map" || !map.M) return null;
+    const pane = $("mappane"), cv = $("map"); if (!pane.clientWidth || !pane.clientHeight) return null;
+    const dpr = window.devicePixelRatio || 1, devW = pane.clientWidth * dpr, devH = pane.clientHeight * dpr, k = MT.fit(devW, devH), per = k / dpr;
+    const vw = Math.min(map.M.W, Math.floor(devW / k)), vh = Math.min(map.M.H, Math.floor(devH / k)), cx0 = Math.floor((map.M.W - vw) / 2), cy0 = Math.floor((map.M.H - vh) / 2);
+    const same = map.L && map.L.vw === vw && map.L.vh === vh && map.L.k === k;
+    cv.width = vw; cv.height = vh; cv.style.width = (vw * per) + "px"; cv.style.height = (vh * per) + "px";
+    map.L = { k, per, vw, vh, cx0, cy0, dpr, paneW: pane.clientWidth, paneH: pane.clientHeight };
+    if (!same) mapBake();
+    placeLabels();
+    if (map.plate) renderPlate();
+    mapPaint(map.t);
+    return map.L;
+  }
+  // the room's crop baked for the view: phase 0 as the room opens, the other three in idle time (pass 25 section 4.11)
+  function mapBake() {
+    const id = ++map.bakeId, L = map.L;
+    map.ground = [canvasOf(map.M.groundFrame(0, L.cx0, L.cy0, L.vw, L.vh))];
+    if (reduce) return;
+    let f = 1; const idle = cb => (window.requestIdleCallback ? window.requestIdleCallback(cb, { timeout: 200 }) : setTimeout(cb, 40));
+    const more = () => { if (id !== map.bakeId || f > 3) return; map.ground[f] = canvasOf(map.M.groundFrame(f, L.cx0, L.cy0, L.vw, L.vh)); f++; idle(more); };
+    idle(more);
+  }
+  function mapEnter(o) {
+    if (!mapBoot()) return;
+    map.plate = null; map.legend = false; map.trip = null; map.going = null; map.wobble = null;
+    $("areaPlate").hidden = true; $("legendPlate").hidden = true; $("mapCurtain").classList.remove("on");
+    map.t0 = performance.now(); map.last = map.t0; map.t = 0;
+    fitMap();
+    // the reveal (pass 25 section 4.7): what changed since the map was last shown plays once, in order; then the map remembers
+    const ch = MT.changes(MT.SPEC, profile.mapSeen, clearedNow());
+    map.queue = reduce ? [] : ch.slice();
+    if (reduce) for (const c of ch) revealToast(c);
+    const seen = MT.seenOf(MT.SPEC, clearedNow());
+    if (JSON.stringify(seen) !== JSON.stringify(profile.mapSeen || null)) { profile.mapSeen = seen; save(); }
+    nextReveal();
+    if (!o.noPush && !map.pushed) pushMap();
+    if (map.raf) cancelAnimationFrame(map.raf);
+    map.raf = requestAnimationFrame(mapFrame);
+  }
+  function mapLeave() { if (map.raf) cancelAnimationFrame(map.raf); map.raf = 0; map.plate = null; map.legend = false; $("areaPlate").hidden = true; $("legendPlate").hidden = true; $("mapLabels").replaceChildren(); $("mapCurtain").classList.remove("on"); }
+  function revealToast(c) { const W = MT.SPEC.words; if (c.kind === "open") toast(W.opened.replace("{name}", c.name)); else if (c.kind === "won") toast(W.won.replace("{name}", c.name)); }
+  function nextReveal() {
+    const c = map.queue.shift(); if (!c) { map.reveal = null; return; }
+    map.reveal = { kind: c.kind, area: c.area, level: c.level, t0: map.t }; revealToast(c);
+    const ms = (MT.REVEAL_S[c.kind] || 1) * 1000; setTimeout(() => { if (map.reveal && map.reveal.t0 === ms && false) return; if (state.room === "map") nextReveal(); }, ms);
+  }
+  const revealing = () => !!map.reveal;
+  // the Map Table's history entry (pass 26 section 3.2 row 2): pushed as the room opens (not under ?room=map); the phone's back, ←
+  // Courtyard and Esc take it off and the popstate leaves the room; Go takes it off before the level loads, so the castle page is right
+  // behind the level and Home steps back onto it
+  function pushMap() { try { window.history.pushState(Object.assign({}, histState(), { ffRoom: "map" }), ""); map.pushed = true; } catch (e) { map.pushed = false; } }
+  function popMap(then) {
+    if (!map.pushed) { then(); return; }
+    map.then = then;
+    const t = setTimeout(() => { if (map.then === then) { map.then = null; map.pushed = false; then(); } }, 600);
+    window.addEventListener("pagehide", () => clearTimeout(t), { once: true });
+    try { window.history.back(); } catch (e) { clearTimeout(t); map.then = null; map.pushed = false; then(); }
+  }
+  window.addEventListener("popstate", e => {
+    const st = e.state && typeof e.state === "object" ? e.state : {};
+    if (state.room === "map" && st.ffRoom !== "map") { map.pushed = false; const then = map.then; map.then = null; if (then) then(); else enter("yard", { at: "table" }); }
+    else if (state.room !== "map" && st.ffRoom === "map" && hasMap && !noyard) { enter("map", { noPush: true }); map.pushed = true; }   // (forward onto the entry: it is the room's again)
+  });
+  function leaveMap() { if (state.room !== "map") return false; closeLegend(); popMap(() => enter("yard", { at: "table" })); return true; }
+  $("armoryBtn").addEventListener("click", () => leaveMap());
+  // sheet pixels to the pane's CSS pixels (the canvas is centred in the pane)
+  function toCss(x, y) { const L = map.L, cv = $("map"), SX = map.M.SX, SY = map.M.SY; return { x: cv.offsetLeft + (SX + x - L.cx0) * L.per, y: cv.offsetTop + (SY + y - L.cy0) * L.per }; }
+  function pipsOf(A) { return MT.levelRows(A, clearedNow()).rows.map(r => r.state === "cleared" ? "●" : r.state === "soon" ? "·" : "○").join(""); }
+  // the names on the map (pass 25 section 4.3): HTML buttons over the canvas, each with its pips or soon; home; the legend's hit box
+  function placeLabels() {
+    const box = $("mapLabels"); box.replaceChildren();
+    if (!map.L) return;
+    const st = areaStates(), lv = lessonOn("mapView") || null;
+    for (const A of MT.SPEC.areas) {
+      const s0 = st[A.id], p = toCss(A.label[0], A.label[1]), b = document.createElement("button"); b.type = "button";
+      b.className = "place " + s0; b.style.left = p.x + "px"; b.style.top = p.y + "px"; b.dataset.area = A.id;
+      const n = MT.levelRows(A, clearedNow()).rows.filter(r => r.state === "cleared").length;
+      b.innerHTML = '<span class="nm"></span><span class="tag"></span>'; b.querySelector(".nm").textContent = A.name; b.querySelector(".tag").textContent = s0 === "soon" ? "soon" : s0 === "won" ? "✓ " + pipsOf(A) : pipsOf(A);
+      b.setAttribute("aria-label", A.name + ": " + (s0 === "soon" ? "coming soon" : s0 + ", " + n + " of " + A.levels.length + " levels cleared"));
+      if (lv && lv.allow && !lv.allow(A.id)) b.classList.add("dim");
+      b.addEventListener("click", e => { e.stopPropagation(); tapArea(A.id); });
+      box.appendChild(b);
+    }
+    const H0 = MT.SPEC.home, hp = toCss(H0.label[0], H0.label[1]), h = document.createElement("button"); h.type = "button"; h.className = "place home" + (lv && lv.allow && !lv.allow("home") ? " dim" : ""); h.style.left = hp.x + "px"; h.style.top = hp.y + "px"; h.textContent = H0.name; h.setAttribute("aria-label", "Home: the courtyard. ← Courtyard goes back in");
+    h.addEventListener("click", e => { e.stopPropagation(); tapArea("home"); }); box.appendChild(h);
+    const lb = MT.SPEC.legend.box, a = toCss(lb[0], lb[1]), b2 = toCss(lb[2] + 1, lb[3] + 1), lh = document.createElement("button"); lh.type = "button"; lh.className = "legendhit" + (lv && lv.allow && !lv.allow("legend") ? " dim" : ""); lh.id = "legendHit"; lh.setAttribute("aria-label", MT.SPEC.words.legend);
+    lh.style.left = a.x + "px"; lh.style.top = a.y + "px"; lh.style.width = (b2.x - a.x) + "px"; lh.style.height = (b2.y - a.y) + "px";
+    lh.addEventListener("click", e => { e.stopPropagation(); tapArea("legend"); }); box.appendChild(lh);
+  }
+  // a tap on the canvas: its sheet point, and what lies there (pass 25 section 4.5)
+  function mapTapAt(gx, gy) {
+    const L = map.L; if (!L) return;
+    const pane = $("mappane"), cv = $("map"), x = (gx - pane.offsetLeft - cv.offsetLeft) / L.per + L.cx0 - map.M.SX, y = (gy - pane.offsetTop - cv.offsetTop) / L.per + L.cy0 - map.M.SY;
+    const hit = MT.hitAt(MT.SPEC, x, y);
+    if (hit) tapArea(hit); else if (map.legend) closeLegend(); else if (map.plate) closePlate();
+  }
+  if (ST) ST.tap($("map"), { toGame, paused: () => state.room !== "map" || !!map.going || revealing(), onTap: (gx, gy) => mapTapAt(gx, gy) });
+  else $("map").addEventListener("click", e => { if (state.room !== "map" || map.going) return; const [gx, gy] = toGame(e.clientX, e.clientY); mapTapAt(gx, gy); });
+  function tapArea(id) {
+    if (state.room !== "map" || map.going || revealing()) return false;
+    const lv = lessonOn("mapView") || null;
+    if (lv && lv.allow && !lv.allow(id)) { lessonOn("offTap"); return false; }
+    const W = MT.SPEC.words, st = areaStates();
+    if (id === "legend") { if (map.legend) return closeLegend(); if (map.plate) closePlate(); map.legend = true; renderLegend(); return true; }
+    if (map.legend) closeLegend();
+    if (id === "home") { toast(W.home); return true; }
+    const A = MT.SPEC.areas.find(a => a.id === id); if (!A) return false;
+    const s0 = st[id];
+    if (s0 === "soon") { map.wobble = { area: id, t0: map.t }; toast(W.soon.replace("{name}", A.name)); return true; }
+    if (map.plate === id) return true;
+    if (s0 === "shut") { map.plate = id; renderPlate(); return true; }   // (rows locked, the knight stays home)
+    map.plate = id; map.trip = { area: id, t0: map.t, back: false };
+    renderPlate();
+    lessonOn("plate", id);
+    return true;
+  }
+  function closePlate() { if (!map.plate) return false; if (map.trip && !map.trip.back) map.trip = { area: map.plate, t0: map.t, back: true }; map.plate = null; $("areaPlate").hidden = true; return true; }
+  function closeLegend() { if (!map.legend) return false; map.legend = false; $("legendPlate").hidden = true; return true; }
+  const sentence = w => w.charAt(0) + w.slice(1).toLowerCase();
+  function renderLegend() {
+    const el = $("legendPlate"), Lg = MT.SPEC.legend, W = MT.SPEC.words;
+    if (!map.legend) { el.hidden = true; return; }
+    el.innerHTML = '<button type="button" class="x" id="legendBack" aria-label="Back to the map">✕</button><h5></h5><div class="keys">'
+      + Lg.rows.map(r => '<div><canvas data-sign="' + esc(r.sign) + '" width="11" height="5" aria-hidden="true"></canvas><b>' + esc(sentence(r.word)) + '</b><span>' + esc(r.says) + '</span></div>').join("")
+      + '<div><span class="pips" aria-hidden="true">●○·</span><b>Levels</b><span>' + esc(Lg.pips) + '</span></div></div>';
+    el.querySelector("h5").textContent = W.legend;
+    el.hidden = false;
+    el.querySelectorAll("canvas").forEach(c => { try { const sg = MT.sign(c.dataset.sign), g = c.getContext("2d"); for (let y = 0; y < sg.h; y++) for (let x = 0; x < sg.w; x++) { const col = sg.px[y * sg.w + x]; if (col) { g.fillStyle = col; g.fillRect(x, y, 1, 1); } } } catch (e) { /* no sign */ } });
+    $("legendBack").addEventListener("click", closeLegend);
+  }
+  // the area's plate (pass 25 section 4.5): its levels with their states, the picked row lit, Go alone and Bring sword-brothers 1 2 3
+  // (the last choice remembered), ✕ back to the map; a shut area's rows locked
+  function renderPlate() {
+    const el = $("areaPlate"), A = MT.SPEC.areas.find(a => a.id === map.plate); if (!A) { el.hidden = true; return; }
+    const W = MT.SPEC.words, st = areaStates()[A.id], R = MT.levelRows(A, clearedNow(), mstore.get(KEY_PICK));
+    const pick = R.pick, last = Math.max(0, Math.min(3, parseInt(mstore.get(KEY_BROTHERS), 10) || 0)), lv = lessonOn("mapView") || null, lit = !!(lv && lv.goOnly);
+    el.className = "mapplate f-plank " + (A.place[0] > 256 ? "left" : "right");
+    el.setAttribute("aria-label", A.name);
+    const rows = R.rows.map(r => {
+      const pickable = st !== "shut" && (r.state === "open" || r.state === "cleared");
+      const sTxt = r.state === "cleared" ? W.cleared : r.state === "open" ? (st === "shut" ? W.shut.replace("{name}", A.name) : W.open) : r.state === "locked" ? W.locked.replace("{need}", String(r.need).replace(/^The\b/, "the")) : "soon";
+      return '<button type="button" data-id="' + esc(r.id) + '" class="' + r.state + (lit ? " off" : "") + '" aria-pressed="' + String(pick === r.id) + '"' + (pickable && !lit ? "" : " disabled") + '><span>' + r.n + '</span><span class="nm">' + esc(r.name) + (r.boss ? ' <span class="st">· ' + esc(r.boss) + '</span>' : "") + '</span><span class="st">' + esc(sTxt) + '</span></button>';
+    }).join("");
+    const shut = st === "shut";
+    el.innerHTML = '<button type="button" class="x' + (lit ? " off" : "") + '" id="plateBack" aria-label="Back to the map">✕</button><h5></h5><div class="line"></div><div class="lv">' + rows + '</div>'
+      + '<button type="button" class="f-ember alone" id="goAlone" aria-pressed="' + String(last === 0) + '"' + (shut || !pick ? " disabled" : "") + '>' + esc(W.alone) + '</button>'
+      + '<div class="party"><span class="small">' + esc(W.brothers) + '</span>' + [1, 2, 3].map(n => '<button type="button" class="f-iron' + (lit ? " off" : "") + '" id="goB' + n + '" data-b="' + n + '" aria-pressed="' + String(last === n) + '"' + (shut || !pick ? " disabled" : "") + '>' + n + '</button>').join("") + '</div>';
+    el.querySelector("h5").textContent = A.name; el.querySelector(".line").textContent = shut ? W.shut.replace("{name}", (MT.SPEC.areas.find(a => a.levels.some(l => l.id === A.opensAfter)) || {}).name || A.name) : A.line;
+    el.hidden = false;
+    el.querySelectorAll(".lv button").forEach(b => b.addEventListener("click", () => { if (b.disabled) return; mstore.set(KEY_PICK, b.dataset.id); renderPlate(); }));
+    $("goAlone").addEventListener("click", () => goLevel(A, 0));
+    el.querySelectorAll(".party button").forEach(b => b.addEventListener("click", () => goLevel(A, +b.dataset.b)));
+    $("plateBack").addEventListener("click", closePlate);
+    if (!coarse) { const g = $("goAlone"); if (g && !g.disabled) g.focus(); }
+  }
+  // Go (pass 25 section 4.5, pass 26 row 11): the knight takes two steps into the place, the soot curtain falls, the handoff and the save
+  // are written, the Map Table's history entry comes off, and the level's address is pushed plainly with #from=forge
+  function goLevel(A, n) {
+    if (map.going || state.room !== "map" || session.leaving) return null;
+    const R = MT.levelRows(A, clearedNow(), mstore.get(KEY_PICK)), row = R.rows.find(r => r.id === R.pick); if (!row) return null;
+    n = Math.max(0, Math.min(3, n | 0));
+    mstore.set(KEY_BROTHERS, n); mstore.set(KEY_PICK, row.id);
+    map.going = { area: A.id, t0: map.t };
+    const url = MT.levelUrl(row, n, cellarUrl());
+    gryHush();
+    session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
+    save();
+    const sent = writeHandoff(null);
+    markWent("road");
+    window.TheForge.wentDown = { url, sent, try: null, how: "push", level: row.area, brothers: n };
+    lessonOn("go", row.id, n);
+    const quick = reduce || params.get("harness") === "1";
+    const leave = () => { if (stay) return; popMap(() => { session.leaving = true; window.location.href = url + "#from=forge"; }); };
+    setTimeout(() => { $("mapCurtain").classList.add("on"); setTimeout(leave, quick ? 0 : 320); }, quick ? 0 : 250);
+    return url;
+  }
+  function mapFrame(now) {
+    if (state.room !== "map") { map.raf = 0; return; }
+    const dt = Math.max(0, Math.min(0.05, (now - map.last) / 1000)); map.last = now; map.t += dt;
+    if (map.trip && map.trip.back && map.t - map.trip.t0 > 1.2) map.trip = null;
+    if (map.reveal && map.t - map.reveal.t0 > (MT.REVEAL_S[map.reveal.kind] || 1) + 0.05) nextReveal();
+    if (map.L) mapPaint(map.t);
+    map.raf = requestAnimationFrame(mapFrame);
+  }
+  const trollC = (kind, facing, anim, i) => once("t" + kind + facing + anim + i, () => { const fr = TR.frame(kind, facing, anim, i); return pxCanvas(fr.px, fr.N, fr.N); });
+  const pawnC = () => once("pawn", () => { const P = MT.pawn(); return { c: pxCanvas(P.px, P.w, P.h), ox: P.ox, oy: P.oy }; });
+  const shadeC = (kind, i) => once("s" + kind + i, () => { const s = MT.shade(kind, i); return { c: pxCanvas(s.px, s.w, s.h), ox: s.ox, oy: s.oy }; });
+  const bannerC = (kind, f, clean) => once("b" + kind + f + clean, () => { const b = MT.banner(kind, f, clean); return { c: pxCanvas(b.px, b.w, b.h), oy: b.oy }; });
+  const crowC = f => once("c" + f, () => { const c = MT.crow(f); return { c: pxCanvas(c.px, c.w, c.h), ox: c.ox, oy: c.oy }; });
+  const shipC = flip => once("ship" + flip, () => { const S0 = MT.ship(); return { c: pxCanvas(S0.px, S0.w, S0.h, flip), ox: S0.ox, oy: S0.oy }; });
+  const cloudC = (w, seed) => once("cl" + w + ":" + seed, () => { const c = MT.cloud(w, seed); return pxCanvas(c.px, c.w, c.h); });
+  const discC = (r, a, col, px, py) => once("d" + r + ":" + a + col + px + py, () => { const BAY = Smithy.BAYER, R = r / 2, n = Math.ceil(R) * 2 + 1, c = document.createElement("canvas"); c.width = n; c.height = n; const g = c.getContext("2d"); g.fillStyle = col; const o = Math.ceil(R); for (let dy = -o; dy <= o; dy++) for (let dx = -o; dx <= o; dx++) if (dx * dx + dy * dy <= R * R && BAY[((py + dy) & 3) * 4 + ((px + dx) & 3)] < (a / 8) * 0.75) g.fillRect(dx + o, dy + o, 1, 1); return c; });
+  function mapPaint(t) {
+    const cv = $("map"), g = cv.getContext("2d"), L = map.L, M = map.M; if (!L || !M) return;
+    const still = reduce, f = still ? 0 : Math.floor(t * 4) % 4, ox = L.cx0, oy = L.cy0, SX = M.SX, SY = M.SY;
+    g.imageSmoothingEnabled = false;
+    g.fillStyle = "#2a1d28"; g.fillRect(0, 0, L.vw, L.vh);
+    if (map.ground[f] || map.ground[0]) g.drawImage(map.ground[f] || map.ground[0], 0, 0);
+    const live = M.live(t, { states: areaStates(), trip: map.trip, going: map.going, reveal: map.reveal, still });
+    const dot = (x, y, c) => { g.fillStyle = c; g.fillRect(x - ox, y - oy, 1, 1); };
+    for (const r of live.road) { dot(r.x, r.y, r.hot ? "#fee761" : "#feae34"); dot(r.x + 1, r.y, r.hot ? "#fff6c8" : "#be4a2f"); dot(r.x, r.y + 1, "#be4a2f"); dot(r.x + 1, r.y + 1, "#be4a2f"); }
+    for (const p of live.lava || []) dot(p.x, p.y, p.c);
+    for (const p of live.glints || []) dot(p.x, p.y, p.c);
+    for (const s of live.sand || []) { g.fillStyle = s.c; g.fillRect(s.x - ox, s.y - oy, s.len, 1); }
+    g.fillStyle = "rgba(24,20,37,0.2)";
+    for (const s of live.shadows || []) for (let dy = -s.ry; dy <= s.ry; dy++) { const hw = Math.round(s.rx * Math.sqrt(Math.max(0, 1 - (dy / s.ry) ** 2))); g.fillRect(s.x - hw - ox, s.y + dy - oy, hw * 2 + 1, 1); }
+    const acts = [];
+    for (const { P, c } of map.pieces) acts.push({ y: P.sy, fn: () => g.drawImage(c[f], P.x - ox, P.y - oy) });
+    for (const FG of live.figures) acts.push({ y: FG.sy, fn: () => mapFigure(g, FG, t) });
+    if (live.ship) { const sh = shipC(!!live.ship.flip); acts.push({ y: live.ship.y, fn: () => g.drawImage(sh.c, live.ship.x - sh.ox - ox, live.ship.y - sh.oy - oy) }); }
+    acts.sort((a, b) => a.y - b.y); for (const a of acts) a.fn();
+    for (const B of live.banners || []) { const b = bannerC(B.kind, B.f, B.clean); g.drawImage(b.c, B.x - ox, B.y - b.oy - oy); }
+    for (const FL of live.flames || []) { const fr = MT.FLAME[FL.kind] && MT.FLAME[FL.kind][FL.f]; if (!fr) continue; const w = fr[0].length, h = fr.length; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const ch = fr[j][i]; if (ch !== ".") dot(FL.x - (w >> 1) + i, FL.y - h + 1 + j, MT.FLAME_PAL[ch]); } }
+    for (const s of live.smoke || []) { const r2 = Math.max(2, Math.round(s.r * 2)), a8 = Math.max(1, Math.round(s.a * 8)), d = discC(r2, a8, s.c, s.x & 3, s.y & 3); g.drawImage(d, Math.round(s.x) - (d.width >> 1) - ox, Math.round(s.y) - (d.height >> 1) - oy); }
+    for (const s of live.sparks || []) dot(s.x, s.y, s.c);
+    for (const s of live.snow || []) dot(s.x, s.y, s.c);
+    for (const c of live.crows || []) { const cr = crowC(c.f); g.drawImage(cr.c, c.x - cr.ox - ox, c.y - cr.oy - oy); }
+    for (const c of live.clouds || []) g.drawImage(cloudC(c.w, c.seed), c.x - ox, c.y - oy);
+    // the lessons' veil over the map with the Troll Castle cut out, and an ember ring round it (pass 25 section 4.10)
+    const lv = lessonOn("mapView") || null;
+    if (lv && lv.ring) {
+      const A = MT.SPEC.areas.find(a => a.id === lv.ring); if (A) {
+        const Z = A.zone, xs = Z.map(p => p[0]), ys = Z.map(p => p[1]), cx = SX + (Math.min(...xs) + Math.max(...xs)) / 2 - ox, cy = SY + (Math.min(...ys) + Math.max(...ys)) / 2 - oy, rx = (Math.max(...xs) - Math.min(...xs)) / 2 + 4, ry = (Math.max(...ys) - Math.min(...ys)) / 2 + 4;
+        g.fillStyle = "rgba(13,10,20,0.62)"; g.beginPath(); g.rect(0, 0, L.vw, L.vh); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2, true); g.fill("evenodd");
+        const pulse = still ? 0 : Math.round(Math.sin(t * 5) * 1.5); g.strokeStyle = "#feae34"; g.lineWidth = 2; g.setLineDash([4, 3]); g.lineDashOffset = still ? 0 : -t * 12; g.beginPath(); g.ellipse(cx, cy, rx + pulse, ry + pulse, 0, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+      }
+    }
+  }
+  function mapFigure(g, FG, t) {
+    const L = map.L, ox = L.cx0, oy = L.cy0;
+    const shadowAt = (x, y, w) => { g.fillStyle = "rgba(18,14,26,0.4)"; const X = Math.round(x) - ox, Yy = Math.round(y) - oy; g.fillRect(X - w, Yy, w * 2 + 1, 1); g.fillRect(X - Math.round(w * 0.7), Yy - 1, Math.round(w * 1.4) + 1, 1); g.fillRect(X - Math.round(w * 0.7), Yy + 1, Math.round(w * 1.4) + 1, 1); };
+    if (FG.who === "troll") { shadowAt(FG.x, FG.y, 6); const c = trollC(FG.troll, FG.facing, FG.anim, FG.i); if (FG.stone !== undefined && FG.stone < 4) { g.save(); g.filter = "grayscale(" + (FG.stone / 4) + ")"; g.drawImage(c, Math.round(FG.x) - 16 - ox, Math.round(FG.y) - 31 - oy); g.restore(); } else g.drawImage(c, Math.round(FG.x) - 16 - ox, Math.round(FG.y) - 31 - oy); }
+    else if (FG.who === "knight") { shadowAt(FG.x, FG.y, 6); g.drawImage(knightSprite(FG.facing, FG.anim, FG.i), Math.round(FG.x) - 16 - ox, Math.round(FG.y) - 31 - oy); }
+    else if (FG.who === "pawn") {
+      let dx = 0; if (map.wobble && map.wobble.area === FG.area && !reduce) { const k = t - map.wobble.t0; if (k < 0.6) dx = Math.round(Math.sin(k * 26) * (1 - k / 0.6) * 2); else map.wobble = null; }
+      const P = pawnC(), sink = FG.sink || 0; shadowAt(FG.x, FG.y, 5);
+      if (sink > 0) { const h = Math.max(0, Math.round(P.c.height * (1 - sink))); if (h > 0) g.drawImage(P.c, 0, 0, P.c.width, h, FG.x - P.ox - ox + dx, FG.y - P.oy - oy + (P.c.height - h), P.c.width, h); }
+      else g.drawImage(P.c, FG.x - P.ox - ox + dx, FG.y - P.oy - oy);
+    }
+    else if (FG.who === "shade") { const s = shadeC(FG.shade, FG.i); shadowAt(FG.x, FG.y, 8); g.drawImage(s.c, FG.x - s.ox - ox, FG.y - s.oy - oy); }
+  }
+  window.addEventListener("keydown", e => {
+    if (state.room !== "map" || e.defaultPrevented || e.key !== "Escape") return;
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (plaqueOpen() || plankOpen() || !$("setPlank").hidden) return;
+    e.preventDefault();
+    if (map.legend) closeLegend(); else if (map.plate && !(lessonOn("mapView") || {}).goOnly) closePlate(); else leaveMap();
+  });
 
   // ------------------------------------------------------------------ the bench
   function renderInfo() {
@@ -1779,8 +2544,9 @@
     profile = Progress.newProfile(svc.player || "isaac"); profile.coins = 120;
     gry.mem = GRY ? GRY.memory(null) : null;
     for (const t of window.FORGE_THINGS) if (t.kind !== "weapon" && storeOf(t) !== "Trophies") gain(t.id, 3);
+    folk.mem = FK ? FK.memory(null) : null;
     state.a = null; state.b = null; state.ma = null; state.mb = null;
-    closePlaque(); closeArmory(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); save();
+    closePlaque(); if (state.room !== "forge") enter("forge"); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); save();
     openFirstWeapon();
   }
   async function grant(levels, embers) {
@@ -1884,7 +2650,8 @@
       for (const t of world.values()) if ((t.discovery || {}).first === player && !own.has(t.id)) gain(t.id);   // your own firsts are yours
       for (const c of profile.classes) { const t = classWeapon(c); if (t && !own.has(t.id)) gain(t.id); }
       state.a = null; state.b = null; state.ma = null; state.mb = null;
-      closePlaque(); closeArmory(); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo();
+      folk.mem = FK ? Object.assign(FK.memory(null), { nell: { met: true, at: null, n: {} }, vorn: { met: true, at: null, n: {} } }) : null;
+      closePlaque(); if (state.room !== "forge") enter("forge"); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo();
       if (!profile.classes.length) openFirstWeapon();
       takeLoadoutBack();
       const ran = await takeRunBack();   // (a level's run for this smith, paid or banked by the service once)
@@ -1906,7 +2673,7 @@
     if (!settings) { toast("Settings didn't load"); return false; }
     owed.hold = true;   // (build 12) a level-up owed after the plaque waits for Settings to close, so its racks never open under it
     if (!lessonOn("pinned")) closePlaque();   // (build 8: the lessons' plaque stays under Settings, so the step is not lost)
-    gryHush();
+    gryHush(); closeFolk();
     settings.closeErase(); settings.render();
     $("setPlank").hidden = false; $("setBtn").setAttribute("aria-pressed", "true");
     if (atBench && $("bench")) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
@@ -1966,6 +2733,7 @@
     profile.found = Array.from(own.keys()); profile.picks = Progress.picksLeft(profile);
     session.equipped = (S.equipped || ["sword"]).filter(x => own.has(x)); session.active = 0;
     gry.mem = GRY ? Object.assign(GRY.memory(null), { met: true, greetAt: nowIso() }) : null;
+    folk.mem = FK ? FK.memory(null) : null;
     const base = S.base || "sword";
     state.a = own.has(base) ? base : null; state.b = null; state.ma = null; state.mb = null;
     save();
@@ -1975,6 +2743,7 @@
   function returningSmith() {
     profile = Progress.newProfile("isaac");
     gry.mem = GRY ? GRY.memory(null) : null;
+    folk.mem = FK ? FK.memory(null) : null;
     profile.xp = Progress.xpForLevel(12); profile.level = 12; profile.coins = 312; profile.embers = 0;
     profile.classes = ["sword", "bow", "axe", "staff", "hammer"];
     own.clear(); seq = 0;
@@ -1986,15 +2755,38 @@
     profile.found = Array.from(own.keys());
     profile.picks = Progress.picksLeft(profile);
   }
-  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, closePlaque, openUnlock, confirmFirst, localForge, renderAll, toasts: [], rises: [], toast, levelLine, xpRise, hold: startHold, release: endHold, World,
+  window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, armoryOut, openBay, openFolk, closeFolk, folkOpen, closePlaque, confirmFirst, localForge, renderAll, toasts: [], rises: [], toast, levelLine, xpRise, hold: startHold, release: endHold, World,
     save, load, goDown, writeHandoff, takeLoadoutBack, takeRunBack, lastRun: null, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
+    // (build 17) the castle: the rooms and the two new ones (the harness steps the yard through yard.step)
+    enter, get roomName() { return state.room; }, ROOMS, hasYard, hasMap, noyard, toGame, popMap, get mapPushed() { return map.pushed; }, saveYardMark, histState,
+    yard: { get Y() { return yard.Y; }, get kn() { return yard.kn; }, get cam() { return yard.cam; }, get L() { return yard.L; }, get zone() { return yard.zone; }, get prompt() { return yard.promptText; }, get bakeMs() { return yard.bakeMs; }, get ground() { return yard.ground.length; }, get t() { return yard.t; }, get fx() { return yard.fx; },
+      step(ms) { const n = Math.max(1, Math.round(ms / 1000 * 60)); for (let i = 0; i < n; i++) yardTick(1 / 60); if (yard.L) yardPaint(yard.t); syncYardPrompt(); return n; },
+      keys(o) { yard.keys = Object.assign({}, o || {}); }, goTo(id) { return yard.kn && yard.Y ? yard.Y.goTo(yard.kn, id) : false; }, use: yardUseHere, tap: yardTap, fit: fitYard, wish: yardWish,
+      stick(cx, cy, dx, dy) { return yard.stick ? yard.stick.hold(cx, cy, dx, dy) : [0, 0]; }, up() { if (yard.stick) yard.stick.up(); }, paused: yardPaused },
+    map: { get M() { return map.M; }, get L() { return map.L; }, get plate() { return map.plate; }, get legend() { return map.legend; }, get trip() { return map.trip; }, get going() { return map.going; }, get reveal() { return map.reveal; }, get t() { return map.t; }, get pushed() { return map.pushed; },
+      tap: tapArea, go: goLevel, closePlate, closeLegend, leave: leaveMap, fit: fitMap, states: areaStates, cleared: clearedNow, tapAt: mapTapAt, paint() { mapPaint(map.t); }, step(ms) { map.t += ms / 1000; mapPaint(map.t); } },
+    openFolk, closeFolk, folkOpen, get folk() { return { who: folk.who, mem: folk.mem }; }, wellUse, wellReady, localDate, goToNell, renderPegs, handsNow, setHands, coinRise,
     openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
     showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine,
     grycus: { get pose() { return gry.pose; }, get line() { return gry.line; }, get mem() { return gry.mem; }, get pending() { return gry.pending; }, get spot() { return gry.spot; }, get seq() { return gry.seq; },
       say: grySay, tap: gryTap, hush: gryHush, figure: gryFigure, place: gryPlace, open: gryOpen, meet: gryMeet, quiet: gryQuiet } };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderArmory(); renderInfo(); }
   // (build 8, design pass 16) what forge-lessons.js reaches besides the above
-  Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, lessons: null });
+  Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, plural, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, lessons: null });
+  // (build 17, design pass 26 section 3.3) where the page opens: ?room= for the checks; else the note in the address (menu, cellar, a
+  // level), read here before nav.js takes it out, so a reload never looks like a new arrival; else the mark of where the page went
+  // (ffWent: the cellar, the road); else the room and spot it last saved (ffYard); else the courtyard at the menu's spot
+  const START = (function startRoom() {
+    const q = params.get("room");
+    if (q && ROOMS[q]) return { room: q, at: q === "yard" ? "menu" : null, how: "query" };
+    if (noyard) return { room: "forge", how: "noyard" };
+    const m = /(?:^#|&)from=(menu|cellar|level|forge)(?=&|$)/.exec(location.hash), st = histState();
+    if (m) return { room: "yard", at: m[1] === "cellar" ? "cellar" : m[1] === "level" ? "road" : "menu", how: "note" };
+    if (st.ffWent === "cellar" || st.ffWent === "road") return { room: "yard", at: st.ffWent, how: "went" };
+    if (st.ffYard && ROOMS[st.ffYard.room]) return { room: st.ffYard.room === "map" ? "yard" : st.ffYard.room, at: st.ffYard.room === "yard" && typeof st.ffYard.x === "number" ? { x: st.ffYard.x, y: st.ffYard.y, face: st.ffYard.face } : st.ffYard.room === "map" ? "table" : null, how: "mark" };
+    return { room: "yard", at: "menu", how: "fresh" };
+  })();
+  window.TheForge.start = START;
   if (window.Nav) Nav.arrive("forge");
   lockLandscape();
   // the pour assist follows the shared Tap to pour switch; a save from before it (assist: true) sets the switch once
@@ -2038,7 +2830,8 @@
     {
       let n = ran ? 1 : 0;
       const moved = !!session.backPay && session.levelSaved !== null && profile.level > session.levelSaved;
-      if (session.backPay) {
+      // (forge rules 3) weapons whose form was put back on load are saved now too, so the repair goes online with the save
+      if (session.backPay || session.formsRepaired > 0) {
         save();
         if (session.backPay.xp > 0) { const line = backPayLine(session.backPay); if (n) setTimeout(() => toast(line), n * AFTER_HOME_MS); else toast(line); n++; }
       }
@@ -2048,7 +2841,16 @@
     if (session.loadFailed) toast("Your game could not be opened just now. Close the game and open it again.");
     if (!profile.classes.length) openFirstWeapon();
     lessonOn("boot", { fromCellar: bootFromCellar, fresh: bootFresh });   // (build 8) the lessons start or resume, with what their step needs
-  })().then(left => { if (left === "left") return; session.booted = true; fitRoom(); gryOpen(bootFromCellar); if (params.get("room") === "armory") openArmory(params.get("page") === "legends" ? "legends" : "armory"); if (params.get("bench") === "1" && benchOk()) openSettings(true); if (benchGated) Cloud.onNote(toast); document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length)); });
+  })().then(left => {
+    if (left === "left") return;
+    session.booted = true; fitRoom();
+    // (build 17) the room the page opens in, unless the lessons chose one as they resumed; the mark of where the page went is spent
+    if (!session.roomSet) enter(START.room, { at: START.at, page: params.get("page") === "legends" ? "legends" : "armory", noPush: true, cut: true });
+    clearWent();
+    gryOpen(bootFromCellar);
+    if (params.get("bench") === "1" && benchOk()) openSettings(true); if (benchGated) Cloud.onNote(toast);
+    document.body.setAttribute("data-booted", "1"); document.body.setAttribute("data-errors", String((window.__errors || []).length));
+  });
   // the back gesture restores the page as it was left, without booting it: the loadout is taken then too, and a plaque that was left
   // open says what is equipped now. After an erase, or a change of less motion, elsewhere, the page boots again instead
   window.addEventListener("pageshow", async e => {
@@ -2058,6 +2860,8 @@
     if (window.Settings) { session.assistTap = Settings.isOn("pour"); turn.forced = Settings.isOn("forced"); }
     lockLandscape(); fitTurn();
     const took = takeLoadoutBack(), ran = await takeRunBack();
+    // (build 17) back from the cellar or a level by the back gesture: the courtyard at the top of the stairs, or walking in through the gate
+    { const st = histState(); if ((st.ffWent === "cellar" || st.ffWent === "road") && !noyard) { enter("yard", { at: st.ffWent, cut: true }); clearWent(); } }
     lessonOn("shown", { fromCellar: took });   // (build 8) the lessons as the other pages left them (the cellar moves them on)
     if (!took && !ran) return;
     renderAll();

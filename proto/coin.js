@@ -1,5 +1,7 @@
 // coin.js: coin, XP and Legend Embers from a run, and the Trader's Cart (design pass 5 section 3.10), mirrored from tools/rules.py.
 // Pure functions; the caller moves the coins and the stock. window.Coin in the page, module.exports in node.
+// Since build 17 (design pass 24 sections 4.8 and 4.9) also Vorn's weapon classes, on the house while levels have earned them and
+// for coins after that (classPrice, arm), and the well's daily coins (daily); their numbers are spec/shop.json's `classes` and `daily`.
 (function (root) {
   "use strict";
   // Legend Embers (design pass 10, revision 1) come only from what the run found (spec/drops.json): `ember` is how many are sure (a
@@ -42,6 +44,39 @@
     if (profile.coins < cost) return [false, cost, "Earn coins in the Battlegrounds"];
     return [true, cost, null];
   }
+  // Vorn's wares (design pass 24 section 4.8, build 17): shop.classes names the first class, which is never sold, and three groups of
+  // the others, each group with one price. classPrice is the coins of a class's group, or null for the first class and for what is
+  // not a class. arm says how a class would be taken up, by the first of these that holds: it is not a class of the shop's; it is
+  // already held; it is on the house while a free pick is left (Progress.picksLeft: a free pick is always used before coins, for the
+  // first class too); it is not for sale (the first class, with no pick left); the coins are too few (`cost` is the price); else it
+  // is bought for its price. { ok, free, cost }, with `reason` when not ok. Pure: the caller adds the class to profile.classes and,
+  // when it was not free, takes `cost` from profile.coins and adds the class to profile.bought. A shop from before build 17 has no
+  // `classes`, and then nothing is a class
+  const ARM_LINES = { unknown: "Not a weapon class", held: "That class is already yours", unsold: "Not for sale", poor: "Too few coins" };
+  function classPrice(cls, shop) { for (const g of ((shop.classes || {}).groups || [])) if (g.classes.includes(cls)) return g.coins; return null; }
+  function arm(cls, shop, profile) {
+    const coins = classPrice(cls, shop), no = (reason, cost) => ({ ok: false, free: false, cost, reason });
+    if (typeof cls !== "string" || (coins === null && cls !== (shop.classes || {}).first)) return no(ARM_LINES.unknown, 0);
+    if (profile.classes.includes(cls)) return no(ARM_LINES.held, 0);
+    if (progress().picksLeft(profile) > 0) return { ok: true, free: true, cost: 0 };
+    if (coins === null) return no(ARM_LINES.unsold, 0);
+    if ((profile.coins | 0) < coins) return no(ARM_LINES.poor, coins);
+    return { ok: true, free: false, cost: coins };
+  }
+  // the well (design pass 24 section 4.9, build 17; when it pays again is design pass 26 section 3.2 row 7): shop.daily.coins once a
+  // calendar day. `today` is the caller's local date as "YYYY-MM-DD", the phone's calendar day; anything else is no date. It pays
+  // when the save has no date of a last claim (profile.daily.last), or when today is later than it: so once a date, a missed day
+  // does not stack, and a clock turned back pays nothing. Two dates of this form compare as plain strings, and a `last` that is not
+  // one counts as none. { ok, coins }, with `reason` when not ok. Pure: the caller adds the coins and writes profile.daily =
+  // { last: today }. A shop from before build 17 has no `daily`, and then there is nothing to draw
+  const DAILY_LINES = { date: "No date", claimed: "Back tomorrow" };
+  const DATE = /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, isDate = s => typeof s === "string" && DATE.test(s);
+  function daily(profile, today, shop) {
+    const last = (profile.daily || {}).last, coins = (shop.daily || {}).coins | 0;
+    if (!isDate(today)) return { ok: false, coins: 0, reason: DAILY_LINES.date };
+    if (coins <= 0 || (isDate(last) && today <= last)) return { ok: false, coins: 0, reason: DAILY_LINES.claimed };
+    return { ok: true, coins };
+  }
   // the Battlegrounds' drops (design pass 12 section 3.11): a table by kind (a troll's, else a hut's, else a chest's; null for what
   // drops nothing), fair share's multiplier on one knight's chance (a source that grows with the party is divided by its total's
   // count ratio, scaled / solo, and times fairShare.bonus in a party of humans; the undivided sources pay as solo), and one knight's
@@ -57,7 +92,7 @@
   }
   function pickDrop(pick, u) { const items = Object.entries(pick); let x = u * items.reduce((s, [, w]) => s + w, 0); for (const [id, w] of items) { if (x < w) return id; x -= w; } return items[items.length - 1][0]; }
   function rollDrop(entry, rand, factor) { const f = factor === undefined ? 1 : factor, out = []; for (const r of dropRolls(entry)) if (rand() < Math.min(1, r.chance * f)) out.push(pickDrop(r.pick, rand())); return out; }
-  const api = { runPay, price, buy, EMBER_NOT_SOLD, dropEntry, dropRolls, dropFactor, pickDrop, rollDrop };
+  const api = { runPay, price, buy, EMBER_NOT_SOLD, classPrice, arm, ARM_LINES, daily, DAILY_LINES, dropEntry, dropRolls, dropFactor, pickDrop, rollDrop };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Coin = api;
 })(typeof window !== "undefined" ? window : globalThis);

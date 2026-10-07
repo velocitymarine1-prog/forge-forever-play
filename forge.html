@@ -22,7 +22,12 @@
    Armory's on the right; with the walls open it keeps its height and is cut to the station.
    Since build 5 (design pass 15, card t70) the Armory is a room of its own (.app.in-armory: the hall of shelves in place of the smithy,
    the door at its left end back to the Forge), a plaque is a static card (three columns, nothing scrolls: the script fits it), and
-   the forging's hammer floats without an arm. */
+   the forging's hammer floats without an arm.
+   Since build 17 (design passes 24 and 25, settled by pass 26) the page is the castle: four rooms under one sign. The Courtyard
+   (.app.in-yard: a walked yard at the cellar's scale, the stick on the left half, the prompt over the knight, tap to go), the Forge
+   (its left door out to the yard, its right wall the Rack of the two hands), the Armory, and the Map Table (.app.in-map: the map of
+   the realm on its table, the names as buttons over the canvas, the area's plate and the legend's). Nell's, Vorn's and the Rack's
+   lists share one oak plank (#folkPlank). The sign's one plate is ← Courtyard, in the Map Table only. */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;--shelf:#241a2a;
   --parch:#ead4aa;--parch-2:#e4a672;--mute:#b3a48c;--dim:#8a7d6e;--ember:#f77622;--brass:#feae34;--hot:#fee761;--blood:#e43b44;--ice:#2ce8f5;--gold:#feae34;--gold-d:#be4a2f;
   --ink:#3e2731;--ink2:#733e39;--ink3:#a22633;--clay:#b86f50;
@@ -57,7 +62,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .app{position:relative;width:100%;height:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"sign" "room"}
 .app:not(.open) .wallspane{display:none}
 .app.open{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
-/* the sign, one row: the way home, the room's name, the title, the chips, the way to the other room (ARMORY, or FORGE from the Armory), the cog */
+/* the sign, one row: the way home, the room's name, the title, the chips, ← Courtyard (in the Map Table only; the slot is the old ARMORY button's), the cog */
 .sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips armory cog";align-items:center;column-gap:8px;padding:6px 8px;background:var(--oak-d);border-bottom:3px solid var(--soot)}
 .sign .home{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:none;cursor:pointer}
 .sign .home canvas{width:16px;height:16px}
@@ -110,12 +115,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .stationbar button.dim{color:var(--dim)}
 .stationbar button.dim small{font-family:var(--data);font-size:9px;margin-left:3px}
 /* the two doors (design pass 14): buttons laid over the doors' own pixels (the script places them from the scene, in % of the lens),
-   each under an oak plate: the cellar's on the left, down; the Armory's on the right, through. With the walls open the room shows only
-   the station, and the doors are off it */
+   each under an oak plate. Since build 17 (design pass 24 section 4.10) the left door goes out to the courtyard and the right wall is
+   the Rack (#rackDoor, its plate RACK; the two hands hang on its pegs, drawn on #pegs over the room's canvas). With the walls open the
+   room shows only the station, and the doors are off it. #cellarDoor and #armoryDoor stay as hidden stubs for the script of the build
+   before, which reaches for them at load */
 .door{position:absolute;padding:0;border:0;background:none;cursor:pointer;display:flex;align-items:flex-start;justify-content:center;z-index:1}
 .doorplate{font-family:var(--data);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;padding:2px 7px;background:var(--oak);border:2px solid var(--oak-l);color:var(--hot);transform:translateY(calc(-100% - 3px))}
 .doorplate.pulse{animation:pulse 1.4s steps(3) infinite}
-.app.open .door{visibility:hidden}
+.app.open .door,.app.open #pegs,.room.seq #pegs{visibility:hidden}
+#pegs{position:absolute;pointer-events:none;z-index:1}
 /* Grycus, the smith (design pass 17, build 6): a button over his pixels (above the cellar door's where they meet in the narrowest
    rooms), and his words in a parchment bubble above his head, its tail on his crown; neither with the walls open, nor while forging or
    pouring */
@@ -348,22 +356,24 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .hc{width:calc(var(--s)*var(--cw)*1px);height:calc(var(--s)*112px);pointer-events:none}
 .track .door{width:calc(var(--s)*var(--dw)*1px);height:calc(var(--s)*var(--dh)*1px)}
 /* a weapon on its shelf: a button the size of its cell holding the sprite at the room's scale; ★ for a first of the smith's own, ×n
-   when more than one is held; one no longer held stands greyed */
+   when more than one is held (since 2026-10-07 only weapons held stand here: nothing is greyed) */
 .aw{width:calc(var(--s)*36px);height:calc(var(--s)*36px);padding:0;border:0;background:none;cursor:pointer;color:var(--parch)}
 .aw canvas{position:absolute;left:calc(var(--s)*2px);top:0;width:calc(var(--s)*33px);height:calc(var(--s)*33px)}
 .aw:focus-visible{outline-offset:-3px}
 @media (hover:hover){.aw:hover canvas{filter:brightness(1.3) drop-shadow(0 0 3px var(--hot))}}
-.aw.gone canvas{filter:grayscale(.85) brightness(.55)}
 .aw .st{position:absolute;left:calc(var(--s)*2px);top:0;font-family:var(--data);font-size:11px;line-height:1;color:var(--hot);text-shadow:1px 1px 0 var(--soot),-1px 0 0 var(--soot),0 -1px 0 var(--soot)}
 .aw .x{position:absolute;right:calc(var(--s)*2px);top:0;font-family:var(--data);font-size:10px;line-height:1.2;color:var(--soot);background:var(--brass);padding:0 3px}
-/* the plates: a class and its count on the floor before its bay; a legend's name and lines under its case; a note on the bare wall */
+/* the plates: a class and its count on the floor before its bay, a button that opens the whole class (+N when the shelves show
+   only the rarest six); a legend's name and lines under its case; a note on the bare wall */
 .bayfoot{width:calc(var(--s)*var(--bw)*1px);display:flex;justify-content:center;pointer-events:none}
-.bayplate{position:sticky;left:46px;right:46px;display:flex;gap:6px;align-items:baseline;white-space:nowrap;padding:2px 7px;background:var(--oak);border:2px solid var(--oak-l);font-family:var(--data);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--hot)}
+.bayplate{position:sticky;left:46px;right:46px;display:flex;gap:6px;align-items:baseline;white-space:nowrap;padding:2px 7px;background:var(--oak);border:2px solid var(--oak-l);border-radius:0;font-family:var(--data);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--hot);pointer-events:auto;cursor:pointer;appearance:none;-webkit-appearance:none;line-height:1.3}
 .bayplate span{color:var(--parch)}
+.bayplate .more{font-style:normal;color:var(--soot);background:var(--brass);padding:0 4px;margin-left:2px}
+.bayplate:focus-visible{outline:2px solid var(--hot);outline-offset:1px}
+@media (hover:hover){.bayplate:hover{border-color:var(--hot)}}
 .legcap{transform:translateX(-50%);width:calc(var(--s)*68px);display:flex;flex-direction:column;align-items:center;text-align:center;pointer-events:none}
 .legcap b{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--display);font-weight:700;font-size:16px;line-height:1.1;color:var(--hot);text-shadow:0 2px 0 var(--soot)}
 .legcap span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--data);font-size:9.5px;letter-spacing:.04em;line-height:1.3;color:var(--parch);text-shadow:1px 1px 0 var(--soot)}
-.legcap.gone b{color:var(--dim)}
 .wallnote{white-space:nowrap;padding:3px 9px;background:var(--stone);border:2px solid var(--stone-2);font-family:var(--data);font-size:11px;letter-spacing:.04em;color:var(--mute);pointer-events:none}
 .armnav{position:absolute;bottom:5px;z-index:2;width:38px;height:44px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:20px;line-height:1;color:var(--parch)}
 .armnav.prev{left:4px}
@@ -371,6 +381,101 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .app>.veil{grid-area:room;grid-column:1/-1;z-index:3;background:var(--soot);opacity:0;pointer-events:none}
 .app.walk>.veil{animation:walk .32s steps(4,end) 1}
 @keyframes walk{0%{opacity:1}100%{opacity:0}}
+/* the Courtyard (design pass 24, build 17): a room of its own in the Armory's pattern. The pane fills the app under the sign on
+   stone; the canvas is the view in world pixels at the cellar's scale (the script sizes it, a whole number of device pixels to a
+   world pixel), centred when the pane is bigger than the yard; the prompt floats over the knight; the stick floats to where the
+   thumb lands in the left half (the right with Left-handed); the lessons' ring, arrow and chevron are drawn on the canvas */
+.yardpane{grid-area:room;grid-column:1/-1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0;overflow:hidden;background:var(--stone)}
+.app:not(.in-yard) .yardpane,.app.in-yard .roompane,.app.in-yard .wallspane,.app.in-yard .armpane{display:none}
+#yard{display:block;background:var(--soot)}
+.yprompt{position:absolute;height:30px;padding:0 8px;display:flex;align-items:center;transform:translate(-50%,-100%);cursor:pointer;background-color:transparent;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--hot);white-space:nowrap;z-index:3}
+#yardZone{position:absolute;left:0;top:0;bottom:0;width:50%;touch-action:none;z-index:2}
+.app.lefty #yardZone{left:auto;right:0}
+.ystick{position:absolute;width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;border:2px solid rgba(234,212,170,.35);background:rgba(24,20,37,.35);pointer-events:none!important;z-index:2}
+.ystick i{position:absolute;left:50%;top:50%;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(234,212,170,.55);border:2px solid rgba(24,20,37,.6)}
+.ystick.rest{left:66px;bottom:66px;top:auto;margin:0 0 -44px -44px;opacity:.45}
+.app.lefty .ystick.rest{left:auto;right:22px}
+/* the yard's own notes: "+50" rising into the coin chip as "+N XP" does, and the "!" over Vorn is drawn on the canvas */
+#chipCoins{position:relative}
+.coinrise{position:absolute;left:50%;top:100%;margin-top:2px;transform:translate(-50%,0);z-index:9;white-space:nowrap;font-family:var(--data);font-weight:600;font-size:14px;line-height:1;color:var(--hot);pointer-events:none;opacity:0;
+  text-shadow:1px 0 0 var(--soot),-1px 0 0 var(--soot),0 1px 0 var(--soot),0 -1px 0 var(--soot),1px 1px 0 var(--soot),-1px 1px 0 var(--soot),1px -1px 0 var(--soot),-1px -1px 0 var(--soot)}
+.coinrise.go,.coinrise.hold{opacity:1}
+.coinrise.go{animation:xprise .9s steps(6) forwards,xpfade .9s linear forwards}
+/* the Map Table (design pass 25, build 17): the table from above with the map in its middle at the largest whole scale that fits it
+   under the sign; the names are buttons over the canvas (Grenze Gotisch in dark ink with a parchment halo); the area's plate and
+   the legend's are oak planks at a side; Go's soot curtain */
+.mappane{grid-area:room;grid-column:1/-1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0;overflow:hidden;background:#2a1d28}
+.app:not(.in-map) .mappane,.app.in-map .roompane,.app.in-map .wallspane,.app.in-map .armpane{display:none}
+#map{display:block}
+#mapLabels{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.place{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;font-family:var(--display);font-weight:800;font-size:16px;line-height:1;color:#2a1d28;background:none;border:0;padding:3px 5px;white-space:nowrap;text-align:center;cursor:pointer;
+  text-shadow:0 0 3px #ead4aa,0 0 3px #ead4aa,1px 1px 0 #ead4aa,-1px -1px 0 #ead4aa,1px -1px 0 #ead4aa,-1px 1px 0 #ead4aa}
+.place .tag{display:block;margin-top:2px;font-family:var(--data);font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#a22633}
+.place.soon{color:#5a4a4a;font-size:14px}
+.place.soon .tag{color:#733e39;letter-spacing:.1em}
+.place.home{font-size:13px;color:#3e2731}
+.place.won .tag{color:#265c42}
+.place.dim,.legendhit.dim{opacity:.35;pointer-events:none}
+.legendhit{position:absolute;pointer-events:auto;background:none;border:0;padding:0;cursor:pointer}
+.legendhit:focus-visible,.place:focus-visible{outline:2px solid var(--hot);outline-offset:1px}
+.mapplate{position:absolute;top:8px;width:318px;max-width:calc(50% - 12px);max-height:calc(100% - 16px);overflow:auto;z-index:5;color:var(--parch);animation:rise .3s steps(4,end)}
+.mapplate.right{right:10px}.mapplate.left{left:10px}
+.mapplate.key{width:440px;max-width:calc(100% - 20px)}
+.mapplate h5{font-family:var(--display);font-weight:800;font-size:25px;line-height:1;margin:0 26px 0 0;text-align:center;color:var(--parch)}
+.mapplate .line{font-size:12.5px;line-height:1.25;color:#d9cdb8;margin:2px 0 6px;text-align:center}
+.mapplate .lv{display:flex;flex-direction:column;gap:3px}
+.mapplate .lv button{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:6px;align-items:center;padding:2px 7px;min-height:26px;font-family:var(--data);font-size:12px;border:2px solid #3a3448;background:#231c2e;text-align:left;color:var(--parch);cursor:pointer}
+.mapplate .lv button .nm{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mapplate .lv button .st{font-size:10.5px;color:var(--mute);white-space:nowrap}
+.mapplate .lv button .nm .st{font-weight:400}
+.mapplate .lv button.cleared .st{color:#63c74d}
+.mapplate .lv button[aria-pressed="true"]{border-color:var(--brass);background:#3e2731;color:var(--hot)}
+.mapplate .lv button[disabled]{opacity:.5;cursor:default}
+.mapplate .alone{width:100%;min-height:32px;margin-top:6px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--soot)}
+.mapplate .party{display:grid;grid-template-columns:auto repeat(3,minmax(0,1fr));gap:5px;align-items:center;margin-top:5px}
+.mapplate .party .small{font-family:var(--data);font-size:11px;letter-spacing:.03em;color:var(--brass);margin:0 2px 0 0;white-space:nowrap}
+.mapplate .party button{min-height:30px;background:none;cursor:pointer;font-family:var(--display);font-weight:700;font-size:16px;color:var(--parch)}
+.mapplate .party button[aria-pressed="true"],.mapplate .alone[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
+.mapplate .x{position:absolute;right:-6px;top:-6px;width:30px;height:28px;padding:0;font-size:15px;line-height:1;color:var(--parch);background:#231c2e;border:2px solid #3a3448;cursor:pointer}
+.mapplate .keys{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.mapplate .keys>div{display:grid;grid-template-columns:36px 78px minmax(0,1fr);gap:8px;align-items:center;min-height:25px;padding:2px 7px;border:2px solid #3a3448;background:#231c2e;font-size:12.5px;line-height:1.2;color:#d9cdb8}
+.mapplate .keys canvas{width:33px;height:15px;background:#ead4aa;outline:1px solid #3e2731}
+.mapplate .keys b{font-family:var(--display);font-weight:700;font-size:15px;color:var(--parch);white-space:nowrap}
+.mapplate .keys .pips{font-family:var(--data);font-size:13px;color:#f6757a;letter-spacing:.12em;text-align:center}
+.mapplate button.off{opacity:.35;pointer-events:none}
+.mapcurtain{position:absolute;inset:0;background:#120e1a;opacity:0;pointer-events:none;transition:opacity .3s steps(4,end);z-index:8}
+.mapcurtain.on{opacity:1;pointer-events:auto}
+.still .mapcurtain{transition:none}
+/* the folk's plank (Nell's cart, Vorn's weapons, the Rack): one oak plank; a head with a face or a crest, a title, a line and the
+   coins; a bar; a list of rows (the cart's rows, on oak) */
+.folk{left:12%;right:12%;top:52px;bottom:8px;display:flex;flex-direction:column;color:var(--parch)}
+.folk .fhead{display:flex;gap:10px;align-items:flex-start;padding-bottom:6px;border-bottom:2px solid var(--oak-l);flex:none}
+.folk .fhead canvas{width:48px;height:48px;flex:none;background:#2a1d28;border:2px solid #3e2731;box-shadow:0 0 0 2px var(--soot)}
+.folk .fwho{font-family:var(--data);font-size:11px;letter-spacing:.12em;color:var(--brass);font-weight:600}
+.folk .fsays{font-size:15px;line-height:1.3;margin-top:2px;color:var(--parch)}
+.folk .fsays.red{color:#f6757a}
+.folk .fx{margin-left:auto;flex:none;width:34px;height:34px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:16px;color:var(--parch)}
+.folk .fbar{display:flex;gap:10px;align-items:center;font-family:var(--data);font-size:11.5px;letter-spacing:.03em;margin:6px 0;color:var(--mute);flex:none;flex-wrap:wrap}
+.folk .fbar b{color:var(--hot);font-weight:600}
+.folk .fbar .free{color:#63c74d}
+.folk .fbar .bulk{margin-left:auto;height:28px;padding:0 6px;background:none;cursor:pointer;font-family:var(--data);font-size:11px;color:var(--parch)}
+.folk .fbar .bulk[aria-pressed="true"]{color:var(--hot)}
+.folk .flist{flex:1;min-height:0;overflow:auto;background:var(--shelf);border:3px solid var(--soot);padding:4px 6px}
+.folk .flist .grp{font-family:var(--data);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--brass);margin:8px 2px 2px}
+.folk .flist .cartrow .tag.free{background:#63c74d;border-color:#265c42;color:var(--soot)}
+.folk .flist .cartrow .tag.own{background:transparent;border-color:var(--stone-2);color:var(--mute)}
+.folk .flist .cartrow.lit{animation:newrack 1s steps(5) 3}
+.folk .flist .cartrow[disabled]{opacity:.6;cursor:default}
+.folk .flist .cartrow.chained canvas{filter:grayscale(1) brightness(.6)}
+/* the Rack's two hands: two big slots over the list, the one in front marked */
+.folk .hands{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;margin:6px 0;flex:none}
+.folk .hand{display:flex;align-items:center;gap:8px;min-height:62px;padding:4px 8px;background:none;text-align:left;color:var(--parch);cursor:pointer}
+.folk .hand canvas{width:50px;height:50px;flex:none}
+.folk .hand b{display:block;font-family:var(--display);font-weight:700;font-size:16px;line-height:1.05;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folk .hand span{display:block;font-family:var(--data);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--brass)}
+.folk .hand.front{border-image-source:var(--frame-plank)}
+.folk .hand.empty b{color:var(--dim)}
+.folk .swaphands{height:40px;padding:0 10px;background:none;cursor:pointer;font-family:var(--data);font-size:12px;color:var(--parch)}
 /* Settings: the four switches (settings.js), Erase, and under Developer the bench that used to sit beside the phone */
 .setplank{left:8px;right:8px;top:52px;bottom:8px;overflow:auto;color:var(--parch)}
 .setplank h3{color:var(--parch)}
@@ -416,7 +521,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="e3ae8a9" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="1a6fac6" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -427,16 +532,19 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
         <button class="chip first" id="chipFirsts" aria-label="0 weapons you forged first in the world"><i class="s">★</i><span id="firsts">0</span></button>
         <button class="chip ember" id="chipEmbers" hidden title="Legend Embers"><i class="e">✦</i><span id="embers">0</span></button>
       </div>
-      <button class="f-iron" id="armoryBtn" aria-pressed="false" aria-label="Into the Armory">ARMORY</button>
+      <button class="f-iron" id="armoryBtn" hidden aria-label="Back to the courtyard">← Courtyard</button>
       <button class="f-iron home" id="setBtn" aria-label="Settings" title="Settings" aria-pressed="false"><canvas data-glyph="cog" aria-hidden="true"></canvas></button>
     </div>
     <div class="roompane" id="roompane">
       <div class="room" id="room">
         <div class="lens" id="lens">
-          <canvas id="scene" aria-label="The smithy: the hearth with its fire, the anvil, the door down to the cellar on the left and the door to the Armory on the right"></canvas>
+          <canvas id="scene" aria-label="The smithy: the hearth with its fire, the anvil, the door out to the courtyard on the left and the rack of your two weapons on the right"></canvas>
           <canvas id="forgeFx" width="232" height="112" aria-hidden="true"></canvas>
-          <button class="door" id="cellarDoor" aria-label="Go down to the Training Cellar with your weapons"><span class="doorplate pulse">↓ Cellar</span></button>
-          <button class="door" id="armoryDoor" aria-label="Into the Armory: every weapon you have, shelf by shelf"><span class="doorplate">Armory →</span></button>
+          <canvas id="pegs" width="48" height="40" aria-hidden="true"></canvas>
+          <button class="door" id="outDoor" aria-label="Out to the courtyard"><span class="doorplate">← Courtyard</span></button>
+          <button class="door" id="rackDoor" aria-label="The Rack: the two weapons you carry. Tap to change them"><span class="doorplate">Rack</span></button>
+          <button class="door" id="cellarDoor" hidden aria-label="Go down to the Training Cellar with your weapons"><span class="doorplate pulse">↓ Cellar</span></button>
+          <button class="door" id="armoryDoor" hidden aria-label="Into the Armory: every weapon you have, shelf by shelf"><span class="doorplate">Armory →</span></button>
           <button class="npc" id="grycus" hidden aria-label="Grycus, the smith. Talk to him"></button>
           <div class="say" id="grySay" role="status" aria-live="polite" hidden><b>Grycus</b><span id="gryLine"></span></div>
         </div>
@@ -491,6 +599,19 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
       </div>
       <div class="state" id="armState" role="status"></div>
     </div>
+    <div class="yardpane" id="yardpane">
+      <canvas id="yard" width="384" height="216" role="img" aria-label="The Courtyard at dusk: the gate into the wild and the Forge on the top wall, the Armory on the left, the Training Cellar's stairs on the right, the well in the middle, the market along the bottom"></canvas>
+      <button class="yprompt" id="yardPrompt" hidden></button>
+      <div id="yardZone" aria-hidden="true"></div>
+      <div class="ystick rest" id="yardStick" aria-hidden="true"><i id="yardKnob"></i></div>
+    </div>
+    <div class="mappane" id="mappane">
+      <canvas id="map" width="520" height="242" role="img" aria-label="The map of the realm on the table: home in the middle, the Troll Castle on the left, the Frostpeaks, the Dragon's Den, the Usurper's Capital and the Burning Sands"></canvas>
+      <div id="mapLabels"></div>
+      <div class="mapplate f-plank right" id="areaPlate" hidden role="dialog"></div>
+      <div class="mapplate f-plank right key" id="legendPlate" hidden role="dialog" aria-label="The legend"></div>
+      <div class="mapcurtain" id="mapCurtain" aria-hidden="true"></div>
+    </div>
     <div class="veil" aria-hidden="true"></div>
     <div class="flash"></div>
     <div class="plaque f-parch" id="plaque" hidden></div>
@@ -498,6 +619,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <div class="plank-over f-parch" id="termsPlank" hidden role="dialog" aria-label="The Smith's Naming Terms"></div>
     <div class="plank-over f-parch" id="namePlank" hidden role="dialog" aria-label="Name your legend"></div>
     <div class="plank-over f-parch" id="confirmPlank" hidden role="dialog"></div>
+    <div class="plank-over f-plank folk" id="folkPlank" hidden role="dialog"></div>
     <div class="overlay f-parch" id="firstWeapon" hidden role="dialog" aria-label="Choose your first weapon"></div>
     <div class="overlay f-parch" id="unlockPlaque" hidden role="dialog" aria-label="Open new racks"></div>
     <div class="plank-over f-plank setplank" id="setPlank" hidden role="dialog" aria-label="Settings">
@@ -510,7 +632,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <div class="turn" id="turnPlate" hidden role="dialog" aria-label="Turn your phone sideways">
   <canvas id="turnPhone" width="32" height="32" role="img" aria-label="A phone tipping onto its side"></canvas>
   <b>Turn your phone sideways</b>
-  <p>The Forge is played in landscape.</p>
+  <p>The castle is played in landscape.</p>
   <button class="f-ember primary" id="tFull" hidden>Play full screen</button>
   <button class="f-iron" id="tForce">My screen won't turn</button>
   <button class="f-iron" id="tHome"><canvas data-glyph="house" aria-hidden="true"></canvas>Main menu</button>
@@ -546,6 +668,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="spec/grycus.js"></script>
 <script src="spec/lessons.js"></script>
 <script src="spec/xp.js"></script>
+<script src="spec/combat.js"></script>
+<script src="spec/courtyard.js"></script>
+<script src="spec/folk.js"></script>
+<script src="spec/map.js"></script>
 <script src="proto/combiner.js"></script>
 <script src="proto/naming.js"></script>
 <script src="proto/progress.js"></script>
@@ -554,6 +680,13 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="proto/discovery.js"></script>
 <script src="proto/pixel-forge.js"></script>
 <script src="proto/smithy.js"></script>
+<script src="proto/knight.js"></script>
+<script src="proto/trolls.js"></script>
+<script src="proto/physics.js"></script>
+<script src="proto/courtyard.js"></script>
+<script src="proto/folk.js"></script>
+<script src="proto/map-table.js"></script>
+<script src="proto/stick.js"></script>
 <script src="proto/armory.js"></script>
 <script src="proto/forge-fx.js"></script>
 <script src="proto/grycus.js"></script>

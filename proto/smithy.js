@@ -9,6 +9,8 @@
 // Since build 4 (design pass 14) Scene(W, H, { wide: true }) draws the room as wide as the screen's shape (232 to 320 world pixels): the
 // station centred, the cellar's bigger arch, tool rack and coal scuttle on the left wall, the door to the Armory under crossed swords
 // (and a grindstone from W 278) on the right. Without `wide` the 200 x 112 smithy is what it always was, pixel for pixel.
+// Since build 17 (design pass 24 section 4.10) Scene(W, H, { wide: true, yard: true }) is the castle's Forge: the door out to the courtyard on
+// the left wall, the rack of the knight's two hands on the right. Without `yard` the wide room is build 4's, pixel for pixel.
 // Since build 6 (design pass 17) a scene can carry one figure, a sprite drawn over the room and lit by the hearth like it: Grycus, the
 // smith, by the bellows (setFigure; mount's state.figure, a function of the time the page sets, and state.redraw). With no figure the
 // room renders as it always has.
@@ -238,6 +240,72 @@
     return { x0, x1: x0 + 18, y0: cy - R - 1, y1: floorY - 1 };
   }
 
+  // ------------------------------------------------------------------ the castle's Forge (design pass 24 section 4.10, build 17)
+  // Since the Courtyard is the game's hub the wide room's two walls change (Scene(W, H, { wide: true, yard: true })): the left wall is
+  // the door out to the courtyard where the cellar's arch was, the right wall the rack of the knight's two hands where the Armory's
+  // door and its crossed swords were. Both are docs/design/24-forge.sketch.js's own drawing (tools/test-render.js holds them to it).
+  // the door out: an oak frame studded with iron (the Armory door's own), the leaf swung open outward, and through it the yard at dusk:
+  // the sky's last bands over the far wing, its blue stone, a lit window, a lantern, the cobbles; the dusk's cool light a step onto
+  // the smithy's floor
+  // the yard at dusk as a door shows it (the Forge's door out, and the Armory's): the opening is x ix0 to ix1, y iy0 to bot
+  function yardView(p, ix0, ix1, iy0, bot) {
+    const set = (x, y, c, l) => p.set(x, y, c, l), bay = (x, y) => BAYER[(y & 3) * 4 + (x & 3)];
+    for (let y = iy0; y <= bot; y++) for (let x = ix0; x <= ix1; x++) {
+      const v = y - iy0, b = bay(x, y);
+      let c;
+      if (v < 7) { const SKY = ["#68386c", "#b55088", "#f6757a", "#e4a672"], f = v / 2.2, i = Math.min(3, Math.floor(f)); c = b < f - i ? SKY[Math.min(3, i + 1)] : SKY[i]; }   // the sky's last bands
+      else if (v < 9) c = v === 7 ? "#181425" : "#262b44";                                                                                                    // the far wing's roof
+      else if (v < 24) { const row = Math.floor((v - 9) / 4), inR = (v - 9) % 4, bx = (x - ix0 + (row % 2) * 3) % 7; c = inR === 0 ? "#8b9bb4" : bx === 0 ? "#262b44" : "#5a6988"; }   // its stone face in the dusk, blue
+      else { const d = v - 24, row = Math.floor(d / 3), cx = (x - ix0 + row * 2) % 5; c = cx === 0 || d % 3 === 0 ? "#262b44" : d > 9 ? "#5a6988" : "#3a4466"; }        // the cobbles, nearer and lighter
+      set(x, y, c, 0);
+    }
+    // a lit window in the far wing, a lantern on its post in the yard
+    for (let y = iy0 + 12; y <= iy0 + 17; y++) for (let x = ix0 + 5; x <= ix0 + 8; x++) set(x, y, x === ix0 + 5 || y === iy0 + 12 ? OUT : (x + y) % 3 ? "#feae34" : "#fee761", 0);
+    const lx = ix1 - 7; for (let y = iy0 + 15; y <= bot - 3; y++) set(lx, y, "#181425", 0);
+    for (let y = iy0 + 12; y <= iy0 + 15; y++) for (let x = lx - 1; x <= lx + 1; x++) set(x, y, y === iy0 + 12 ? OUT : "#fee761", 0);
+  }
+  function courtyardDoor(p, x0, x1, top, bot, floorY, H) {
+    const set = (x, y, c, l) => p.set(x, y, c, l), bay = (x, y) => BAYER[(y & 3) * 4 + (x & 3)], oak = TONES.oak;
+    const ix0 = x0 + 4, ix1 = x1 - 4, iy0 = top + 5;
+    yardView(p, ix0, ix1, iy0, bot);
+    // the leaf swung open outward, seen at a slant inside the opening's left side
+    for (let x = ix0; x <= ix0 + 4; x++) { const t = x - ix0; for (let y = iy0 + 2 + t; y <= bot - Math.floor(t / 2); y++) set(x, y, x === ix0 + 4 || y === iy0 + 2 + t ? OUT : (y - top) % 16 === 8 ? "#5a6988" : t < 2 ? oak[1] : oak[0], 0); }
+    // the frame: oak jambs and a lintel standing proud of the wall, iron studs (the Armory door's own frame)
+    for (let y = top; y <= bot; y++) for (let x = x0; x <= x1; x++) {
+      if (x >= ix0 && x <= ix1 && y >= iy0) continue;
+      const lintel = y < iy0, edge = x === x0 || x === x1 || y === top;
+      const stud = (lintel && y === top + 2 && (x - x0) % 6 === 3) || (!lintel && (x === x0 + 2 || x === x1 - 1) && (y - iy0) % 7 === 3);
+      set(x, y, edge ? OUT : stud ? "#8b9bb4" : lintel ? (y === top + 1 ? oak[2] : y === iy0 - 1 ? oak[0] : oak[1]) : x === x0 + 1 || x === x1 - 3 ? oak[2] : x === ix0 - 1 || x === x1 - 1 ? oak[0] : oak[1], 1);
+    }
+    for (let x = x0 - 1; x <= x1 + 1; x++) set(x, bot + 1, x === x0 - 1 || x === x1 + 1 ? OUT : "#8b9bb4", 0);
+    // the dusk's cool light a step onto the smithy's floor
+    for (let y = floorY; y < Math.min(H, floorY + 6); y++) for (let x = ix0 - 1; x <= ix1 + 1; x++) { const k = 1 - (y - floorY) / 6 - Math.abs(x + 0.5 - (ix0 + ix1 + 1) / 2) / 24; if (k > 0 && bay(x, y) < k * 0.6) set(x, y, y === floorY ? "#5a6988" : "#3a4466", 0); }
+    return { x0, x1, y0: top, y1: bot, out: "courtyard" };
+  }
+  // the rack of the knight's two hands: an oak board on the wall with a carved crest, two pairs of iron pegs (the page hangs the two
+  // weapons carried over them, their own sprites, the one in front on the left), a brass plate between them, a low bench under it
+  // with a whetstone and a rag. Returns its box and where each hand's weapon hangs (pegs: the middle of each sprite)
+  function handsRack(p, W, floorY) {
+    const set = (x, y, c, l) => p.set(x, y, c, l), oak = TONES.oak;
+    const rx0 = W - 62, rx1 = W - 14, rTop = floorY - 52, rBot = floorY - 12;
+    // the board: oak planks, a carved crest, a soot outline
+    for (let y = rTop; y <= rBot; y++) for (let x = rx0; x <= rx1; x++) {
+      const e = x === rx0 || x === rx1 || y === rTop || y === rBot, plank = (x - rx0) % 8 === 0;
+      set(x, y, e ? OUT : y === rTop + 1 ? oak[3] : y === rTop + 2 ? oak[2] : plank ? oak[0] : y === rBot - 1 ? oak[0] : (x * 7 + y * 3) % 29 === 0 ? TONES.oakKnot : "#5a3030", 1);
+    }
+    for (let x = rx0 + 6; x <= rx1 - 6; x++) { const h = Math.round(3 - Math.abs(x - (rx0 + rx1) / 2) / 8); for (let y = rTop - h; y < rTop; y++) set(x, y, y === rTop - h ? OUT : oak[2], 1); }
+    // the pegs: two pairs of iron pegs, each pair a hand; the page hangs the weapon over them
+    const pegs = [{ x: rx0 + 14, y: rTop + 22 }, { x: rx1 - 13, y: rTop + 20 }];
+    for (const g of pegs) for (const dy of [-9, 9]) { set(g.x - 1, g.y + dy, "#8b9bb4", 1); set(g.x, g.y + dy, "#5a6988", 1); set(g.x + 1, g.y + dy, "#3a4466", 1); set(g.x, g.y + dy + 1, OUT, 1); }
+    // the brass plate between them, a dot for each hand (the one in front lit)
+    for (let y = rBot - 8; y <= rBot - 4; y++) for (let x = Math.round((rx0 + rx1) / 2) - 5; x <= Math.round((rx0 + rx1) / 2) + 5; x++) set(x, y, y === rBot - 8 || y === rBot - 4 || x === Math.round((rx0 + rx1) / 2) - 5 || x === Math.round((rx0 + rx1) / 2) + 5 ? OUT : y === rBot - 7 ? "#fee761" : "#feae34", 1);
+    // a low oak bench under it, a whetstone and a rag on it
+    for (let y = floorY - 7; y <= floorY - 1; y++) for (let x = rx0 - 2; x <= rx1 + 2; x++) { const leg = (x === rx0 + 1 || x === rx1 - 1) && y > floorY - 5; const topRow = y <= floorY - 5; if (!leg && !topRow) continue; set(x, y, x === rx0 - 2 || x === rx1 + 2 || y === floorY - 7 ? OUT : y === floorY - 6 ? oak[3] : topRow ? oak[2] : oak[0], 1); }
+    for (let x = rx0 + 6; x <= rx0 + 13; x++) { set(x, floorY - 9, "#8b9bb4", 1); set(x, floorY - 8, "#5a6988", 1); }
+    for (let x = rx1 - 12; x <= rx1 - 6; x++) set(x, floorY - 8, (x % 2) ? "#ead4aa" : "#c28569", 1);
+    return { x0: rx0, x1: rx1, y0: rTop, y1: rBot, pegs };
+  }
+
   // ------------------------------------------------------------------ the scene
   function Scene(W, H, o) {
     o = o || {};
@@ -277,11 +345,24 @@
       // right wall the Armory's (its door under crossed swords, a grindstone when there is room). Both doors keep their distance from
       // the walls' edges, so a wider screen widens the plain wall between them and the hearth
       this.tools = toolRack(p, 10, 45, 12);
+      this.yard = !!o.yard;
+      if (this.yard) {
+        // design pass 24 section 4.10 (build 17): the castle's Forge. The left wall is the door out to the courtyard, the right wall
+        // the rack of the two hands; the Armory and the cellar are entered from the courtyard
+        this.door = o.door === false ? null : courtyardDoor(p, 10, 45, floorY - 46, floorY - 1, floorY, H);   // (x 10 to 45, the cellar arch's width: Grycus's stand keeps clear of its button at every W)
+        if (cx - 52 - 47 >= 14) this.scuttle = scuttle(p, 50, floorY);
+        this.rack = this.handsRack = handsRack(p, W, floorY);
+        // (the rack and its bench reach 8 px further in than the Armory's door did, so the grindstone needs a room 16 px wider: from W 294.
+        // The sketch kept the old rule and cut the wheel off at the rack; in the narrowest rooms the quench barrel, drawn after, stands
+        // whole in front of the bench's end)
+        if ((W - 66) - (cx + 57) >= 24) this.grind = grindstone(p, cx + 62, floorY);
+      } else {
       this.door = o.door === false ? null : cellarArch(p, 10, 45, floorY - 40, floorY - 1);
       if (cx - 52 - 47 >= 14) this.scuttle = scuttle(p, 50, floorY);
       this.armory = armoryDoor(p, W - 54, W - 15, floorY - 52, floorY - 1, floorY, H);
       this.swords = crossedSwords(p, W - 34, floorY - 52 - 26);
       if ((W - 58) - (cx + 57) >= 24) this.grind = grindstone(p, cx + 62, floorY);
+      }
     } else {
       // a tool rack on the left: two pegs, tongs and a hammer
       const tx = 14; fillRect(tx, 18, tx + 26, 20, (x, y) => y === 18 ? "#b86f50" : y === 20 ? "#3e2731" : "#733e39");
@@ -400,7 +481,7 @@
     ctx.putImageData(img, 0, 0);
   };
   function mount(canvas, o) {
-    o = o || {}; const W = o.w || 200, H = o.h || 112, sc = new Scene(W, H, { door: o.door, wide: o.wide });
+    o = o || {}; const W = o.w || 200, H = o.h || 112, sc = new Scene(W, H, { door: o.door, wide: o.wide, yard: o.yard });
     canvas.width = W; canvas.height = H; const ctx = canvas.getContext("2d");
     const still = o.still || (root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
     const state = { heat: 0, scene: sc, stop: false, crucible: o.crucible || "hidden", figure: null };
@@ -525,6 +606,26 @@
       "...oo.o22o.oo...",
       ".......oo.......",
     ],
+    // (build 17, design pass 24 section 4.13) the main menu's Play: the courtyard's gate, two round towers and the arch, its two oak
+    // leaves cracked open on a gold gap
+    gate: [
+      "oooo........oooo",
+      "o44o........o44o",
+      "o44oooooooooo44o",
+      "o43333333333334o",
+      "o43222222222234o",
+      "o4322oooooo2234o",
+      "o432obchycbo234o",
+      "o432obchycbo234o",
+      "o432oacyhcao234o",
+      "o432obchycbo234o",
+      "o432obchycbo234o",
+      "o432oacyhcao234o",
+      "o432obchycbo234o",
+      "o4322bchycb2234o",
+      "o43PPPPPPPPPPP4o",
+      "oooooooooooooooo",
+    ],
     sword: [
       "................",
       "...........ooo..",
@@ -605,5 +706,5 @@
     return cv;
   }
 
-  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, drawTurnPhone, TONES, STEP_LIT, STEP_FILL, GLOW, BAYER, OUT, hex, rng, GLYPHS, GPAL, glyph };
+  root.Smithy = { Scene, mount, frameURL, boardURL, brickURL, installFrames, bricks, flagstones, beam, post, glow, doorway, yardView, drawTurnPhone, TONES, STEP_LIT, STEP_FILL, GLOW, BAYER, OUT, hex, rng, GLYPHS, GPAL, glyph };
 })(typeof window !== "undefined" ? window : globalThis);

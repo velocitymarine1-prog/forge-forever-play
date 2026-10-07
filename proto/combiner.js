@@ -157,8 +157,8 @@
     const w = clone(parent.weapon);
     const h = hintsOf(other, G);
     if (h.element) w.element = h.element;
-    if (h.forms.length) w.form = h.forms[0];
-    if (w.form2 && w.form2 === w.form) w.form2 = parent.weapon.form;
+    // (forge rules 3, 2026-10-07) the form is the base's for ever: an ingredient adds on top (an element, a status, modifiers, a part),
+    // never a new way of attacking. A War Horn on an axe makes an axe that charges, not an axe that lobs
     const st = [];
     const dflt = G.elements[w.element].status;
     if (dflt) st.push(dflt);
@@ -348,13 +348,17 @@
       t.gift = null;
     }
     if (kase === "apply" && base !== null) {
-      if ((w.form2 === undefined || w.form2 === null) && base.weapon.form2) w.form2 = base.weapon.form2;
+      // (forge rules 3) the base's forms, whatever the draft said
+      if (w.form !== base.weapon.form) notes.push("form kept");
+      w.form = base.weapon.form;
+      const bf2 = base.weapon.form2 || null;
+      if ((w.form2 || null) !== bf2) notes.push(bf2 ? "form2 kept" : "form2 dropped");
+      w.form2 = bf2;
       t.hybrid = base.hybrid ? clone(base.hybrid) : null;
       t.gift = null;
     }
     if (!(w.form in G.forms)) { w.form = parentW ? parentW.form : "slash"; notes.push("form replaced"); }
     if (w.form2 !== undefined && w.form2 !== null && !(w.form2 in G.forms)) { w.form2 = null; notes.push("form2 dropped"); }
-    if (kase === "apply" && base !== null && w.form2 && w.form2 === w.form) { w.form2 = base.weapon.form; notes.push("forms traded places"); }
     if (!(w.element in G.elements)) { w.element = parentW ? parentW.element : "physical"; notes.push("element replaced"); }
     let status = dedupe(w.status || []).filter(s => G.statuses.includes(s));
     if (status.length > 2) notes.push("statuses cut to 2");
@@ -440,6 +444,29 @@
     return [t, notes];
   }
 
+  // ------------------------------------------------------------------ the form of a class, the repair
+  // the one form a class attacks with: the first of its forms (the class weapon's own); a legend's is its body's
+  function classForm(cls, G) { const c = G.classes[cls]; return c && c.forms && c.forms.length ? c.forms[0] : null; }
+  function formOf(thing, G) {
+    if (!isWeapon(thing)) return null;
+    const body = thing.hybrid && thing.hybrid.classes ? thing.hybrid.classes[0] : thing.weapon.visual.base;
+    return classForm(body, G);
+  }
+  // (forge rules 3) a weapon forged under the old rules may attack with an ingredient's form (an axe that lobs): it is given its class's
+  // form back, a second form that now equals it is dropped, and its numbers are made legal for the form (the validator's clamp, with no
+  // parents: the record's name, id, tags and history stay). Returns [thing, changed]
+  function repairForm(thing, G) {
+    const want = formOf(thing, G);
+    if (!want || thing.weapon.form === want) return [thing, false];
+    const t = clone(thing);
+    t.weapon.form = want;
+    if (t.weapon.form2 === want) t.weapon.form2 = null;
+    if (!t.hybrid && t.weapon.form2) t.weapon.form2 = null;   // only a legend has a second form
+    const [v] = validate(t, t.tier, G, [], [], null);
+    t.weapon = v.weapon; t.budget = v.budget;
+    return [t, true];
+  }
+
   // ------------------------------------------------------------------ links, twins
   function linkOk(existing, result) {
     if (existing.kind !== result.kind) return false;
@@ -457,7 +484,7 @@
 
   const api = { slug, dedupe, title, isWeapon, classOf, bodyClass, roles, keyText, pairKey, tierRule, resultTier, capFor, hintsOf, mergeTags,
     baseRecord, baseOf, classGifts, gifts, axisOf, applyGift, giverAdjective, fuseCheck, fuseTier, fuseForms, kindKey, FUSE_LINES,
-    combine, combineGift, combineMix, combineFuse, validate, linkOk, fingerprintText };
+    combine, combineGift, combineMix, combineFuse, validate, classForm, formOf, repairForm, linkOk, fingerprintText };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Forge = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -79,7 +79,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .pips i.on{background:var(--parch)}
 .pips i.gold.on,.pips i.gold.next{background:var(--hot)}
 .pips i.gold{background:var(--gold-d)}
-/* the stick: it floats to where the thumb lands in the left 45 % */
+/* the stick: it floats to where the thumb lands in the left 45 % (proto/stick.js since design pass 24, build 17) */
 #stickZone{left:0;top:44px;bottom:0;width:45%;touch-action:none}
 .lefty #stickZone{left:auto;right:0}
 .stick{width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;border:2px solid rgba(234,212,170,.35);background:rgba(24,20,37,.35);pointer-events:none!important}
@@ -107,7 +107,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .hbtn.off{filter:grayscale(1) brightness(.6);cursor:default}
 .hbtn .clock{position:absolute;inset:-5px;border-radius:2px;pointer-events:none;background:conic-gradient(rgba(24,20,37,0) calc(var(--p,1)*360deg),rgba(24,20,37,.72) 0)}
 .hbtn .glow{position:absolute;inset:-5px;pointer-events:none;box-shadow:inset 0 0 0 3px var(--hot);opacity:var(--c,0)}
-/* the level's two plates (design pass 18): the health top left under the house and ↑ Forge, the trolls left (or the gate's share) top right
+/* the level's two plates (design pass 18): the health top left under the house and ↑ Home, the trolls left (or the gate's share) top right
    under the cog; both in the weapon plate's stone frame, both letting touches through to the stick and the buttons */
 .hp,.obj{top:44px;height:30px;border-width:6px;display:flex;align-items:center;gap:5px;padding:0 6px 0 2px;pointer-events:none!important;font-family:var(--data);font-size:13px;line-height:1;color:var(--parch);white-space:nowrap}
 .hp{left:8px}
@@ -167,23 +167,12 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 #menuPlank{max-width:380px;color:var(--parch)}
 #menuPlank h2{color:var(--parch);margin-bottom:2px}
 #menuPlank .small{color:var(--brass);text-align:center;margin:0 0 4px}
-/* the level's planks (design pass 12, section 3.14), built from the cellar's frames: the gate plate and Leave the gate? on oak, the tally
-   and The gate is shut on parchment */
+/* the level's planks (design pass 12, section 3.14), built from the cellar's frames: Leave the gate? on oak, the tally and The gate is
+   shut on parchment. (The gate plate, the castle's since design pass 21, went with design pass 24, build 17; what stands in for it for
+   one build wears Leave the gate?'s look) */
 #gatePlank,#askPlank{max-width:380px;color:var(--parch)}
 #gatePlank h2,#askPlank h2{color:var(--parch);margin-bottom:2px}
 #gatePlank .small,#askPlank .small{color:var(--brass);text-align:center;margin:0 0 6px}
-#gatePlank .small b{color:var(--hot);font-weight:600}
-.brothers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
-.brothers button{min-height:38px;background-color:transparent;cursor:pointer;font-family:var(--display);font-weight:700;font-size:17px;color:var(--parch)}
-.brothers button[aria-pressed="true"],#gateAlone[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
-/* the castle plate's levels (design pass 21 section 3.10): menu rows; the selected one lit as a chosen brother is, a locked one dimmed */
-.levels{display:grid;gap:5px}
-.levels button[aria-pressed="true"]{outline:3px solid var(--hot);outline-offset:-3px}
-.levels button:disabled{filter:grayscale(1) brightness(.6);cursor:default}
-#gateLevels span.won{color:var(--brass)}
-#gateLevels button[aria-pressed="true"] span.won{color:var(--hot)}
-/* (the smallest phones, 320 px on the short side: the rows a little lower, so the plate never scrolls) */
-@media (max-height:340px),(max-width:340px){#gateLevels button{min-height:0;padding:0 8px;font-size:15px}#gatePlank #gateLine{margin-bottom:2px}}
 #tallyPlank{max-width:520px}
 #tallyPlank h2{letter-spacing:.04em}
 .finds{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 2px;min-height:40px}
@@ -243,7 +232,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
     <div id="stickZone" aria-hidden="true"></div>
     <div class="stick rest" id="stick" aria-hidden="true"><i id="knob"></i></div>
     <button class="top f-iron" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
-    <button class="top f-iron" id="upBtn">↑ Forge</button>
+    <button class="top f-iron" id="upBtn">↑ Courtyard</button>
     <div class="wplate f-stone" id="wplate" role="status" aria-live="off"><b id="wName"></b><div class="line"><span class="pips" id="pips" hidden><i></i><i></i><i class="gold"></i></span><span id="wLine"></span><span class="tagp" id="wTag" hidden></span><span class="slow" id="wSlow" hidden>SLOW</span></div></div>
     <button class="top f-iron" id="menuBtn" aria-label="The cellar's menu" title="The cellar's menu"><canvas data-glyph="cog" aria-hidden="true"></canvas></button>
     <div class="hp f-stone" id="hpPlate" hidden role="img" aria-label="Health 100 of 100"><canvas id="hpHeart" width="9" height="8" aria-hidden="true"></canvas><canvas id="hpBar" width="56" height="6" aria-hidden="true"></canvas><b id="hpNum">100</b></div>
@@ -269,7 +258,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
         <div class="f-iron"><b>Swap</b><span id="keySwap">the other weapon</span></div>
         <div class="f-iron"><b>Dodge</b><span id="keyDodge">through the bag</span></div>
       </div>
-      <p class="small" id="keyLine">Under the rack on the wall you can take any weapon you own. The stairs lead back up.</p>
+      <p class="small" id="keyLine">Under the rack on the wall you can take any weapon you own. The stairs lead back up to the courtyard.</p>
       <div class="pbtns"><button class="f-ember primary" id="firstGo">Down to the cellar</button></div>
     </div>
   </div>
@@ -290,33 +279,33 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
         <button class="f-iron" id="mLefty" aria-pressed="false">Left-handed<span>off</span></button>
         <button class="f-iron" id="mReset">Reset the dummies<span></span></button>
         <button class="f-iron" id="mForced" hidden>Turn off forced landscape<span>on</span></button>
-        <div class="two"><button class="f-iron" id="mForge">Back to the Forge<span>↑</span></button><button class="f-iron" id="mHome">Main menu<span><canvas data-glyph="house" aria-hidden="true"></canvas></span></button></div>
+        <div class="two"><button class="f-iron" id="mForge">Up to the courtyard<span>↑</span></button><button class="f-iron" id="mHome">Main menu<span><canvas data-glyph="house" aria-hidden="true"></canvas></span></button></div>
         <button class="f-ember" id="mClose" style="color:var(--soot)">Back to the cellar<span style="color:var(--soot)"></span></button>
       </div>
     </div>
   </div>
-  <!-- the level's planks (design pass 12, section 3.14): the gate plate opened from the door on the cellar's left wall (since design pass 21
-       the castle plate: the castle's levels as rows over its buttons); Leave the gate?; the tally of a clear; The gate is shut when the level's
-       spec can't be read (each in the level's own words since design pass 21) -->
+  <!-- the level's planks (design pass 12, section 3.14): Leave the gate?; the tally of a clear; The gate is shut when the level's spec
+       can't be read (each in the level's own words since design pass 21). From a level the way to the castle page says Home (design
+       pass 24 section 4.12, build 17): Leave the gate?'s button says where it leads, Home, or Main menu when the house asked -->
+  <!-- The castle plate, which the door on the cellar's left wall opened, went to the castle page's Map Table with design pass 24 (build
+       17). For ten minutes after a deploy a phone can still hold battlegrounds.js of the build before, which wires the plate's elements as
+       it loads and would die on a page without them, and its cellar twin, whose door still opens the plate. These nine ids stand in for
+       that script alone: hidden, and saying where the levels went if its door opens them. This build's script never touches them; they
+       go in the build after this -->
   <div class="veil" id="gateVeil" hidden>
     <div class="plank f-plank" id="gatePlank" role="dialog" aria-label="The castle">
-      <h2 id="gateTitle">The castle</h2>
-      <p class="small" id="gateLine">Normal</p>
-      <div class="menu">
-        <div class="levels" id="gateLevels" role="group" aria-label="The castle's levels"><button class="f-iron" id="lvGate" data-area="gate" aria-pressed="true">The Troll Gate<span></span></button><button class="f-iron" id="lvHall" data-area="hall" aria-pressed="false">The Great Hall<span></span></button></div>
-        <button class="f-ember" id="gateAlone" style="color:var(--soot)">Go alone<span style="color:var(--soot)"></span></button>
-        <p class="small" style="margin:4px 0 0">Bring sword-brothers</p>
-        <div class="brothers"><button class="f-iron" id="gateB1">1</button><button class="f-iron" id="gateB2">2</button><button class="f-iron" id="gateB3">3</button></div>
-        <div class="two" id="gateParty" hidden><button class="f-iron" id="gateRaise">Raise a party</button><button class="f-iron" id="gateJoin">Join a party</button></div>
-        <button class="f-iron" id="gateBack">Back to the cellar<span></span></button>
-      </div>
+      <h2>The castle</h2>
+      <p class="small">The way to the castle is through the courtyard's gate now. Go up the stairs.</p>
+      <span id="gateLine" hidden></span><span id="gateLevels" hidden></span><span id="gateParty" hidden></span>
+      <button id="gateAlone" hidden></button><button id="gateB1" hidden></button><button id="gateB2" hidden></button><button id="gateB3" hidden></button>
+      <div class="pbtns"><button class="f-iron" id="gateBack">Back to the cellar</button></div>
     </div>
   </div>
   <div class="veil" id="askVeil" hidden>
     <div class="plank f-plank" id="askPlank" role="dialog" aria-label="Leave the gate?">
       <h2>Leave the gate?</h2>
       <p class="small">Your finds go home; a run that does not clear pays nothing.</p>
-      <div class="pbtns"><button class="f-iron" id="askLeave">Leave</button><button class="f-ember primary" id="askStay">Stay</button></div>
+      <div class="pbtns"><button class="f-iron" id="askLeave">Home</button><button class="f-ember primary" id="askStay">Stay</button></div>
     </div>
   </div>
   <div class="veil" id="tallyVeil" hidden>
@@ -329,14 +318,14 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
       <div class="finds" id="tallyFinds"></div>
       <p id="tallyPay"></p>
       <p class="small" id="tallyLevel" hidden></p>
-      <div class="pbtns"><button class="f-iron" id="tallyForge">Back to the Forge</button><button class="f-iron" id="tallyNext" hidden>On to the Great Hall</button><button class="f-ember primary" id="tallyAgain">Again</button></div>
+      <div class="pbtns"><button class="f-iron" id="tallyForge">Home</button><button class="f-iron" id="tallyNext" hidden>On to the Great Hall</button><button class="f-ember primary" id="tallyAgain">Again</button></div>
     </div>
   </div>
   <div class="veil" id="shutVeil" hidden>
     <div class="plank f-parch" id="shutPlank" role="dialog" aria-label="The gate is shut">
       <h2>The gate is shut</h2>
-      <p id="shutLine">The Troll Gate could not be read. Go back up to the Forge and come down again.</p>
-      <div class="pbtns"><button class="f-iron" id="shutForge">↑ Forge</button></div>
+      <p id="shutLine">The Troll Gate could not be read. Go home and come out again.</p>
+      <div class="pbtns"><button class="f-iron" id="shutForge">Home</button></div>
     </div>
   </div>
 </div>
@@ -346,7 +335,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
   <p>The Battlegrounds are played in landscape.</p>
   <button class="f-ember primary" id="tFull" hidden>Play full screen</button>
   <button class="f-iron" id="tForce">My screen won't turn</button>
-  <button class="f-iron" id="tForge">↑ Back to the Forge</button>
+  <button class="f-iron" id="tForge">↑ Back to the courtyard</button>
   <button class="f-iron" id="tHome"><canvas data-glyph="house" aria-hidden="true"></canvas>Main menu</button>
 </div>
 <div class="fade on" id="fade"></div>
@@ -387,6 +376,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="proto/combat.js"></script>
 <script src="proto/level.js"></script>
 <script src="proto/bots.js"></script>
+<script src="proto/stick.js"></script>
 <script src="proto/cellar-lessons.js"></script>
 <script src="proto/battlegrounds.js"></script>
 </body>

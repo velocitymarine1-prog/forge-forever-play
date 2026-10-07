@@ -513,7 +513,9 @@
     const sealed = v.graft && !xf ? hallmark(out.sp, v.graft) : false;
     if (el) fx(out.sp, w.element, el, fnv(id || body + "*" + head) % 997, frameNo || 0, bodyUp, sealed ? IN_SEAL : null, false, xf ? out.F : null);
     out.sp.grip = gripPoint({ upright: out.upright, L: out.L, F: out.F }, body);
-    out.sp.tip = nearestPainted(out.sp, headUp ? (([x, y]) => [Math.round(x), Math.round(y)])(out.F.xy(out.L - 2.5, 0)) : tipPoint({ upright: null, L: out.L, F: out.F }, head));
+    // the tip: the head's own (a shot, a stream, a spell leaves there); in a swing drawing (xf) the end of the axis, so a bow-headed
+    // sword swung points where its grip points (forge rules 3, 2026-10-07: a legend's body swings)
+    out.sp.tip = nearestPainted(out.sp, headUp ? (([x, y]) => [Math.round(x), Math.round(y)])(out.F.xy(out.L - 2.5, 0)) : tipPoint({ upright: null, L: out.L, F: out.F }, xf ? "sword" : head));
     out.sp.len = out.L;
     return out.sp;
   }

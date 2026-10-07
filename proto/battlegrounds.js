@@ -15,10 +15,10 @@
 // else is drawn in world coordinates after it; the camera is the fight's own (fight.view, stepped by the rules), read by cam().
 // ?perf=stress builds the worst case for the frame (done criterion 17) and shows a step and frame-time readout; ?perf=1 shows the readout.
 // The level's HUD is the cellar's, exactly (section 3.14): the note shows one timed line at a time by priority, the prompt over the knight
-// says what E or a tap does (the exit, a lift, the chest, the ram), the toast says what was picked up, and the planks a level needs (the
-// gate plate, Leave the gate?, the tally, The gate is shut) are built from the cellar's frames. The way in is the door on the cellar's
-// left wall (its zone opens the gate plate, which fades to ?area=gate&brothers=n); the way home is forge-forever:from-battle, written
-// once with the satchel (ingredient ids only) and the run's finds at the clear, or banked without pay on a quit (section 3.11.5).
+// says what E or a tap does (the exit, a lift, the chest, the ram), the toast says what was picked up, and the planks a level needs
+// (Leave the gate?, the tally, The gate is shut) are built from the cellar's frames. The way in was a door on the cellar's left wall and
+// its gate plate until design pass 24 (below); the way home is forge-forever:from-battle, written once with the satchel (ingredient ids
+// only) and the run's finds at the clear, or banked without pay on a quit (section 3.11.5).
 // Since design pass 18 (build 10) the level tells the player what to do without words: a health plate top left (the knight's 100 HP,
 // a blow's pale chip, green while it grows back, a blink when low), the trolls left top right (or the gate's share), the guide drawn by
 // the painter from Level.guide (yellow arrows over the ram, the gate, the chest, the way in and a fallen friend, their chevrons at the
@@ -29,41 +29,47 @@
 // starts its run in the same entry (a replace).
 // Since design pass 21 (build 15) the page plays any level of the castle from its area table (AREAS): ?area=gate the Troll Gate,
 // ?area=hall the Great Hall (spec/hall.js, drawn by proto/gate.js's scene with proto/hall.js's art). Every level string comes from the
-// level's spec (its page block: the Troll Gate's says today's words). The cellar's door is the castle's: its plate lists the levels as
-// rows (the Great Hall locked until the Troll Gate is cleared; the pick remembered in forge-forever:level-pick). In a level of rooms the
-// open door out of the party's room (a passage) is crossed by the page's half-second fade, E, a tap on its prompt or the stick held toward
-// it, then input.pass to the rules and a short walk in; a clear's tally may name the way on (the Troll Gate's On to the Great Hall).
+// level's spec (its page block: the Troll Gate's says today's words). In a level of rooms the open door out of the party's room (a
+// passage) is crossed by the page's half-second fade, E, a tap on its prompt or the stick held toward it, then input.pass to the rules and
+// a short walk in; a clear's tally may name the way on (the Troll Gate's On to the Great Hall).
+// Since design pass 24 (section 4.12, build 17) the castle has a hub, the Courtyard, a room of the castle page. The cellar is entered from
+// it and its stairs lead back up to it: the stairs' prompt, ↑ Courtyard and Up to the courtyard go where they went (nav.js's "forge"), and
+// the castle page decides where the knight stands. The cellar's door to the levels and its castle plate are gone: the levels are opened
+// from the castle page's Map Table, which writes forge-forever:gate-brothers and forge-forever:level-pick from now on, and this page
+// writes neither. Every way from a level to the castle page says Home (the knight walks in through the courtyard's gate). And the
+// floating stick is proto/stick.js's (section 4.16), mounted here, so the cellar, the levels and the Courtyard walk under one thumb.
 //
 // For the harness (tools/battle-harness.html): ?harness=1 lets time move only through TheBattlegrounds.step(ms); ?seed=n fixes the
 // fight; ?weapons=a,b picks the loadout; ?pointer=coarse|fine overrides the pointer; ?fresh=1 shows the first-visit plank again and
 // ?seen=1 skips it; ?motion=reduce stills the room; ?stay=1 leaves without going anywhere; ?brothers=n brings sword-brothers and
 // ?party=n fills bench seats (as the Forge's bench.party does); ?badspec=1 plays a level whose spec can't be read, ?badspec=2 one whose
-// spec throws while the page reads it (a boot error, which shows the shut plank too).
+// spec throws while the page reads it (a boot error, which shows the shut plank too); ?nostick=1 plays a page of the build before, which
+// names no stick.js (this file then loads it itself), and ?nostick=2 one whose stick.js never arrives.
 (function () {
   "use strict";
   const PF = window.PixelForge, C = window.Cellar, Combat = window.Combat, SPEC = window.FORGE_COMBAT, Smithy = window.Smithy, Gate = window.Gate, Trolls = window.Trolls, Knight = window.Knight;
   const Combos = window.Combos && PF && PF.swingFor ? window.Combos : null;   // design pass 20: the melee combos' drawing (proto/combos.js)
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
-  // (design pass 22, card t76) a level begins only by a step taken on purpose (the gate plate's Go, Again, Into the wild, a link) or by a
+  // (design pass 22, card t76) a level begins only by a step taken on purpose (the Map Table's Go, Again, the way on, a link) or by a
   // reload of a run in progress. Its place in the history is spent once that run is left by one of the game's own ways out (spend(),
   // below), and a spent level shown again (nav.js going back, the phone's own back or forward, a tab brought back, this page restored
   // from the back-forward cache and reloading itself) is the cellar: the level and its brothers are taken out of what the page reads,
-  // and out of the address together with the mark, so the entry is a cellar's from here on (a reload stays in the cellar, and Go on the
-  // gate plate opens a fresh level from it). Before this, home from the Troll Gate, "to the cellar" could land on the level again
+  // and out of the address together with the mark, so the entry is a cellar's from here on (a reload stays in the cellar). Before this,
+  // home from the Troll Gate, "to the cellar" could land on the level again
   const spent = (function spentLevel() {
     let st = null; try { st = window.history.state; } catch (e) { st = null; }
     if (!st || typeof st !== "object" || st.ffSpent !== true) return false;
     params.delete("area"); params.delete("brothers");
     const rest = Object.assign({}, st), q = params.toString(); delete rest.ffSpent;
     // (where the address cannot be rewritten the mark still comes off, so it never outlives the boot that read it: a mark left on an
-    // address that still names the level would boot the cellar again when the gate plate's Go asks for that same address)
+    // address that still names the level would boot the cellar again the next time that same address was asked for from this entry)
     try { window.history.replaceState(rest, "", location.pathname + (q ? "?" + q : "") + location.hash); }
     catch (e) { try { window.history.replaceState(rest, ""); } catch (e2) { /* a sandboxed frame keeps its entry; the page boots the cellar all the same */ } }
     return true;
   })();
-  // the mark: every way out of a level to another page calls it as it leaves (leave to the Forge or the menu, the shut plank's and a
-  // boot error's ↑ Forge). Again does not: its run takes this entry (see again()), and neither does the way on to another level (design
+  // the mark: every way out of a level to another page calls it as it leaves (leave for home or the menu, the shut plank's and a
+  // boot error's Home). Again does not: its run takes this entry (see again()), and neither does the way on to another level (design
   // pass 21's On to the Great Hall, onTo()), which replaces as Again does. The cellar's entry is never marked
   function spend() {
     if (!wantLevel) return false;
@@ -75,7 +81,7 @@
   // name, its words when its spec can't be read (section 3.15: a level that can't be read shows its shut plank, "The gate is shut" or "The
   // hall is shut", never a blank stage), its first visit's key and its satchel's (sessionStorage, each level its own, so an unfinished
   // run's finds wait for the next run of their own level). Any other name plays the cellar; ?area=hall always boots the Great Hall (the
-  // harness, the bench, a link), locked on the castle plate or not
+  // harness, the bench, a link), locked on the Map Table or not
   const AREAS = {
     gate: { spec: "FORGE_GATE", id: "castle-gate", name: "The Troll Gate", shut: "The gate is shut", seen: "forge-forever:gate-seen", satchel: "forge-forever:satchel" },
     hall: { spec: "FORGE_HALL", art: "Hall", id: "great-hall", name: "The Great Hall", shut: "The hall is shut", seen: "forge-forever:hall-seen", satchel: "forge-forever:satchel:hall" }
@@ -88,10 +94,16 @@
   if (wantLevel) try {
     const S = specOf(areaKey), pg = S && S.page && typeof S.page === "object" ? S.page : {}, shut = typeof pg.shut === "string" && pg.shut ? pg.shut : WANT.shut;
     $("shutPlank").setAttribute("aria-label", shut); $("shutPlank").querySelector("h2").textContent = shut;
-    $("shutLine").textContent = ((S && typeof S.name === "string" && S.name) || WANT.name) + " could not be read. Go back up to the Forge and come down again.";
+    $("shutLine").textContent = ((S && typeof S.name === "string" && S.name) || WANT.name) + " could not be read. Go home and come out again.";
   } catch (e) { /* the plank keeps the gate's words */ }
+  // (design pass 24 section 4.12, build 17) from a level every way to the castle page says Home, where the knight walks in through the
+  // courtyard's gate: the HUD's ↑, the menu's row, the turn plate's, the tally's and the shut plank's buttons (they keep their ids). They
+  // are worded here, as soon as the page knows it is a level, so the shut plank and a boot error say it too, and so does a page of the
+  // build before, still cached while a deploy is fresh. The cellar's own words are the page's: ↑ Courtyard, Up to the courtyard, ↑ Back
+  // to the courtyard
+  if (wantLevel) for (const [id, word] of [["upBtn", "↑ Home"], ["mForge", "Home"], ["tForge", "↑ Home"], ["tallyForge", "Home"], ["shutForge", "Home"]]) { const b = $(id); if (b && b.firstChild) b.firstChild.textContent = word; }
   // a level that throws while the page comes up (a spec past its checks that the page still cannot read) shows the shut plank as well:
-  // until the page says it has booted, an uncaught error opens the shut veil, lifts the fade and makes ↑ Forge go up plainly
+  // until the page says it has booted, an uncaught error opens the shut veil, lifts the fade and makes Home go home plainly
   if (wantLevel) window.addEventListener("error", function bootShut() {
     if (document.body.getAttribute("data-booted") === "1") return;
     try {
@@ -122,10 +134,12 @@
   const STEP = SPEC.step, W = VIEW.w, H = VIEW.h, OUT = C.OUT, TAU = Math.PI * 2, FEEL = SPEC.feel, CHEST = SPEC.knight.chest;
   const perf = params.get("perf");
   const KEYS = { to: "forge-forever:to-cellar", from: "forge-forever:from-cellar", seen: "forge-forever:cellar-seen", forced: "forge-forever:forced-landscape", lefty: "forge-forever:left-handed",
-    // design pass 12: a level's run home, the level's first visit, the gate plate's last choice, the first-time lines seen, the satchel (sessionStorage)
-    battle: "forge-forever:from-battle", gateSeen: "forge-forever:gate-seen", brothers: "forge-forever:gate-brothers", firsts: "forge-forever:gate-firsts", satchel: "forge-forever:satchel",
-    // design pass 21: the castle plate's level pick, and the Great Hall's first visit (each level's first visit and satchel by its area)
-    pick: "forge-forever:level-pick", hallSeen: "forge-forever:hall-seen" };
+    // design pass 12: a level's run home, the level's first visit, the first-time lines seen, the satchel (sessionStorage)
+    battle: "forge-forever:from-battle", gateSeen: "forge-forever:gate-seen", firsts: "forge-forever:gate-firsts", satchel: "forge-forever:satchel",
+    // design pass 21: the Great Hall's first visit (each level's first visit and satchel by its area). The gate plate's last choice of
+    // brothers (forge-forever:gate-brothers) and the level picked on it (forge-forever:level-pick) were kept here too until design pass 24
+    // (build 17): the castle page's Map Table writes them now
+    hallSeen: "forge-forever:hall-seen" };
   const SEEN = LEVEL ? WANT.seen : KEYS.seen, SATCHEL = LEVEL ? WANT.satchel : KEYS.satchel;
   // storage is a convenience: the cellar works without it, and nothing is remembered (?nostore=1 plays as if it were blocked)
   const nostore = params.get("nostore") === "1";
@@ -168,10 +182,19 @@
     return d;
   }
   const isWeapon = t => !!(t && t.kind === "weapon" && t.weapon && typeof t.weapon === "object");
+  // (forge rules 3, 2026-10-07) a weapon attacks with its class's form, whatever its record says: one forged under the old rules (an axe
+  // that lobbed) swings here even before the Forge has repaired and saved it. The record is mended in place; the Forge does the full repair
+  function mendForm(t) {
+    const GR = window.FORGE_GRAMMAR, v = t.weapon.visual || {}, body = t.hybrid && t.hybrid.classes ? t.hybrid.classes[0] : v.base;
+    const c = GR && GR.classes && GR.classes[body], want = c && c.forms && c.forms[0];
+    if (!want || t.weapon.form === want) return t;
+    t.weapon.form = want; if (t.weapon.form2 === want || !t.hybrid) delete t.weapon.form2;
+    return t;
+  }
   const handoff = readHandoff();
   if (handoff) {
     const order = Array.isArray(handoff.order) ? handoff.order : Object.keys(handoff.weapons);
-    for (const id of order) { const t = handoff.weapons[id]; if (isWeapon(t) && !world.has(id)) { t.id = t.id || id; world.set(id, t); rack.push(id); } }
+    for (const id of order) { const t = handoff.weapons[id]; if (isWeapon(t) && !world.has(id)) { t.id = t.id || id; world.set(id, mendForm(t)); rack.push(id); } }
     // a handoff over the storage quota carries the loadout's records only: the rack then holds the loadout and the class weapons
     // (those of a class the smith hasn't opened as practice only)
     if (handoff.trimmed && rack.length) { const open = (handoff.smith && handoff.smith.classes) || [];
@@ -183,7 +206,7 @@
     world.clear(); rack = [];
     for (const t of window.FORGE_THINGS) if (isWeapon(t)) { world.set(t.id, t); rack.push(t.id); }
     const rows = ((window.FORGE_LEDGER || {}).rows || []).filter(r => isWeapon(r.thing)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
-    for (const r of rows) if (!world.has(r.thing.id)) { world.set(r.thing.id, r.thing); rack.push(r.thing.id); }
+    for (const r of rows) if (!world.has(r.thing.id)) { world.set(r.thing.id, mendForm(r.thing)); rack.push(r.thing.id); }
   }
   const practice = t => !!(t && t.practice);
   function readBack() {
@@ -201,7 +224,7 @@
     t: 0, arrive: reduce ? 0 : (AREA.knight.arrive || 0), lit: reduce || !AREA.light ? 3 : 0, hold: 0, shake: { t: 0, amp: 0 }, fx: [], nums: [], parts: [], rings: [], sums: {}, heal: { n: 0, at: 0 }, trail: [],
     plank: null, turned: false, left: false, leftTo: null, went: null, tookBack: false, stairs: 0, zone: null, booted: false, layout: { x: 0, y: 0, s: 1, k: 1, w: W, h: H, pl: 0, pt: 0 }, frames: 0, log: [],
     passing: null, walkTo: null,   // (design pass 21) a passage's fade under way { id, P, t, half, sent, cols }; the walk in after it
-    done: false, shut: false, askTo: null, brothers: 0, lv: null,   // a level: the run is over (the tally shows), the gate is shut, where leaving asks to go
+    done: false, shut: false, askTo: null, lv: null,   // a level: the run is over (the tally shows), the gate is shut, where leaving asks to go
     legendNoted: false, noteUntil: 0, noteText: "",   // the first legend of the visit: a note under the plate for 3 s (design pass 10)
     perf: perf ? { steps: [], frames: [], last: 0, hitches: 0, batchT: 0, batchN: 0 } : null, stress: null,
     swings: [], warm: [], warmed: new Set() };   // (design pass 20: each knight's live swing smears; the swing drawings still to draw)
@@ -235,7 +258,7 @@
   const first = firstHands();
   const seed = params.get("seed") ? (parseInt(params.get("seed"), 10) >>> 0) : ((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0);
   // the seats of a level (design pass 12, section 3.10): the player first; then the bench's bots as full knights (?party=n, or bench.party
-  // in the handoff from the Forge's Settings > Developer), then the sword-brothers (?brothers=n, chosen on the gate plate); four seats at
+  // in the handoff from the Forge's Settings > Developer), then the sword-brothers (?brothers=n, chosen on the Map Table); four seats at
   // most. proto/bots.js (stage F) gives their seats and drives them; until it is loaded the brothers of section 3.10 stand still
   const BROTHERS = [{ name: "Edric", loadout: ["sword", "bow"] }, { name: "Osk", loadout: ["hammer", "sword"] }, { name: "Tam", loadout: ["spear", "bow"] }];
   const classThing = id => (window.FORGE_THINGS || []).find(t => t.id === id);
@@ -280,7 +303,7 @@
   const rnd = Combat.rng((seed ^ 0x9e3779b9) >>> 0);
   if (shut) {
     // the gate is shut (section 3.15: a bad gate.json or trolls.json; since design pass 21 any level's, in its own words): a parchment plank
-    // over the dark stage and ↑ Forge, never a blank stage
+    // over the dark stage and Home, never a blank stage
     if (window.console && shutBy) window.console.warn("Forge Forever: " + WANT.name + " could not be read: " + (shutBy.message || shutBy));
     fit();
     $("shutVeil").hidden = false; state.plank = "shut"; state.shut = true;
@@ -303,8 +326,10 @@
   }
   const forgeUrl = () => document.body.getAttribute("data-forge") || "the-forge.html";
   const menuUrl = () => document.body.getAttribute("data-menu") || "main-menu.html";
-  // leave(to): up to the Forge (the stairs, ↑ Forge, Back to the Forge) or to the main menu (the house, Main menu). nav.js goes back
-  // in history when that page is right behind, and forward otherwise (design pass 9 section 3.6)
+  // leave(to): to the castle page (nav.js's "forge": the cellar's stairs, ↑ Courtyard and Up to the courtyard; a level's Home) or to the
+  // main menu (the house, Main menu). nav.js goes back in history when that page is right behind, and forward otherwise (design pass 9
+  // section 3.6). Since design pass 24 (section 4.12, build 17) the castle page decides where the knight stands as it opens: at the top of
+  // the cellar's stairs in the courtyard, or walking in through its gate from a level. Here only the words changed
   function leave(to) {
     if (state.left) return;
     to = to === "menu" ? "menu" : "forge";
@@ -325,33 +350,23 @@
     };
     if (reduce || harness) go(); else setTimeout(go, 260);
   }
-  // in a level, ↑ Forge, the house and the menu's two ways out ask first (section 3.8), unless the run is over (the tally shows)
-  function askLeave(to) { if (state.left) return; if (!LEVEL || state.done) { leave(to); return; } state.askTo = to; openPlank("ask"); }
-  // the way to a level (section 3.14): the castle plate's Go starts the fade as leave() does, writes from-cellar back as the cellar always
-  // does, remembers the choice (the brothers, and since design pass 21 the level picked on the plate), and changes page to
-  // ?area=<level>&brothers=n 260 ms later (the same page; the harness's own flags ride along)
+  // in a level, ↑ Home, the house and the menu's two ways out ask first (section 3.8), unless the run is over (the tally shows). The
+  // plank's leave button says where it leads (design pass 24 section 4.12, build 17): Home to the castle page, Main menu when the house
+  // or the menu's Main menu asked
+  function askLeave(to) { if (state.left) return; if (!LEVEL || state.done) { leave(to); return; } state.askTo = to; $("askLeave").textContent = to === "menu" ? "Main menu" : "Home"; openPlank("ask"); }
+  // a level's address on this page, ?area=<level>&brothers=n (the harness's own flags ride along): Again's and the way on's. Until design
+  // pass 24 (build 17) the cellar's castle plate went there too (its Go wrote from-cellar back and remembered the brothers and the level
+  // picked); the castle page's Map Table opens the levels now, by the same address, and remembers both itself
   const levelUrl = (key, n) => (location.pathname.split("/").pop() || "the-battlegrounds.html") + "?area=" + key + "&brothers=" + n + (harness ? "&harness=1&seen=1" : "") + (params.get("world") ? "&world=" + encodeURIComponent(params.get("world")) : "");
-  function go(n, key) {
-    if (state.left) return;
-    n = clamp(n | 0, 0, 3);
-    key = key && AREAS[key] ? key : plate.pick || pickNow();
-    state.left = true; state.brothers = n;
-    store.set(KEYS.brothers, String(n)); store.set(KEYS.pick, key);
-    writeBack();
-    $("fade").classList.add("on");
-    const url = levelUrl(key, n);
-    const run = () => { state.leftTo = url; state.went = { to: key, url, how: "push" }; if (!stay) window.location.href = url; };
-    if (reduce || harness) run(); else setTimeout(run, 260);
-  }
   // Again, from the tally: the same level with the same brothers (a new seed); the run that just ended has gone home already.
   // (design pass 22) The new run takes this one's place in the history (a replace), so a visit to a level is one entry however often it
-  // is played, spent when the level is left for the Forge or the menu. It is not marked here: the entry is the next run's. (With the
-  // address unchanged, as it is from the gate plate, a browser keeps the entry and its state for the page that loads: a mark set here
-  // made the next run boot the cellar. Found by tools/drive-phone.js's act before it shipped)
+  // is played, spent when the level is left for home or the menu. It is not marked here: the entry is the next run's. (With the address
+  // unchanged, as it is after a Go with the same brothers, a browser keeps the entry and its state for the page that loads: a mark set
+  // here made the next run boot the cellar. Found by tools/drive-phone.js's act before it shipped)
   function again() { if (state.left) return; state.left = true; $("fade").classList.add("on"); const url = levelUrl(areaKey, brothersN); const run = () => { state.leftTo = url; state.went = { to: areaKey, url, how: "replace" }; if (stay) return; try { window.location.replace(url); } catch (e) { window.location.href = url; } }; if (reduce || harness) run(); else setTimeout(run, 260); }
   // the way on, from the tally (design pass 21 section 3.10: the Troll Gate's On to the Great Hall, its page's next): the next level with
   // the same brothers, in this run's place in the history as Again (the run that just ended has gone home already, and waits for the Forge
-  // with the next one's); the note of the page behind rides along, so ↑ Forge from there still goes back to it
+  // with the next one's); the note of the page behind rides along, so Home from there still goes back to it
   function onTo() {
     const N = PG.next; if (state.left || !N || !AREAS[N.area]) return;
     state.left = true; $("fade").classList.add("on");
@@ -411,31 +426,30 @@
   const paused = () => !!(state.plank || state.plate || document.hidden || state.left);
 
   // ------------------------------------------------------------------ input: the stick, the buttons, the keyboard
-  const input = { stick: null, sx: 0, sy: 0, strike: false, swap: false, dodge: false, ability: false, use: false, keys: {}, test: null };
-  const R = 44, DEAD = 0.12;
-  function stickTo(gx, gy) {
-    const dx = gx - input.stick.cx, dy = gy - input.stick.cy, d = Math.hypot(dx, dy), m = Math.min(1, d / R);
-    if (m < DEAD) { input.sx = 0; input.sy = 0; } else { input.sx = dx / d * m; input.sy = dy / d * m; }
-    const kx = d > R ? dx / d * R : dx, ky = d > R ? dy / d * R : dy;
-    $("knob").style.transform = "translate(" + kx.toFixed(1) + "px," + ky.toFixed(1) + "px)";
+  const input = { strike: false, swap: false, dodge: false, ability: false, use: false, keys: {}, test: null };
+  // The floating stick (design pass 7's: it floats to where the thumb lands in its zone, 44 px is full tilt, the dead zone 12 %) was
+  // written out here until design pass 24 (section 4.16, build 17) moved it to proto/stick.js, so the cellar, the levels and the Courtyard
+  // walk under one thumb. The page gives it its three elements (#stickZone, #stick, #knob: the cellar's lessons read them), toGame (a game
+  // turned a quarter steers the same), the HUD's inner corner (the ring is placed inside the safe-area insets) and paused(); stick.x and
+  // stick.y are the wish and stick.held a thumb on it.
+  // A page of the build before, still cached while a deploy is fresh, names no stick.js. Then this file loads it from beside itself and
+  // mounts the stick when it arrives; until then, and if it never arrives, the page plays without one: the keys walk
+  let stick = null;
+  function mountStick() {
+    const St = window.Stick;
+    if (!stick && St && typeof St.mount === "function") stick = St.mount({ zone: $("stickZone"), stick: $("stick"), knob: $("knob"), toGame, origin: () => [state.layout.pl, state.layout.pt], paused });
+    return !!stick;
   }
-  const zone = $("stickZone");
-  zone.addEventListener("pointerdown", e => {
-    if (input.stick || paused()) return;
-    e.preventDefault();
-    const [gx, gy] = toGame(e.clientX, e.clientY);
-    input.stick = { id: e.pointerId, cx: gx, cy: gy };
-    try { zone.setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer */ }
-    const st = $("stick"); st.classList.remove("rest"); st.style.left = (gx - state.layout.pl) + "px"; st.style.top = (gy - state.layout.pt) + "px";
-    stickTo(gx, gy);
-  });
-  zone.addEventListener("pointermove", e => { if (!input.stick || input.stick.id !== e.pointerId) return; const [gx, gy] = toGame(e.clientX, e.clientY); stickTo(gx, gy); });
-  function stickUp(e) {
-    if (!input.stick || (e && input.stick.id !== e.pointerId)) return;
-    input.stick = null; input.sx = 0; input.sy = 0;
-    const st = $("stick"); st.classList.add("rest"); st.style.left = ""; st.style.top = ""; $("knob").style.transform = "";
+  const stickUp = () => { if (stick) stick.up(); };
+  const nostick = params.get("nostick");   // (the harness: 1 takes the module away so it is loaded from here, 2 so it never comes)
+  if (nostick === "1" || nostick === "2") { try { delete window.Stick; } catch (e) { window.Stick = undefined; } }
+  if (!mountStick() && nostick !== "2") {
+    const me = document.currentScript, el = document.createElement("script");
+    let src = "stick.js";
+    try { src = new URL("stick.js", me && me.src ? me.src : window.location.href).href; } catch (e) { /* beside the page, then */ }
+    el.src = src; el.addEventListener("load", mountStick);
+    document.head.appendChild(el);
   }
-  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) zone.addEventListener(ev, stickUp);
   function holdButton(el, down, up) {
     el.addEventListener("pointerdown", e => { e.preventDefault(); if (paused()) return; try { el.setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer */ } down(); });
     for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) el.addEventListener(ev, () => { if (up) up(); if (document.activeElement === el) el.blur(); });
@@ -464,8 +478,9 @@
   function gather() {
     const K = input.keys, T = typeof input.test === "function" ? input.test(STEP) : input.test;   // (a driver, the harness's squire, answers once a step)
     if (state.passing) return passingInput(T);   // (design pass 21) a passage's fade: the thumbs wait; halfway, one step takes the party through
-    let mx = input.sx, my = input.sy;
-    if (!input.stick) { mx = (K.right ? 1 : 0) - (K.left ? 1 : 0); my = (K.down ? 1 : 0) - (K.up ? 1 : 0); const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; } }
+    let mx = 0, my = 0;
+    if (stick && stick.held) { mx = stick.x; my = stick.y; }   // a thumb on the stick is the wish, in its dead zone too
+    else { mx = (K.right ? 1 : 0) - (K.left ? 1 : 0); my = (K.down ? 1 : 0) - (K.up ? 1 : 0); const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; } }
     const inp = { move: [mx, my], strike: input.strike || !!K.strike, swap: input.swap, dodge: input.dodge, ability: input.ability };
     if (LEVEL && input.use) inp.use = true;   // E or a tap on the prompt by the chest or the ram: the rules take it up (section 3.14)
     input.swap = false; input.dodge = false; input.ability = false; input.use = false;   // Swap, Dodge, the ability and use are passed once, a press each
@@ -793,7 +808,7 @@
     if (state.left || lv.done) return;
     lv.done = true; state.done = true;
     // one step with exit: true, always (the rules land every pouch still flying), and use: true while the chest stands unopened (its pouches
-    // go straight to the satchel); then the clear goes home at once, before the fade, so a thumb on ↑ Forge inside it finds the run sent
+    // go straight to the satchel); then the clear goes home at once, before the fade, so a thumb on ↑ Home inside it finds the run sent
     const landed = Combat.step(fight, STEP, Object.assign(gather(), { use: !!(LV.chest() && !LV.chestOpen()), exit: true }));
     if (harness) for (const e of landed) state.log.push(e);   // (the exit's own step is logged like any tick's: its pickups are the run's last)
     take(landed);
@@ -934,12 +949,13 @@
   }
 
   // ------------------------------------------------------------------ the zones: prompts above the knight, read from the area
-  // The cellar's zones (the stairs, the rack, the castle's door) are boxes; a level's (design pass 12, section 3.4) are the exit's
+  // The cellar's zones (the stairs and the rack; the castle's door too until design pass 24, build 17) are boxes; a level's (design pass 12,
+  // section 3.4) are the exit's
   // slanted box in u = x - y and v = x + y (or its rect: the Great Hall's lord's door), and the chest and the ram, followed within a few
   // pixels while the director shows them. The area's promptOrder says which wins where two apply (the exit, a passage, a lift line, the
   // chest, the ram); a lift line is a knight's state, not a zone (section 3.8), and a passage is the open door out of the party's room
   // (design pass 21 section 3.3: its own zone, its prompt, its dwell). Walking into a zone's wall for its dwell does what E does there
-  // (the stairs up, the door left, the gate right or up; a passage's door with the stick within 60 degrees of its way)
+  // (the stairs up, the gate right or up; a passage's door with the stick within 60 degrees of its way)
   const inZone = z => { const k = fight.k; if (z && Array.isArray(z.rect)) return k.x >= z.rect[0] && k.x <= z.rect[2] && k.y >= z.rect[1] && k.y <= z.rect[3]; return !!z && z.x0 !== undefined && k.x >= z.x0 && k.x <= z.x1 && k.y >= z.y0 && k.y <= z.y1; };
   const TOWARD = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
   const toward = (mv, d) => { const u = TOWARD[d], m = Math.hypot(mv[0], mv[1]); return !!u && m >= 0.5 - 1e-9 && mv[0] * u[0] + mv[1] * u[1] >= m * 0.5 - 1e-9; };
@@ -948,6 +964,9 @@
   function zoneAt(z) {
     const k = fight.k;
     if (!z || (z.when && !LV.when(z.when))) return false;
+    // (design pass 24 section 4.12, build 17) a zone that opens a plank this page does not have is no zone: the door's, in a cellar twin
+    // of the build before still cached on a phone, whose castle plate is gone (no prompt that does nothing)
+    if (z.opens && !VEILS[z.opens]) return false;
     if (z.follow) { const p = LV.at(z.follow); if (!p) return false; const qx = p.x1 !== undefined ? clamp(k.x, p.x0, p.x1) : p.x, qy = p.y1 !== undefined ? clamp(k.y, p.y0, p.y1) : p.y; return dist(k.x, k.y, qx, qy) <= (z.within || 16); }
     if (z.u) { const u = k.x - k.y, v = k.x + k.y; return u >= z.u[0] && u <= z.u[1] && v >= z.v[0] && v <= z.v[1]; }
     return inZone(z);
@@ -955,7 +974,7 @@
   function zones() {
     const Z = AREA.zones || {}, was = state.zone, wasText = state.promptText;
     let zone = null;
-    const shutZones = lessonOn("blocked") || null;   // (build 8) the castle's door is no zone while the cellar's lessons run
+    const shutZones = lessonOn("blocked") || null;   // (build 8) the zones the cellar's lessons shut while they run (the castle's door, while the cellar had one)
     if (state.arrive <= 0 && !state.passing && !fight.k.down && !fight.k.out) for (const name of (AREA.promptOrder || Object.keys(Z))) {
       if (shutZones && shutZones.includes(name)) continue;
       if (name === "lift") { if (LEVEL && LV.lifting()) { zone = name; break; } continue; }
@@ -965,15 +984,16 @@
     state.zone = zone;
     state.promptText = promptText();
     if (zone !== was || state.promptText !== wasText) syncPrompt();
-    // walking into the zone's wall (the stairs up, the door left) or toward the gate for the zone's dwell does what E does there
+    // walking into the zone's wall (the stairs up; a zone to the left, as the cellar's door was) or toward the gate for the zone's dwell
+    // does what E does there
     const z = zone === "passage" ? LV.passageHere() : Z[zone], mv = myMove(), F = AREA.floor || {};
     const pushing = zone === "passage" ? !!z && [].concat(z.dir || "up").some(d => toward(mv, d)) : z && z.dwell && [].concat(z.dir || "up").some(d => d === "up" ? mv[1] < -0.5 && (!!z.u || fight.k.y <= F.y0 + 0.5) : d === "left" ? mv[0] < -0.5 && (!!z.u || fight.k.x <= F.x0 + 0.5) : d === "right" ? mv[0] > 0.5 : d === "down" && mv[1] > 0.5);
     const dwell = zone === "passage" && z ? (z.dwell === undefined ? 0.4 : z.dwell) : z && z.dwell;
     if (pushing) { state.stairs += STEP; if (state.stairs >= dwell - 1e-9) { state.stairs = 0; useZone(zone); } } else state.stairs = 0;
   }
-  // E, a tap on the prompt, or the dwell: the stairs leave for the Forge, the rack and the door open their planks, the exit takes the party
-  // into the castle, the chest and the ram are the rules' (use rides with the next step), a passage's door starts its fade (design pass 21);
-  // a lift line does nothing (section 3.8)
+  // E, a tap on the prompt, or the dwell: the stairs leave for the courtyard, the rack opens its plank (as would any zone that names one
+  // of the page's planks), the exit takes the party into the castle, the chest and the ram are the rules' (use rides with the next step), a
+  // passage's door starts its fade (design pass 21); a lift line does nothing (section 3.8)
   function useZone(zone) {
     const z = (AREA.zones || {})[zone];
     if (zone === "passage") { startPassage(LV.passageHere()); return; }
@@ -986,8 +1006,8 @@
     else input.use = true;
   }
   function use() { useZone(state.zone); }
-  // "←" and "→" are set in Pixelify Sans like the cellar's "↑ The Forge" (section 3.14). Once the font is loaded, a glyph it lacks would come
-  // from another face: then the prompt is plain "The castle" and the lines "Onward" and "Into the castle" (and a zone or a passage that
+  // "←" and "→" are set in Pixelify Sans like the cellar's "↑ The Courtyard" (section 3.14). Once the font is loaded, a glyph it lacks would
+  // come from another face: then the prompt is plain "Into the castle" and the line "Onward" (and a zone or a passage that
   // gives its plain form, the Great Hall's "Into the keep", shows that). A glyph is in the font when its width is the same with either
   // fallback behind the font; with the font itself missing (offline) nothing can be told and the arrows stay
   state.arrows = null;
@@ -1579,7 +1599,7 @@
   function toast(m) { const el = $("toast"); el.textContent = m; el.classList.add("show"); window.clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove("show"), 3000); toasts.push(m); }
 
   // ------------------------------------------------------------------ the planks: the first visit, the rack, the menu; the level's (section 3.14)
-  const VEILS = { first: "firstVeil", rack: "rackVeil", menu: "menuVeil", gate: "gateVeil", ask: "askVeil", tally: "tallyVeil" };
+  const VEILS = { first: "firstVeil", rack: "rackVeil", menu: "menuVeil", ask: "askVeil", tally: "tallyVeil" };   // (the castle plate, "gate", went with design pass 24, build 17)
   const STAYS = ["first", "tally"];   // planks a tap outside does not close: the first visit, and the tally (the run is over)
   function openPlank(which) {
     if (state.left || !VEILS[which]) return;
@@ -1589,13 +1609,12 @@
     input.strike = false; input.keys = {}; stickUp();
     if (which === "rack") renderRack();
     if (which === "menu") renderMenu();
-    if (which === "gate") renderGate();
     $(VEILS[which]).hidden = false;
-    const focus = which === "gate" ? $("gateAlone") : $(VEILS[which]).querySelector("button"); if (focus && !coarse) focus.focus();   // (the castle plate's Go alone, under its level rows)
+    const focus = $(VEILS[which]).querySelector("button"); if (focus && !coarse) focus.focus();
   }
   function closePlank() {
     if (!state.plank) return;
-    if (state.plank === "tally") return;   // the run is over: the tally stays until Back to the Forge or Again
+    if (state.plank === "tally") return;   // the run is over: the tally stays until Home or Again
     $(VEILS[state.plank]).hidden = true;
     if (state.plank === "first") store.set(SEEN, "1");
     state.plank = null; last = window.performance.now(); acc = 0;
@@ -1681,46 +1700,15 @@
   $("homeBtn").addEventListener("click", () => askLeave("menu"));
   function clearFx() { state.fx = []; state.nums = []; state.parts = []; state.rings = []; state.sums = {}; state.heal = { n: 0, at: state.t }; state.hold = 0; state.shake = { t: 0, amp: 0 }; state.trail = []; state.swings = []; }
   function reset() { Combat.reset(fight); clearFx(); }
-  // the castle plate (section 3.14; design pass 21 section 3.10), opened from the door on the cellar's left wall: the castle's levels as rows
-  // over its buttons, each by its spec's name with a ✓ once the smith has cleared it; a level whose page says unlock { after, line } is
-  // dimmed with its line and cannot be picked until that level is cleared (in the handoff's cleared, or a clear of it waiting for the Forge
-  // in forge-forever:from-battle); the picked row lit, the last level played picked again (forge-forever:level-pick). Go alone and Bring
-  // sword-brothers 1 to 3 (the last choice remembered) play the picked level; Back to the cellar; Raise and Join a party wait for the second
-  // build
-  const plate = { pick: null };
-  const levelId = key => { const S = specOf(key); return (S && typeof S.id === "string" && S.id) || AREAS[key].id; };
-  function clearedIds() {
-    const smith = (handoff && handoff.smith) || {}, done = new Set(Object.keys(smith.cleared || {}).filter(a => smith.cleared[a]));
-    for (const r of waitingRuns()) if (r.cleared === true && typeof r.area === "string") done.add(r.area);
-    return done;
-  }
-  function lockOf(key, done) { const S = specOf(key), U = S && S.page && S.page.unlock; return U && typeof U.after === "string" && !done.has(U.after) ? said(U.line, "Locked") : null; }
-  function pickNow(done) { done = done || clearedIds(); const p = store.get(KEYS.pick); return p && Object.prototype.hasOwnProperty.call(AREAS, p) && !lockOf(p, done) ? p : "gate"; }
-  function renderGate() {
-    const done = clearedIds(), last = clamp(parseInt(store.get(KEYS.brothers), 10) || 0, 0, 3);
-    if (!plate.pick || lockOf(plate.pick, done)) plate.pick = pickNow(done);
-    $("gateLine").textContent = "Normal";
-    for (const b of $("gateLevels").querySelectorAll("button[data-area]")) {
-      const key = b.getAttribute("data-area"), S = specOf(key), lock = AREAS[key] ? lockOf(key, done) : null, name = (S && typeof S.name === "string" && S.name) || (AREAS[key] || {}).name || key, won = !!AREAS[key] && done.has(levelId(key));
-      b.firstChild.textContent = name; b.querySelector("span").textContent = lock || (won ? "✓" : ""); b.querySelector("span").classList.toggle("won", won && !lock);
-      b.disabled = !!lock || !AREAS[key]; b.setAttribute("aria-pressed", String(key === plate.pick));
-      b.setAttribute("aria-label", name + (lock ? ": " + lock : won ? ", cleared" : ""));
-    }
-    $("gateAlone").setAttribute("aria-pressed", String(last === 0));
-    for (const n of [1, 2, 3]) $("gateB" + n).setAttribute("aria-pressed", String(last === n));
-    $("gateParty").hidden = true;
-  }
-  for (const b of $("gateLevels").querySelectorAll("button[data-area]")) b.addEventListener("click", () => { const key = b.getAttribute("data-area"); if (b.disabled || !AREAS[key] || lockOf(key, clearedIds())) return; plate.pick = key; renderGate(); });
-  $("gateAlone").addEventListener("click", () => go(0));
-  for (const n of [1, 2, 3]) $("gateB" + n).addEventListener("click", () => go(n));
-  $("gateBack").addEventListener("click", closePlank);
-  // Leave the gate? (section 3.8): Leave banks the satchel and goes; Stay closes the plank
+  // (The castle plate stood here until design pass 24 section 4.12, build 17: opened from the door on the cellar's left wall, it listed
+  // the castle's levels over Go alone and Bring sword-brothers. The castle page's Map Table has taken its place.)
+  // Leave the gate? (section 3.8): its leave button (Home, or Main menu when the house asked) banks the satchel and goes; Stay closes the plank
   $("askLeave").addEventListener("click", () => leave(state.askTo || "forge"));
   $("askStay").addEventListener("click", closePlank);
   // the tally (section 3.11.5): the time, the trolls felled and the huts and engines wrecked, the brothers who came, the finds as icons at x 2
   // with NEW on a first find, the pay (the Legend Ember's chances are rolled at the Forge), a level-up; visiting, or with storage blocked,
   // the finds could not be carried home. Since design pass 21 its title, its time line and the counts it names are the level's (the Great
-  // Hall's wolves felled apart from its trolls), and the way on to the next level shows between Back to the Forge and Again
+  // Hall's wolves felled apart from its trolls), and the way on to the next level shows between Home and Again
   const COUNTS = { trolls: L => L.felled + (L.felled === 1 ? " troll" : " trolls"), wolves: L => L.wolves + (L.wolves === 1 ? " wolf" : " wolves") };
   function renderTally() {
     const L = state.lv, sent = L.sent || {}, secs = Math.max(0, Math.round(L.clearT || fight.t)), mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, "0"), TL = PG.tally || {};
@@ -1802,14 +1790,15 @@
     // (input(o): a plain object stands for the thumbs until changed; a function is a driver, called once a step with dt, its answer the thumbs' input)
     state, world, toasts, markSeen() { return store.set(SEEN, "1"); }, lessons: null, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, scene, VIEW, AREA, LEVEL,
     // a level (design pass 12): the run's id, the satchel's state, the way home, the clear, the adapter over the director's state, a synthetic event
-    runId, go, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, spent, get lv() { return state.lv; },   // (spent: this page booted the cellar from a spent level, design pass 22)
-    // (design pass 21) the area table and the level played, its words, the way on, a passage's fade, the castle plate's pick
-    AREAS, area: areaKey, PG, onTo, startPassage, get plate() { return plate; },
+    runId, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, spent, get lv() { return state.lv; },   // (spent: this page booted the cellar from a spent level, design pass 22)
+    // (design pass 21) the area table and the level played, its words, the way on, a passage's fade (go and the castle plate's pick went
+    // with the plate: design pass 24, build 17)
+    AREAS, area: areaKey, PG, onTo, startPassage,
     get guide() { return state.guide; }, take(events) { take(Array.isArray(events) ? events : [events]); },
     get fight() { return fight; }, get rack() { return rack.slice(); }, get paused() { return paused(); },
     // move time on by ms (in steps of 1/60 s); while the game is paused, time doesn't move
     step(ms) { let n = 0; const want = Math.round(ms / 1000 / STEP); for (let i = 0; i < want; i++) { if (paused()) break; tick(); n++; } flushSums(false); draw(); return n; },
-    stick(cx, cy, dx, dy) { const [gx, gy] = toGame(cx, cy), [hx, hy] = toGame(cx + dx, cy + dy); input.stick = { id: -1, cx: gx, cy: gy }; stickTo(hx, hy); return [input.sx, input.sy]; },
+    stick(cx, cy, dx, dy) { return stick ? stick.hold(cx, cy, dx, dy) : [0, 0]; },   // (a thumb landed at client (cx, cy) and pushed (dx, dy): the wish; [0, 0] while the page has no stick)
     draw
   };
   // a level: the first two column tiles are baked whole behind the fade (the rest in slices while the party walks); ?perf=stress builds the
@@ -1892,7 +1881,8 @@
   fit();
   syncHud(); syncPrompt();
   // the first-visit plank: the cellar's, or the level's in the same frame (section 3.14), its key line for a keyboard or for thumbs (a
-  // level's title, lines, button, key lines and the stage's label in its own words since design pass 21; the cellar's door is the castle's)
+  // level's title, lines, button, key lines and the stage's label in its own words since design pass 21). The cellar's lines say where
+  // its stairs lead since design pass 24 (section 4.12, build 17), and no longer speak of a door to the castle
   if (LEVEL) {
     const PL = PG.plank || {}, plankTitle = said(PL.title, AREA.name || WANT.name);
     $("firstPlank").setAttribute("aria-label", plankTitle); $("firstPlank").querySelector("h2").textContent = plankTitle;
@@ -1906,8 +1896,8 @@
   }
   if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = LEVEL ? "You came without weapons from the Forge: you carry the Sword and the Bow, and your finds cannot be carried home." : "You came without weapons from the Forge, so the rack holds the twenty class weapons and the world's forged weapons."; }
   const KL = PG.keys || {};
-  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = LEVEL ? said(KL.fine, "E takes up what lies on the field and goes into the castle. Esc opens the menu.") : "E uses the rack, the stairs and the castle's door. U: a legend's ability. Esc opens the cellar's menu."; }
-  else { $("keyLine").textContent = LEVEL ? said(KL.coarse, "Tap the prompt over your knight to take up what lies on the field, and to go into the castle.") : "Under the rack on the wall you can take any weapon you own. The stairs lead back up. The door on the left goes to the castle."; if (LEVEL) $("keyDodge").textContent = "a roll past a blow"; }   // (the cellar's "through the bag" is the cellar's)
+  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = LEVEL ? said(KL.fine, "E takes up what lies on the field and goes into the castle. Esc opens the menu.") : "E uses the rack and the stairs. U: a legend's ability. Esc opens the cellar's menu."; }
+  else { $("keyLine").textContent = LEVEL ? said(KL.coarse, "Tap the prompt over your knight to take up what lies on the field, and to go into the castle.") : "Under the rack on the wall you can take any weapon you own. The stairs lead back up to the courtyard."; if (LEVEL) $("keyDodge").textContent = "a roll past a blow"; }   // (the cellar's "through the bag" is the cellar's)
   // (build 8) with the cellar's lessons running, his words take the first visit's place: the plank waits, and is marked seen when they end
   const lessons = lessonOn("boot") === true;
   if (!lessons && params.get("seen") !== "1" && (store.get(SEEN) !== "1" || params.get("fresh") === "1")) openPlank("first");

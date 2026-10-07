@@ -8,14 +8,16 @@
 //   Armory.paint(L, x0, x1) -> { w, h, data }   the hall's pixels for the columns x0 to x1 - 1, as RGBA; pure, and any two slices agree
 //                                      where they meet, so the page paints the hall in chunks as it is walked
 //   Armory.mount(els, o) -> hall       the page's side: a native sideways scroller, the chunks, a button and a sprite for each weapon
-// A model is { page: "armory" | "legends", classes: [{ cls, label, items: [{ t, n, gone, mine }] }], legends: [{ t, n, gone, mine,
+// A model is { page: "armory" | "legends", classes: [{ cls, label, items: [{ t, n, mine }] }], legends: [{ t, n, mine,
 // sub: [lines] }], missing, empty } with t the Thing's record. Plain script, defines window.Armory; reads window.Smithy for the room's tones and light.
+// Since the Armory fix of 2026-10-07 (Isaac's call) only weapons held stand in the hall: one melted into another leaves it. A bay shows
+// at most SHOW of its class on its two shelves (the rarest); its plate on the floor is a button that opens the whole class (o.onBay).
 (function (root) {
   "use strict";
   const S = root.Smithy, T = S.TONES, OUT = S.OUT, BAYER = S.BAYER;
   const H = 112, FLOOR = 92, POST = 7, CHUNK = 128;
   // a bay: two uprights of SIDE, cells of CELL across, two shelves; the sprites' rows and the boards under them
-  const CELL = 36, SIDE = 4, GAP = 12, FIRST = 66, TAIL = 74;
+  const CELL = 36, SIDE = 4, GAP = 12, FIRST = 66, TAIL = 74, SHOW = 6;
   const ROWS = [{ top: 14, board: 46 }, { top: 51, board: 83 }];
   // the door back to the Forge: the Forge's own Armory door, mirrored (its frame x 14 to 53, the leaf swung open against the wall at 9 to 13)
   const DOOR = { x0: 14, x1: 53, top: 40, bot: 91 };
@@ -31,14 +33,16 @@
   function layout(model, viewW) {
     model = model || {};
     const page = model.page === "legends" ? "legends" : "armory";
-    const L = { page, H, floorY: FLOOR, door: { x0: DOOR.x0 - 5, x1: DOOR.x1, y0: DOOR.top, y1: DOOR.bot }, bays: [], cases: [], cells: [], lamps: [{ x: 59, y: 13 }], missing: model.missing | 0 };
+    // (build 17) model.door "yard": the door at the hall's left end leads out to the courtyard; without it, back to the Forge, as built
+    const L = { page, H, floorY: FLOOR, door: { x0: DOOR.x0 - 5, x1: DOOR.x1, y0: DOOR.top, y1: DOOR.bot }, out: model.door === "yard" ? "yard" : "forge", bays: [], cases: [], cells: [], lamps: [{ x: 59, y: 13 }], missing: model.missing | 0 };
     let x = FIRST;
     if (page === "armory") {
       for (const c of (model.classes || [])) {
-        const n = c.items.length, cols = Math.max(1, Math.ceil(n / 2)), x0 = x, x1 = x0 + 2 * SIDE + cols * CELL - 1;
-        const bay = { cls: c.cls, label: c.label || c.cls, x0, x1, cols, n, held: c.items.filter(it => !it.gone).length, cells: [] };
+        // the bay stands as wide as the weapons it shows, at most SHOW (three columns of two); the rest are seen by opening the bay
+        const n = c.items.length, shown = Math.min(n, SHOW), cols = Math.max(1, Math.ceil(shown / 2)), x0 = x, x1 = x0 + 2 * SIDE + cols * CELL - 1;
+        const bay = { cls: c.cls, label: c.label || c.cls, x0, x1, cols, n, shown, more: n - shown, held: n, cells: [] };
         // down the first column, then the next: the rarest stand nearest the door
-        c.items.forEach((item, i) => { const col = i >> 1, row = i & 1, cell = { item, bay: c.cls, x: x0 + SIDE + col * CELL + 2, y: ROWS[row].top, col, row }; bay.cells.push(cell); L.cells.push(cell); });
+        c.items.slice(0, shown).forEach((item, i) => { const col = i >> 1, row = i & 1, cell = { item, bay: c.cls, x: x0 + SIDE + col * CELL + 2, y: ROWS[row].top, col, row }; bay.cells.push(cell); L.cells.push(cell); });
         L.bays.push(bay);
         for (let col = 4; col < cols - 1; col += 4) L.lamps.push({ x: x0 + SIDE + col * CELL, y: 13 });   // a long bay is lit along its length too
         L.lamps.push({ x: x1 + 1 + GAP / 2, y: 13 });
@@ -90,7 +94,7 @@
       fill(px, 8, px + 6, FLOOR - 1, (x, y) => x === px ? OUT : x === px + 1 ? T.oak[2] : x === px + 6 ? T.oak[0] : (y * 5 + x) % 17 === 0 ? T.oakKnot : T.oak[1]);
       set(px + 3, 3, T.iron[3]); set(px + 3, 4, T.iron[0]);
     }
-    if (near(L.door.x0 - 2, L.door.x1 + 3)) forgeDoor(set, fill);
+    if (near(L.door.x0 - 2, L.door.x1 + 3)) forgeDoor(set, fill, L.out === "yard");
     for (const b of L.bays) if (near(b.x0 - 1, b.x1 + 1)) bay(set, fill, b);
     for (const c of L.cases) if (near(c.x0 - 1, c.x1 + 1)) legendCase(set, fill, c);
     for (const lp of L.lamps) if (near(lp.x - 3, lp.x + 3)) lamp(set, lp.x);
@@ -110,9 +114,12 @@
 
   // the door back to the Forge: an oak frame studded with iron, the leaf swung open against the wall on the left, a stone sill; through
   // it the smithy, dark, with the hearth's fire on its stone and the anvil against it; the firelight spills onto the hall's floor
-  function forgeDoor(set, fill) {
+  // Since build 17 (design pass 24 section 4.11) the hall is entered from the courtyard: with yard the door shows the yard at dusk (the
+  // same view as the Forge's door out, Smithy.yardView) and the dusk's cool light lies on the hall's floor
+  function forgeDoor(set, fill, yard) {
     const { x0, x1, top, bot } = DOOR, oak = T.oak, ix0 = x0 + 4, ix1 = x1 - 4, iy0 = top + 5, fx = ix0 + 9, fy = bot - 9;
-    for (let y = iy0; y <= bot; y++) for (let x = ix0; x <= ix1; x++) {
+    if (yard) S.yardView({ set }, ix0, ix1, iy0, bot);
+    else for (let y = iy0; y <= bot; y++) for (let x = ix0; x <= ix1; x++) {
       const k = Math.max(0, 1 - Math.hypot((x - fx) * 0.8, (y - fy) * 1.0) / 34), b = BAYER[(y & 3) * 4 + (x & 3)];
       const course = Math.floor((y - iy0) / 6), off = course % 2 ? 5 : 0, joint = (y - iy0) % 6 === 5 || (x - ix0 + off) % 10 === 9;
       let c;
@@ -122,8 +129,10 @@
     }
     // the anvil on its stump, seen against the fire
     const ANVIL = ["ooooooooooo.", "o5444444431o", ".oo3222221o.", "...o32221o..", "..o3222221o.", ".o322222221o", ".oooooooooo."], AC = { o: OUT, 5: "#c0cbdc", 4: "#8b9bb4", 3: "#5a6988", 2: "#3a4466", 1: "#262b44" };
+    if (!yard) {
     ANVIL.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== ".") set(ix0 + 5 + i, bot - 13 + j, AC[ch], 0); }));
     fill(ix0 + 8, bot - 6, ix0 + 13, bot - 4, (x) => x === ix0 + 8 || x === ix0 + 13 ? OUT : x < ix0 + 11 ? "#b86f50" : "#733e39", 0);
+    }
     // the frame: oak jambs and a lintel standing proud of the wall, studded with iron
     for (let y = top; y <= bot; y++) for (let x = x0; x <= x1; x++) {
       if (x >= ix0 && x <= ix1 && y >= iy0) continue;
@@ -140,7 +149,7 @@
     fill(x0 - 1, bot, x1 + 1, bot, (x) => x === x0 - 1 || x === x1 + 1 ? OUT : "#8b9bb4", 0);
     for (let y = FLOOR; y < Math.min(H, FLOOR + 7); y++) for (let x = ix0 - 2; x <= ix1 + 2; x++) {
       const k = 1 - (y - FLOOR) / 7 - Math.abs(x + 0.5 - (ix0 + ix1 + 1) / 2) / 26;
-      if (k > 0 && BAYER[(y & 3) * 4 + (x & 3)] < k * 0.7) set(x, y, y === FLOOR ? "#f77622" : "#a22633", 0);
+      if (k > 0 && BAYER[(y & 3) * 4 + (x & 3)] < k * 0.7) set(x, y, yard ? (y === FLOOR ? "#5a6988" : "#3a4466") : (y === FLOOR ? "#f77622" : "#a22633"), 0);
     }
   }
   // a bay: an oak rack standing on the floor against the wall: two uprights, a cornice, a dark back of planks, two shelves, a plinth;
@@ -153,7 +162,7 @@
       fill(ix0, row.board + 4, ix1, row.board + 4, T.joint);                       // the board's shadow on the back
     }
     for (const cell of b.cells) {
-      const bx = cell.x + 11, by = ROWS[cell.row].board + 1, c = cell.item.gone ? "#3a3448" : TIER[Math.max(1, Math.min(6, cell.item.t.tier | 0))];
+      const bx = cell.x + 11, by = ROWS[cell.row].board + 1, c = TIER[Math.max(1, Math.min(6, cell.item.t.tier | 0))];
       fill(bx, by, bx + 9, by + 1, (x) => x === bx || x === bx + 9 ? OUT : c);
     }
     fill(x0, 14, x0 + 3, FLOOR - 1, (x) => x === x0 ? OUT : x === x0 + 1 ? oak[2] : x === x0 + 2 ? oak[1] : oak[0]);
@@ -189,7 +198,7 @@
 
   // ------------------------------------------------------------------ the page's side: the hall under the thumb
   // els: { hall (the scroller), track (as wide as the hall, inside it) }. o: { sprite(t, scale) -> canvas, onOpen(t), onDoor(),
-  // tierWord(t) }. The hall scrolls sideways natively; its pixels are painted in chunks CHUNK wide as they come near the screen (each
+  // onBay(cls) (the plate before a bay was tapped: show the whole class), tierWord(t) }. The hall scrolls sideways natively; its pixels are painted in chunks CHUNK wide as they come near the screen (each
   // one pixel wider than its place, so no seam shows between two at any scale), and each weapon near the screen is a button holding
   // its sprite at the room's own scale. Everything in the track is placed in world pixels through --x, --y and the track's --s
   function mount(els, o) {
@@ -218,11 +227,11 @@
     }
     function button(cell) {
       const it = cell.item, t = it.t, b = doc.createElement("button");
-      b.type = "button"; b.className = "aw" + (it.gone ? " gone" : "") + (it.mine ? " mine" : "") + (L.page === "legends" ? " leg" : "");
+      b.type = "button"; b.className = "aw" + (it.mine ? " mine" : "") + (L.page === "legends" ? " leg" : "");
       b.dataset.id = t.id;
       const word = o.tierWord ? o.tierWord(t) : "";
-      b.title = t.name + (word ? " · " + word : "") + (it.gone ? " · no longer held" : "");
-      b.setAttribute("aria-label", t.name + (word ? ": " + word : "") + (it.n > 1 ? ", " + it.n + " held" : "") + (it.gone ? ", no longer held" : ""));
+      b.title = t.name + (word ? " · " + word : "");
+      b.setAttribute("aria-label", t.name + (word ? ": " + word : "") + (it.n > 1 ? ", " + it.n + " held" : ""));
       b.appendChild(o.sprite(t, 1));
       if (it.mine) { const st = doc.createElement("span"); st.className = "st"; st.textContent = "★"; st.setAttribute("aria-hidden", "true"); b.appendChild(st); }
       if (it.n > 1) { const x = doc.createElement("span"); x.className = "x"; x.textContent = "×" + it.n; b.appendChild(x); }
@@ -269,21 +278,26 @@
       track.style.setProperty("--w", L.W);
       const add = el => { fixed.push(el); track.appendChild(el); return el; };
       // the door back to the Forge, under its plate
-      const d = doc.createElement("button"); d.type = "button"; d.className = "door"; d.id = "forgeDoor"; d.setAttribute("aria-label", "Back through the door to the Forge");
-      d.innerHTML = '<span class="doorplate">← Forge</span>';
+      const d = doc.createElement("button"), out = L.out === "yard"; d.type = "button"; d.className = "door"; d.id = "forgeDoor"; d.setAttribute("aria-label", out ? "Back out through the door to the courtyard" : "Back through the door to the Forge");
+      d.innerHTML = out ? '<span class="doorplate">← Courtyard</span>' : '<span class="doorplate">← Forge</span>';
       d.style.setProperty("--dw", L.door.x1 - L.door.x0 + 3); d.style.setProperty("--dh", L.door.y1 - L.door.y0 + 1);
       d.addEventListener("click", () => { if (o.onDoor) o.onDoor(); });
       add(place(d, L.door.x0 - 1, L.door.y0));
-      // a plate on the floor before each bay: the class and how many weapons stand in it. The foot is as wide as the bay and the plate
-      // sticks to the screen's edges inside it, so a bay longer than the screen keeps its name in sight
+      // a plate on the floor before each bay: the class and how many weapons the smith holds of it, and +N when more than the shelves
+      // show. The plate is a button: it opens the whole class (o.onBay). The foot is as wide as the bay and the plate sticks to the
+      // screen's edges inside it
       for (const b of L.bays) {
         const f = doc.createElement("div"); f.className = "bayfoot"; f.style.setProperty("--bw", b.x1 - b.x0 + 1);
-        const p = doc.createElement("div"); p.className = "bayplate"; p.dataset.cls = b.cls; p.innerHTML = "<b></b><span></span>"; p.firstChild.textContent = b.label; p.lastChild.textContent = b.n;
+        const p = doc.createElement("button"); p.type = "button"; p.className = "bayplate" + (b.more > 0 ? " over" : ""); p.dataset.cls = b.cls; p.innerHTML = "<b></b><span></span>";
+        p.firstChild.textContent = b.label; p.lastChild.textContent = b.n;
+        if (b.more > 0) { const m = doc.createElement("i"); m.className = "more"; m.textContent = "+" + b.more; p.appendChild(m); }
+        p.setAttribute("aria-label", b.label + ": " + b.n + " held" + (b.more > 0 ? ", " + b.shown + " on the shelves" : "") + ". See them all");
+        p.addEventListener("click", () => { if (o.onBay) o.onBay(b.cls); });
         f.appendChild(p); add(place(f, b.x0, FLOOR + 3));
       }
       // under each legend's case: its name, and what the page says of it
       for (const c of L.cases) {
-        const it = c.cell.item, p = doc.createElement("div"); p.className = "legcap" + (it.gone ? " gone" : ""); p.dataset.id = it.t.id;
+        const it = c.cell.item, p = doc.createElement("div"); p.className = "legcap"; p.dataset.id = it.t.id;
         const b = doc.createElement("b"); b.textContent = it.t.name + (it.mine ? " ★" : ""); p.appendChild(b);
         for (const line of [].concat(it.sub || [])) { const sp = doc.createElement("span"); sp.textContent = line; p.appendChild(sp); }
         add(place(p, c.cx, c.y1 + 8));
@@ -307,5 +321,5 @@
     return { render, fit, update, walk, get layout() { return L; }, get scale() { return s; }, get x() { return hall.scrollLeft / s; }, set x(v) { hall.scrollLeft = v * s; update(); }, chunks, cellEls };
   }
 
-  root.Armory = { layout, paint, mount, H, FLOOR, CELL, SIDE, GAP, FIRST, TAIL, POST, CHUNK, ROWS, DOOR, CASE, TIER, LAMP, REACH, wallAt, floorAt, beamAt };
+  root.Armory = { layout, paint, mount, H, FLOOR, CELL, SIDE, GAP, FIRST, TAIL, POST, CHUNK, SHOW, ROWS, DOOR, CASE, TIER, LAMP, REACH, wallAt, floorAt, beamAt };
 })(typeof window !== "undefined" ? window : globalThis);

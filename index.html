@@ -16,8 +16,10 @@
 <style>
 /* Forge Forever: the main menu (design pass 9, card t66; built sideways first by design pass 11, card t69; landscape only since its
    amendment 9). The game's front door: rolling mountains at dusk over the whole screen (proto/dusk.js), the title on the smithy's oak
-   sign hung from two chains, and three buttons in a column centred under it (on the right until 3 Oct 2026, when Isaac asked for the
-   buttons and the name plank centred on the page). Landscape only: a phone held upright sees the turn plate, or,
+   sign hung from two chains, and the buttons in a column centred under it (on the right until 3 Oct 2026, when Isaac asked for the
+   buttons and the name plank centred on the page). Since build 17 (design pass 24 section 4.13) the buttons are Play, which opens the
+   Courtyard, the game's hub, and General Settings; Forge and Battlegrounds are gone (the Battlegrounds button stays as a hidden stub for
+   the script of the build before). Landscape only: a phone held upright sees the turn plate, or,
    with My screen won't turn, the game laid out at height x width and turned a quarter (the cellar's rule; the script sizes the root
    and sets --gw and --gh, the game's own width and height, which the CSS uses in place of vw and vh). One dark look on purpose. */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;
@@ -148,14 +150,14 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .still *{animation:none!important;transition:none!important}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
-<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="e3ae8a9" data-booted="0" data-errors="0">
+<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="1a6fac6" data-booted="0" data-errors="0">
 <div class="game" id="game">
   <canvas class="vista" id="vista" role="img" aria-label="Rolling mountains at dusk: the sun low behind the far range, darker ranges nearer, a black hill with pines in front"></canvas>
   <main class="menu" id="menu">
     <header class="sign f-plank" id="sign"><h1>Forge Forever</h1></header>
     <nav class="buttons" id="buttons" aria-label="Main menu">
-      <button class="big f-ember" id="menuForge"><canvas data-glyph="anvil" aria-hidden="true"></canvas><span>Forge</span></button>
-      <button class="big f-iron" id="menuBattle"><canvas data-glyph="sword" aria-hidden="true"></canvas><span>Battlegrounds</span></button>
+      <button class="big f-ember" id="menuForge"><canvas data-glyph="gate" aria-hidden="true"></canvas><span>Play</span></button>
+      <button class="big f-iron" id="menuBattle" hidden><canvas data-glyph="sword" aria-hidden="true"></canvas><span>Battlegrounds</span></button>
       <button class="big f-iron" id="menuSettings"><canvas data-glyph="cog" aria-hidden="true"></canvas><span>General Settings</span></button>
     </nav>
     <form class="who f-parch" id="who" hidden novalidate autocomplete="off" aria-labelledby="whoHead">
@@ -163,7 +165,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
       <div class="speech" id="whoSpeech"><div><b id="whoWho">Grycus</b><span id="whoWords">Someone's at my door! Who are you? Tell me your name.</span></div></div>
       <input class="fld" id="whoField" name="name" type="text" maxlength="16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Your name" aria-label="Your name" aria-describedby="whoWhy">
       <div class="why" id="whoWhy" aria-live="polite"></div>
-      <button class="go f-ember" id="whoGo" type="submit" disabled>Into the forge</button>
+      <button class="go f-ember" id="whoGo" type="submit" disabled>Into the castle</button>
     </form>
   </main>
   <div class="veil" id="setVeil" hidden>
