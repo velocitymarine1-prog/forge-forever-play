@@ -382,8 +382,19 @@
     const availW = gw - pl - pr, availH = gh - pt - pb, dpr = window.devicePixelRatio || 1;
     const k = Math.max(1, Math.floor(Math.min(availW / W, availH / H) * dpr));
     const cw = W * k / dpr, ch = H * k / dpr;
-    stage.style.width = cw + "px"; stage.style.height = ch + "px";
-    state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s: k / dpr, k, w: cw, h: ch, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr };
+    if (LEVEL) {
+      // (Isaac, 7 Oct 2026) a level fills the screen, every platform: the camera's view (W x H) is still whole inside the safe area at a whole
+      // number of device pixels per world pixel, and the canvas covers the game's whole box at that scale, the level drawn around the view
+      // (drawLevel's window); the HUD keeps to the screen's corners as before, and no brick shows
+      const s = k / dpr, CW = Math.ceil(gw / s), CH = Math.ceil(gh / s);
+      if (stage.width !== CW || stage.height !== CH) { stage.width = CW; stage.height = CH; ctx.imageSmoothingEnabled = false; }
+      stage.style.width = CW * s + "px"; stage.style.height = CH * s + "px";
+      game.classList.add("full");
+      state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s, k, w: CW * s, h: CH * s, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr, full: true, cw: CW, ch: CH };
+    } else {
+      stage.style.width = cw + "px"; stage.style.height = ch + "px";
+      state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s: k / dpr, k, w: cw, h: ch, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr };
+    }
     // a phone held upright gets the turn plate, and the game waits
     const plate = portrait && coarse && !state.forced;
     $("turnPlate").hidden = !plate;
@@ -619,6 +630,15 @@
     priority: specPri.concat(PRIORITY.filter(name => !specPri.includes(name))),
     empty: typeof NOTES.empty === "string" ? NOTES.empty : "You carry the practice sword. Bring weapons from the Forge", badlyHurt: typeof NOTES.badlyHurtAt === "number" ? NOTES.badlyHurtAt : 30 };   // the HP at which the note says Badly hurt (section 3.8: 30 HP or less)
   const PRI = {}; LVN.priority.forEach((name, i) => { PRI[name] = i; });
+  // LEVEL CLEAR (Isaac, 7 Oct 2026): as the last troll of the level falls, the words across the screen for 3.4 s over the level's own
+  // line ("Find the way out" when it has none); the player walks on under it to the way out, which the yellow guide points at as ever
+  let clearTimer = 0;
+  function levelClear() {
+    const el = $("clearBan"); if (!el) return;
+    $("clearLine").textContent = said((AREA.end || {}).line, "Find the way out");
+    el.hidden = false; el.classList.remove("show"); void el.offsetWidth; el.classList.add("show"); state.cleared = (state.cleared || 0) + 1;
+    window.clearTimeout(clearTimer); clearTimer = window.setTimeout(() => { el.classList.remove("show"); el.hidden = true; }, 3500);
+  }
   // the level's end (design pass 21): its event and the note's kind for its line (the gate's gateOurs; the hall's notes call it ours)
   const END = (AREA.end && typeof AREA.end.event === "string" && AREA.end.event) || "gateOurs", OURS = PRI[END] !== undefined ? END : PRI.ours !== undefined ? "ours" : "gateOurs";
   // the stir behind the great doors (design pass 21 section 3.5): when the arena whose clear opens the way into the end's room is cleared,
@@ -688,7 +708,7 @@
     rally() { lv.badly = false; clearFx(); $("fade").classList.remove("on", "wipe"); },
     secondWind() { note("Second wind", "secondWind"); },
     // the level's end (A.end: the gate's gateOurs, the hall's hallOurs, below), its own line: "The gate is ours.", "The hall is ours."
-    gateOurs() { lv.ours = true; lv.clearT = fight.t; note(said((AREA.end || {}).line, "The gate is ours."), OURS); },
+    gateOurs() { lv.ours = true; lv.clearT = fight.t; note(said((AREA.end || {}).line, "The gate is ours."), OURS); levelClear(); },
     clear() { DIRECTOR.gateOurs(); },
     pickup(e) { if (isMine(e)) pickup(e.id || e.thing, e.from); },
     chestOpen(e) { if (isMine(e)) { lv.finds.iron_chests = 1; saveSatchel(); } },
@@ -1046,15 +1066,31 @@
   // camera's translate; after it, in world coordinates, the grass tufts, the live marks and telegraphs on the floor, the traps and auras,
   // every actor by its feet (the painter sorts the pieces, the bodies and the platform groups), the knights' shots, streams, effects and
   // numbers; then, in view coordinates, the marks for trolls off the screen; the reach overlay last
+  // the window a level's frame draws (Isaac, 7 Oct 2026: the level fills the screen): the canvas's size in world px, around the camera's view
+  // and centred on it, kept inside the room the party is in (its x range, and its y range from the room's camera range: the long hall is one
+  // screen tall, so on a taller screen its rock shows under it and the dark above); the cellar's frame is the view itself
+  function windowAt(camX, camY) {
+    const L = state.layout, CW = L && L.full ? L.cw : W, CH = L && L.full ? L.ch : H;
+    if (CW === W && CH === H) return { x0: camX, y0: camY, x1: camX + W, y1: camY + H, w: W, h: H };
+    const Rm = ((AREA.rooms || []).find(r => r.id === (fight.level || {}).room)) || null;
+    const rx0 = Rm ? Rm.x0 : 0, rx1 = Rm ? Rm.x1 : (AREA.w || W), ry0 = Rm && Rm.camY ? Rm.camY[0] : 0, ry1 = Rm && Rm.camY ? Rm.camY[1] + H : (AREA.h || H);
+    const fitIn = (c, size, view, a0, a1) => { const want = c - Math.round((size - view) / 2); return a1 - a0 >= size ? clamp(want, a0, a1 - size) : a0 - Math.round((size - (a1 - a0)) / 2); };
+    const x0 = fitIn(camX, CW, W, rx0, rx1), y0 = fitIn(camY, CH, H, ry0, ry1);
+    return { x0, y0, x1: x0 + CW, y1: y0 + CH, w: CW, h: CH };
+  }
   function drawLevel() {
     const t = state.t, still = reduce, [camX, camY] = cam(), fxf = still ? 0 : Math.floor(t * 8) % 4;
     if (!scene.tiles.allDone()) scene.tiles.work(2, () => window.performance.now());   // the tiles bake in 2 ms slices while the party walks
+    const win = state.win = windowAt(camX, camY), L = state.layout;
+    if (L && L.full) { L.x = (camX - win.x0) * L.s; L.y = (camY - win.y0) * L.s; }   // (where the camera's view sits on the screen this frame: the prompt reads it)
+    scene.setWindow(win.w, win.h);
     ctx.save();
+    if (L && L.full) { ctx.fillStyle = "#0d0a14"; ctx.fillRect(0, 0, win.w, win.h); }   // (beyond the world's edge: night)
     if (state.shake.t > 0 && !still) ctx.translate(Math.round((rnd() * 2 - 1) * state.shake.amp), Math.round((rnd() * 2 - 1) * state.shake.amp));
     const hitches = scene.tiles.hitches;
-    scene.drawGround(ctx, camX, camY);
+    scene.drawGround(ctx, win.x0, win.y0);
     if (state.perf && scene.tiles.hitches > hitches) { state.perf.hitches++; if (window.console) window.console.warn("Forge Forever: a column tile was finished at once (a hitch)"); }
-    ctx.translate(-camX, -camY);
+    ctx.translate(-win.x0, -win.y0);
     const o = { t, still, dt: STEP, marks: state.stress ? state.stress.marks : null, patchFade: SPEC.patch.fade, few: state.fx.length > 64,
       knight: (k, c) => drawKnight(fxf, k, c), minion: (m, c) => drawMinion(m, c), statuses: (f, c) => drawStatuses(f, t, c) };
     scene.drawWallArchers(ctx, fight, o);
@@ -1071,11 +1107,12 @@
     // the guide (design pass 18): what the level points at, worked out once a frame; its arrows over everything on the field, not under a
     // plank or in a fade, as the edge marks
     const toastOn = $("toast").classList.contains("show"), shown = !state.plank && !state.left && !(fight.wipe && $("fade").classList.contains("on"));
-    const top = markTop(), gopt = { lefty: state.lefty, toast: toastOn, top }, guide = state.guide = window.Level && Level.guide ? withPassage(Level.guide(fight, gopt), gopt) : null;
+    // (Isaac, 7 Oct 2026) measured against the window the screen shows, each chevron standing over its target under the plates and pointing at it
+    const top = markTop(), gopt = { lefty: state.lefty, toast: toastOn, top, view: win, point: true }, guide = state.guide = window.Level && Level.guide ? withPassage(Level.guide(fight, gopt), gopt) : null;
     if (shown) scene.drawGuide(ctx, guide, o);
-    ctx.translate(camX, camY);
-    if (shown) { const em = (window.Level ? Level.edgeMarks : Gate.edgeMarks)(fight, { lefty: state.lefty, toast: toastOn, marks: o.marks, avoid: guide ? guide.edges : [], top }); scene.drawEdgeMarks(ctx, em); scene.drawGuideView(ctx, guide, o); if (em.length && !state.lv.edgeSeen && firstTime("edge", "Marks at the edge: trolls off the screen.")) state.lv.edgeSeen = true; }   // (dropped under a higher line, the line is tried again while marks show)
-    if (state.reach) { ctx.translate(-camX, -camY); drawReach(); ctx.translate(camX, camY); }
+    ctx.translate(win.x0, win.y0);
+    if (shown) { const em = (window.Level ? Level.edgeMarks : Gate.edgeMarks)(fight, { lefty: state.lefty, toast: toastOn, marks: o.marks, avoid: guide ? guide.edges : [], top, view: win, point: true }); scene.drawEdgeMarks(ctx, em); scene.drawGuideView(ctx, guide, o); if (em.length && !state.lv.edgeSeen && firstTime("edge", "Marks at the edge: trolls off the screen.")) state.lv.edgeSeen = true; }   // (dropped under a higher line, the line is tried again while marks show)
+    if (state.reach) { ctx.translate(-win.x0, -win.y0); drawReach(); ctx.translate(win.x0, win.y0); }
     if (state.perf) drawPerf();
     ctx.restore();
     syncLive();
@@ -1088,7 +1125,7 @@
     const P = LEVEL ? LV.passage() : null, Z = P && P.zone;
     if (!g || !Z || !Z.x || !Z.y || (g.arrows || []).some(a => a.kind === "passage")) return g;
     const su = P.on ? (AREA.surfaces || []).find(s => s.id === P.on) : null, z = su ? (Array.isArray(su.z) ? su.z[1] : su.z || 0) : 0;
-    const x = Math.round((Z.x[0] + Z.x[1]) / 2), y = Math.round((Z.y[0] + Z.y[1]) / 2 - z - 24), v = fight.view;
+    const x = Math.round((Z.x[0] + Z.x[1]) / 2), y = Math.round((Z.y[0] + Z.y[1]) / 2 - z - 24), v = o.view || fight.view;
     g.arrows.push({ kind: "passage", x, y, id: P.id });
     const sx = x - v.x0, sy = y + 8 - v.y0, Wv = v.x1 - v.x0, Hv = v.y1 - v.y0;
     if ((sx < 0 || sx > Wv || sy < 0 || sy > Hv) && Level.onEdge) {
@@ -1107,7 +1144,7 @@
     if (!LEVEL || !L || !(L.s > 0) || !p || p.hidden) return M.top || 28;
     if (markTopKept !== null && markTopKept.layout === L) return markTopKept.top;
     const bottom = (L.pt || 0) + p.offsetTop + p.offsetHeight;   // (the plates hang at the same height; the HUD's inner box starts at the insets)
-    markTopKept = { layout: L, top: Math.max(M.top || 28, Math.ceil((bottom - L.y) / L.s) + 5) };   // (5: a mark's half size, so the whole chevron clears the plate)
+    markTopKept = { layout: L, top: Math.max(M.top || 28, Math.ceil((bottom - (L.full ? 0 : L.y)) / L.s) + 5) };   // (5: a mark's half size, so the whole chevron clears the plate; a full-screen level's marks are in its window's px, from the screen's top)
     return markTopKept.top;
   }
   // the step and frame-time readout under ?perf: the steps are timed in batches of 8 (the clock's grain is too coarse for one), so the

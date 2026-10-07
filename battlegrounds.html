@@ -49,6 +49,10 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .stagewrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:var(--st) var(--sr) var(--sb) var(--sl)}
 .game.forced .stagewrap{padding:var(--sr) var(--sb) var(--sl) var(--st)}
 #stage{display:block;width:384px;height:216px;background:var(--soot);box-shadow:0 0 0 3px #0d0a14,0 0 0 6px var(--oak-d)}
+/* a level fills the screen (Isaac, 7 Oct 2026): the canvas covers the game's whole box from its top-left corner (its last world pixel cut by
+   the box), no frame and no brick; the cellar keeps its framed stage */
+.game.full .stagewrap{padding:0;justify-content:flex-start;align-items:flex-start;overflow:hidden}
+.game.full #stage{flex:none;box-shadow:none;background:#0d0a14}
 /* the HUD */
 .hud{position:absolute;inset:0;pointer-events:none;font-family:var(--data);padding:var(--st) var(--sr) var(--sb) var(--sl)}
 .game.forced .hud{padding:var(--sr) var(--sb) var(--sl) var(--st)}
@@ -213,6 +217,21 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .toast.show{opacity:1}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 /* under the harness (and ?motion=reduce) the page's own motion is off, so a check or a picture never catches a plank half risen */
+/* the level's end (Isaac, 7 Oct 2026): LEVEL CLEAR on a band across the screen's middle as the last troll falls, the words slammed in from
+   wide and bright, held, then gone in 3.4 s; nothing waits on it (the knight walks on under it), and under less motion it only fades */
+.clearban{position:absolute;left:0;right:0;top:50%;z-index:9;transform:translateY(-58%);pointer-events:none;opacity:0}
+.clearban[hidden]{display:none}
+.clearban .cb{padding:12px 0 10px;text-align:center;background:linear-gradient(90deg,rgba(13,10,20,0),rgba(13,10,20,.8) 20%,rgba(13,10,20,.8) 80%,rgba(13,10,20,0));
+  border-top:2px solid rgba(254,174,52,.6);border-bottom:2px solid rgba(254,174,52,.6)}
+.clearban b{display:block;font-family:var(--display);font-weight:800;font-size:clamp(36px,11vh,72px);line-height:1;letter-spacing:.06em;text-transform:uppercase;
+  color:#fee761;text-shadow:0 3px 0 #0d0a14,0 0 14px rgba(247,118,34,.9),0 0 34px rgba(228,59,68,.55)}
+.clearban span{display:block;margin-top:4px;font-family:var(--data);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--parch);text-shadow:0 2px 0 #0d0a14}
+.clearban.show{animation:cbBand 3.4s linear forwards}
+.clearban.show b{animation:cbWord 3.4s cubic-bezier(.2,.85,.25,1) forwards}
+@keyframes cbBand{0%{opacity:0}6%{opacity:1}82%{opacity:1}100%{opacity:0}}
+@keyframes cbWord{0%{transform:scale(1.8);letter-spacing:.42em;filter:brightness(2.2)}13%{transform:scale(1);letter-spacing:.06em;filter:brightness(1.5)}28%{filter:brightness(1)}100%{transform:scale(1);filter:brightness(1)}}
+@media (prefers-reduced-motion:reduce){.clearban.show b{animation:none}}
+.still .clearban.show{animation:cbBand 3.4s linear forwards!important}
 .still *{animation:none!important;transition:none!important}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
@@ -237,6 +256,8 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
     <button class="prompt f-iron" id="prompt" hidden></button>
     <div class="toast" id="toast" role="status"></div>
   </div></div>
+  <!-- the level's end (Isaac, 7 Oct 2026): LEVEL CLEAR across the screen as the last troll falls; the way out is the player's to find, as ever -->
+  <div class="clearban" id="clearBan" hidden aria-hidden="true"><div class="cb"><b>Level clear</b><span id="clearLine"></span></div></div>
   <div class="veil" id="firstVeil" hidden>
     <div class="plank f-parch" id="firstPlank" role="dialog" aria-label="The Training Cellar">
       <h2>The Training Cellar</h2>

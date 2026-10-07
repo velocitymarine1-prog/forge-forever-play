@@ -885,7 +885,7 @@
     this.A = A; this.art = art || null; this.P = prepare(A); this.tiles = new Tiles(A, this.art); this.cols = this.tiles.n;
     this.decals = new Array(this.cols).fill(null); this.lifted = []; this.queue = []; this.stamped = 0; this.lastStamps = 0;
     this.fell = {}; this.wrecks = {}; this.dying = []; this.flares = []; this.last = new Map(); this.covered = new WeakSet(); this.crows = -1; this.world = null; this.byKey = null;
-    this.tufts = this.art && this.art.tufts === false ? [] : makeTufts(A, this.P); this.flat = new Map(); this.view = { x0: 0, y0: 0 };
+    this.tufts = this.art && this.art.tufts === false ? [] : makeTufts(A, this.P); this.flat = new Map(); this.view = { x0: 0, y0: 0 }; this.vw = TW; this.vh = 216;
     this.blocks = new Map(); this.breaks = new Map(); this.clock = null; this.fight = null; this.printed = 0; this.lastPrints = 0;   // (the troll knights' blocks and breaks by foe, on the fight's clock; the art's clock)
     this.badly = A.notes && typeof A.notes.badlyHurtAt === "number" ? A.notes.badlyHurtAt : 30;   // the HP at or under which a knight's shadow goes red (section 3.8)
     // the platforms drawn as a group with their bodies (the chapel's roof, the archer tower's deck); the stair, the landing and the lowered
@@ -906,9 +906,12 @@
     }
     return null;
   };
+  // ---- the window the page draws (Isaac, 7 Oct 2026: a level fills the screen): w x h world px around the camera's view, 384 x 216 by
+  // default; every culling and the ground's columns follow it
+  Scene.prototype.setWindow = function (w, h) { this.vw = w > 0 ? w : TW; this.vh = h > 0 ? h : 216; };
   // ---- the ground, before the camera's translate: the one or two tiles the view overlaps, each with its decal canvas over it
   Scene.prototype.drawGround = function (ctx, camX, camY) {
-    const c0 = clamp(Math.floor(camX / TW), 0, this.cols - 1), c1 = clamp(Math.floor((camX + 383) / TW), 0, this.cols - 1);
+    const c0 = clamp(Math.floor(camX / TW), 0, this.cols - 1), c1 = clamp(Math.floor((camX + this.vw - 1) / TW), 0, this.cols - 1);
     this.flush();
     let n = 0;
     if (this.art) {
@@ -1004,7 +1007,7 @@
     // a level's art (design pass 21) has no grass: here, after the ground and before the floor's marks, it keeps the frame's clock for its
     // rings, draws its back wall's live things (the torches' flames, the hearth, the doors that open) and leaves its footprints
     if (this.art) { this.clock = { t, still }; if (fight) this.fight = fight; let n = 0; if (this.art.wall) n += this.art.wall(ctx, fight || null, t, still, this) || 0; this.prints(fight); return n; }
-    const x0 = this.view.x0 - 4, x1 = this.view.x0 + TW + 4, y0 = this.view.y0 - 6, y1 = this.view.y0 + 216 + 6, bodies = fight && fight.world && fight.world.list ? fight.world.list : [];
+    const x0 = this.view.x0 - 4, x1 = this.view.x0 + this.vw + 4, y0 = this.view.y0 - 6, y1 = this.view.y0 + this.vh + 6, bodies = fight && fight.world && fight.world.list ? fight.world.list : [];
     let lo = 0, hi = this.tufts.length; while (lo < hi) { const m = (lo + hi) >> 1; if (this.tufts[m].x < x0) lo = m + 1; else hi = m; }
     let n = 0;
     for (let i = lo; i < this.tufts.length && this.tufts[i].x <= x1; i++) {
@@ -1266,7 +1269,7 @@
   Scene.prototype.drawLifted = function (ctx, plat, o) { for (const L of this.lifted) if (L.plat === plat) drawAt(ctx, L.s, L.x, L.y - L.z); for (const r of (o && o.rings) || this.rings || []) if (r.plat === plat) drawAt(ctx, r.s, r.x, r.y - r.z); };
   // ---- the live marks on the floor, the shadows of what flies, the telegraph rings and lines, the cover that lies flat, the moat's shimmer
   Scene.prototype.drawFloor = function (ctx, F, o) {
-    const M = o.marks || F.marks || {}, t = o.t, still = o.still, v = this.view, inV = (x, y, r) => x + r >= v.x0 - 8 && x - r <= v.x0 + TW + 8 && y + r >= v.y0 - 8 && y - r <= v.y0 + 224;
+    const M = o.marks || F.marks || {}, t = o.t, still = o.still, v = this.view, inV = (x, y, r) => x + r >= v.x0 - 8 && x - r <= v.x0 + this.vw + 8 && y + r >= v.y0 - 8 && y - r <= v.y0 + this.vh + 8;
     let n = 0;
     // a ring or a live mark on a platform drawn as a group (the roof, the tower's deck) or as an actor (the stair, the landing) is kept
     // for that platform's own pass (drawLifted), after its surface; on the lowered drawbridge (drawn here, first) it is drawn at once, lifted
@@ -1276,10 +1279,10 @@
     for (const c of F.world.cover || []) if (c.kind === "poles" && inV(c.x0, c.y0, 48)) { blit(ctx, SPR.poles(c.x1 - c.x0, c.y1 - c.y0), c.x0 - 1, c.y0 - 1); n++; }
     // the moat's shimmer, clipped to the water in view (before the deck, so the planks lie over the water)
     const MO = this.A.moat;
-    if (MO && !still && v.x0 + TW > MO.u[0] + 64) {
-      const u0 = MO.u[0] + 3, u1 = MO.u[1], y0 = Math.max(FLOOR_TOP, v.y0), y1 = Math.min(LIP, v.y0 + 216), f = Math.floor(t * 4) & 3;
+    if (MO && !still && v.x0 + this.vw > MO.u[0] + 64) {
+      const u0 = MO.u[0] + 3, u1 = MO.u[1], y0 = Math.max(FLOOR_TOP, v.y0), y1 = Math.min(LIP, v.y0 + this.vh), f = Math.floor(t * 4) & 3;
       ctx.save(); ctx.beginPath(); ctx.moveTo(u0 + y0, y0); ctx.lineTo(u1 + y0, y0); ctx.lineTo(u1 + y1, y1); ctx.lineTo(u0 + y1, y1); ctx.closePath(); ctx.clip();
-      const sh = MK.shimmer(f), xs = Math.max(v.x0, u0 + y0), xe = Math.min(v.x0 + TW, u1 + y1);
+      const sh = MK.shimmer(f), xs = Math.max(v.x0, u0 + y0), xe = Math.min(v.x0 + this.vw, u1 + y1);
       for (let x = Math.floor(xs / 48) * 48; x < xe; x += 48) for (let y = Math.floor(y0 / 48) * 48; y < y1; y += 48) { blit(ctx, sh, x, y); n++; }
       ctx.restore();
     }
@@ -1323,7 +1326,7 @@
   };
   // ---- the actors, every frame: the pieces in view, the bodies, the chunks and stones in flight, the stamps lifted on a platform
   Scene.prototype.draw = function (ctx, F, o) {
-    const v = this.view, x0 = v.x0 - 48, x1 = v.x0 + TW + 48, y0 = v.y0 - 160, y1 = v.y0 + 216 + 48, acts = [];
+    const v = this.view, x0 = v.x0 - 48, x1 = v.x0 + this.vw + 48, y0 = v.y0 - 160, y1 = v.y0 + this.vh + 48, acts = [];
     const art = this.art, chip = (kind, i, x, y) => (art && art.chipLook && art.chipLook(kind, i, x, y, this.A)) || null;   // (a level's art: the halls' grey chips)
     if (art) { this.fight = F; if (!this.clock) this.clock = { t: o.t, still: o.still }; }
     const push = (y, z, draw) => acts.push({ y, z, draw });
@@ -1383,7 +1386,7 @@
   // archers too; a green tip while it regrows), a hut, tent, the watchtower or a trebuchet once hit, the gate through Break the gate, and a
   // hurt knight that is not the player's (green). Every bar a baked sprite drawn once
   Scene.prototype.drawBars = function (ctx, F, o) {
-    const v = this.view, inV = (x, y) => x >= v.x0 - 24 && x <= v.x0 + TW + 24 && y >= v.y0 - 24 && y <= v.y0 + 216 + 24;
+    const v = this.view, inV = (x, y) => x >= v.x0 - 24 && x <= v.x0 + this.vw + 24 && y >= v.y0 - 24 && y <= v.y0 + this.vh + 24;
     let n = 0;
     const bar = (x, y, w, q, kind, tip) => { const f = q > 0 ? Math.max(1, Math.round((w - 2) * Math.min(1, q))) : 0; drawAt(ctx, SPR.bar(w, f, kind, tip), x, y); n++; };
     for (const f of F.foes || []) {
@@ -1411,13 +1414,39 @@
   Scene.prototype.drawGuideView = function (ctx, g, o) {
     if (!g) return 0; let n = 0;
     for (const m of g.edges) { drawAt(ctx, guideMark(m.dir), m.x, m.y); n++; }
-    if (g.go && (o.still || (o.t % 0.85) < 0.6)) { drawAt(ctx, SPR.go(), TW - 5, g.go.y); n++; }
+    if (g.go && (o.still || (o.t % 0.85) < 0.6)) { drawAt(ctx, SPR.go(), this.vw - 5, g.go.y); n++; }
     return n;
   };
-  // a pouch bobs 1 px at 2 fps on its own clock with the #fee761 glint on its high frame (still under reduced motion), a gold tie for a
-  // Thing of tier 2 or more (the Emberback's); drawn at (x, y - z) by its foot
-  const tierOf = id => { const t = (root.FORGE_THINGS || []).find(q => q.id === id); return t && t.tier ? t.tier : 1; };
-  Scene.prototype.drawPouch = function (ctx, q, o) { const bob = o.still ? 0 : Math.floor((q.t || 0) * 2) & 1; drawAt(ctx, root.Trolls.pouch(tierOf(q.item) >= 2, bob === 1), q.x, q.y - (q.z || 0) - bob); };
+  // a find on the ground (Isaac, 7 Oct 2026: every drop lit up, so it shows from across the field): an orb of light in its rarity's colours
+  // (the Forge's bands: common grey, uncommon green, rare blue, epic purple, legendary orange, mythic red) round a white core, a pool of its
+  // light on the ground under it, and a thread of light with three motes rising from it; eight frames a second on the drop's own clock,
+  // the orb bobbing 1 px at 2 fps, everything held on its first frame under reduced motion; drawn at (x, y - z) by its foot. [the dark,
+  // the base, the light and the bright of each rarity]
+  const tierOf = id => { if (id === "legend-ember") return 5; const t = (root.FORGE_THINGS || []).find(q => q.id === id); return t && t.tier ? t.tier : 1; };   // (a Legend Ember, were one ever to lie on the field, legendary)
+  const DROP = { 1: ["#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"], 2: ["#193c3e", "#265c42", "#3e8948", "#63c74d"], 3: ["#262b44", "#124e89", "#0099db", "#2ce8f5"],
+    4: ["#3e2731", "#68386c", "#b55088", "#f6757a"], 5: ["#be4a2f", "#f77622", "#feae34", "#fee761"], 6: ["#3e2731", "#a22633", "#e43b44", "#f6757a"] };
+  function dropOrb(tier, f) {
+    const T = DROP[tier] || DROP[1];
+    return once("drop" + tier + ":" + f, () => {
+      const w = 19, h = 40, cx = 9, cy = 30, gy = 35, px = new Array(w * h).fill(null), set = (x, y, c) => { if (x >= 0 && y >= 0 && x < w && y < h) px[y * w + x] = c; };
+      // the pool of light on the ground under it: an ellipse 19 x 5, dithered, its light colour at the middle, its base and dark round it
+      for (let y = gy - 2; y <= gy + 2; y++) for (let x = 0; x < w; x++) { const e = ((x - cx) / 8.5) ** 2 + ((y - gy) / 2.3) ** 2; if (e <= 1 && dith(x, y, 0.95 - e * 0.55)) set(x, y, e < 0.18 ? T[2] : e < 0.5 ? T[1] : T[0]); }
+      // the glow round the orb, r 3.4 to 6.4, a little fuller on the pulse's high frames
+      const pulse = f % 4 < 2 ? 0.62 : 0.44;
+      for (let y = cy - 7; y <= cy + 7; y++) for (let x = cx - 7; x <= cx + 7; x++) { const d = Math.hypot(x - cx, y - cy); if (d > 3.4 && d <= 6.4 && dith(x, y, pulse * (1 - (d - 3.4) / 3))) set(x, y, d < 4.8 ? T[2] : T[1]); }
+      // the thread: a column of light from the orb up 26 px, thinning as it rises, its pattern climbing a pixel a frame
+      for (let y = cy - 5; y >= cy - 31; y--) { const u = (cy - 5 - y) / 26; if (dith(cx, y + f, 0.97 - u * 0.85)) set(cx, y, u < 0.35 ? T[3] : u < 0.7 ? T[2] : T[1]); }
+      // three motes rising and swaying beside the thread, dimming toward the top
+      for (let i = 0; i < 3; i++) { const q = ((f + i * 2.67) % 8) / 8, y = Math.round(cy - 7 - q * 26), x = Math.round(cx + Math.sin((q * 2 + i * 0.7) * Math.PI) * 2.6); set(x, y, q < 0.5 ? T[3] : T[2]); }
+      // the orb, 7 px across: a white core in its bright colour, rimmed in its light colour
+      for (let y = cy - 4; y <= cy + 4; y++) for (let x = cx - 4; x <= cx + 4; x++) { const d = Math.hypot(x - cx, y - cy); if (d <= 1.5) set(x, y, "#ffffff"); else if (d <= 2.6) set(x, y, T[3]); else if (d <= 3.5) set(x, y, T[2]); }
+      return sprite(px, w, h, cx, gy);
+    });
+  }
+  Scene.prototype.drawPouch = function (ctx, q, o) {
+    const qt = q.t || 0, f = o.still ? 0 : Math.floor(qt * 8) & 7, bob = o.still ? 0 : Math.floor(qt * 2) & 1;
+    drawAt(ctx, dropOrb(clamp(tierOf(q.item) | 0, 1, 6), f), q.x, q.y - (q.z || 0) - bob);
+  };
   Scene.prototype.drawPouches = function (ctx, F, o, plat) { let n = 0; for (const q of F.pouches || []) if (q.on === plat && !q.fly) { this.drawPouch(ctx, q, o); n++; } return n; };
   Scene.prototype.underDeck = function (F, b) { if (b.z > 0) return false; for (const su of this.A.surfaces || []) if (su.kind === "deck" && su.rect && !su.solidUnder) { const P = F.world.platBy[su.id]; if (!P || !P.active) continue; const [x0, y0, x1, y1] = su.rect; if (b.x >= x0 - 4 && b.x <= x1 + 4 && b.y >= y0 - 2 && b.y <= y1 + 2) return true; } return false; };
   // the wall archers in the breaches, drawn with the castle front from the chest up, before the field's actors
@@ -1432,7 +1461,7 @@
   Scene.prototype.onWall = function (f) { const CA = this.A.castle; return !!CA && f.x - f.y >= CA.foot.u - 4; };
   Scene.prototype.drawEdgeMarks = function (ctx, list) { for (const m of list) drawAt(ctx, edgeMark(m.size, m.dir, m.alarm, m.dot), m.x, m.y); return list.length; };
 
-  root.Gate = { OUT, R, SKY, PALETTE, BAYER, TW, TH, FLOOR_TOP, LIP, hash, vnoise, dith, Grid, region, outline, rect, ell, or, line, paintRows: paintRows, paint, prepare, Tiles, canvasOf, sprite, sprites: SPR, longShadow, bodyShadow,
+  root.Gate = { OUT, R, SKY, PALETTE, BAYER, TW, TH, FLOOR_TOP, LIP, hash, vnoise, dith, Grid, region, outline, rect, ell, or, line, dropOrb, DROP, paintRows: paintRows, paint, prepare, Tiles, canvasOf, sprite, sprites: SPR, longShadow, bodyShadow,
     marks: MK, telegraph: TG, dirOf, edgeMark, edgeMarks, guideMark, Scene, trollAnim, dentOf, drawAt, blit, bridgeSwing };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Gate;
 })(typeof window !== "undefined" ? window : globalThis);

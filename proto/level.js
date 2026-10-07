@@ -1125,7 +1125,7 @@
   // a mark that would fall elsewhere slides along the edge to the nearest allowed point. At most 8, merged within 6 px. The painter's
   // Gate.edgeMarks draws the same list; the squire reads this one (o: { lefty, toast })
   function edgeMarks(fight, o) {
-    o = o || {}; const v = fight.view; if (!v) return [];
+    o = o || {}; const v = o.view || fight.view; if (!v) return [];   // (o.view: the page's window on a screen wider than the camera's view, Isaac 7 Oct 2026)
     const A = fight.area || {}, M = A.offscreenMarks || {}, W = v.x1 - v.x0, H = v.y1 - v.y0, within = M.within || 200, near = M.near || 64;
     const SZ = Object.assign({ near: 5, far: 3, brute: 7, engine: 5 }, M.size || {}), out = [];
     const AR = fight.level && fight.level.arena && fight.level.arena.x0 !== undefined ? fight.level.arena : null, inArena = x => !AR || (x >= AR.x0 && x <= AR.x1);
@@ -1143,25 +1143,29 @@
   // between the stick and the buttons (22 px up while the toast shows); a point that would fall elsewhere slides along the edge to the
   // nearest allowed place. At most max, the nearest first (the list comes sorted), merged within 6 px: [{ x, y, dir, m }]
   function onEdge(fight, list, o, max) {
-    o = o || {}; const v = fight.view, A = fight.area || {}, M = A.offscreenMarks || {}, W = v.x1 - v.x0, H = v.y1 - v.y0, inset = M.inset || 4;
-    const lefty = o.lefty === undefined ? fight.hand === "left" : !!o.lefty;
+    // (Isaac, 7 Oct 2026) o.view: the page's window, when the screen shows more of the level than the camera's view: the edges, the thumbs'
+    // corners and the bottom band are the window's, the ray starts at the camera's own centre in it; o.point: a mark over the top band stays
+    // over its target (just under the plates) instead of going to a side, and every mark points from where it stands to its target
+    o = o || {}; const fv = fight.view, v = o.view || fv, A = fight.area || {}, M = A.offscreenMarks || {}, W = v.x1 - v.x0, H = v.y1 - v.y0, inset = M.inset || 4;
+    const lefty = o.lefty === undefined ? fight.hand === "left" : !!o.lefty, VW = fv.x1 - fv.x0, VH = fv.y1 - fv.y0;
     const top = typeof o.top === "number" ? Math.max(o.top, M.top || 28) : (M.top || 28), TH = M.thumbs || { x: 67, y: 118 }, band = (M.bottomBand || {})[lefty ? "left" : "right"] || (lefty ? [68, 204] : [180, 316]);   // (o.top: the page's line under its plates on this phone)
-    const cx = W / 2, cy = (A.camera || {}).aimY || 116, placed = [];
+    const thY = TH.y + (H - VH), bandW = [band[0], band[1] + (W - VW)];   // (the thumbs keep to the screen's corners: on a wider or taller window they move with its edges)
+    const cx = (fv.x0 - v.x0) + VW / 2, cy = (fv.y0 - v.y0) + ((A.camera || {}).aimY || 116), placed = [];
     for (const m of list) {
       if (placed.length >= max) break;
       const x0 = inset, x1 = W - inset, y0 = inset, y1 = H - (o.toast ? 22 : inset), ddx = m.sx - cx, ddy = m.sy - cy;
       let t = Infinity; if (ddx > 0) t = Math.min(t, (x1 - cx) / ddx); if (ddx < 0) t = Math.min(t, (x0 - cx) / ddx); if (ddy > 0) t = Math.min(t, (y1 - cy) / ddy); if (ddy < 0) t = Math.min(t, (y0 - cy) / ddy);
       let x = clamp(cx + ddx * t, x0, x1), y = clamp(cy + ddy * t, y0, y1);
       const onBottom = y >= y1 - 0.5, onTop = y <= y0 + 0.5;
-      if (onTop || y < top) { y = top; x = x < cx ? x0 : x1; }
-      if (onBottom && (x < band[0] || x > band[1])) {
-        const toBand = x < band[0] ? band[0] - x : x - band[1], side = x < cx ? x0 : x1, upSide = Math.abs(x - side) + (y1 - (TH.y - 1));
-        if (toBand <= upSide) x = x < band[0] ? band[0] : band[1]; else { x = side; y = TH.y - 1; }
+      if (onTop || y < top) { y = top; x = o.point ? clamp(m.sx, x0, x1) : (x < cx ? x0 : x1); }   // (o.point: under the plates, straight under its target, or at the side it is beyond)
+      if (onBottom && (x < bandW[0] || x > bandW[1])) {
+        const toBand = x < bandW[0] ? bandW[0] - x : x - bandW[1], side = x < cx ? x0 : x1, upSide = Math.abs(x - side) + (y1 - (thY - 1));
+        if (toBand <= upSide) x = x < bandW[0] ? bandW[0] : bandW[1]; else { x = side; y = thY - 1; }
       }
-      if ((x >= W - TH.x || x <= TH.x) && y >= TH.y && !onBottom) y = Math.max(top, TH.y - 1);
-      if ((x >= W - TH.x || x <= TH.x) && y >= TH.y) y = TH.y - 1;
+      if ((x >= W - TH.x || x <= TH.x) && y >= thY && !onBottom) y = Math.max(top, thY - 1);
+      if ((x >= W - TH.x || x <= TH.x) && y >= thY) y = thY - 1;
       const dup = placed.find(p => Math.hypot(p.x - x, p.y - y) <= (M.merge || 6)); if (dup) continue;
-      const ang = Math.atan2(y - cy, x - cx), dir = ((Math.round(ang / (TAU / 8)) % 8) + 8) % 8;
+      const ang = o.point ? Math.atan2(m.sy - y, m.sx - x) : Math.atan2(y - cy, x - cx), dir = ((Math.round(ang / (TAU / 8)) % 8) + 8) % 8;
       placed.push({ x: Math.round(x), y: Math.round(y), dir, m });
     }
     return placed;
@@ -1179,7 +1183,7 @@
   //   gate     { hp, hpMax } during Break the gate, else null
   function guide(fight, o) {
     o = o || {}; const out = { arrows: [], edges: [], go: null, left: null, gate: null };
-    const D = fight.director, v = fight.view, A = fight.area || {}; if (!D || !v || !fight.world) return out;
+    const D = fight.director, v = o.view || fight.view, A = fight.area || {}; if (!D || !v || !fight.world) return out;   // (o.view: the page's window, as the edge marks)
     const W = v.x1 - v.x0, H = v.y1 - v.y0, me = fight.knights[o.seat || 0] || fight.k, G = fight.gate || {}, ch = fight.chest || {}, ar = D.arenas[D.ai];
     const breaking = !!(ar && isCastle(A, ar) && ar.phase === "breakGate" && !G.burst);
     // the arrows' points

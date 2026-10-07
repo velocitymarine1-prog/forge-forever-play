@@ -991,7 +991,7 @@
   // ------------------------------------------------------------------ the back wall's live things (drawn after the decals, before the floor's
   // marks and every actor): torch flames, the hearth's fire, the kennels' bars and eyes, the great doors' leaves, the hide over the hearth
   function wall(ctx, F, t, still, S) {
-    const P = prep(S.A), st = sync(S, F), v = S.view, vx0 = v.x0 - 16, vx1 = v.x0 + TW + 16, LG = LAYOUT.hall, LY = LAYOUT.yard, LH = LAYOUT.hallway, ft = F ? F.t || 0 : 0;
+    const P = prep(S.A), st = sync(S, F), v = S.view, vx0 = v.x0 - 16, vx1 = v.x0 + (S.vw || TW) + 16, LG = LAYOUT.hall, LY = LAYOUT.yard, LH = LAYOUT.hallway, ft = F ? F.t || 0 : 0;
     if (v.y0 > 120) return 0;   // (the back walls are out of view)
     const tick = still ? 0 : Math.floor(t * 8);
     let n = 0;
@@ -1047,8 +1047,8 @@
   }
   function lights(ctx, F, t, still, S) {
     if (still) return 0;
-    const P = prep(S.A), v = S.view, cx = v.x0 + TW / 2, cy = v.y0 + 108, tick = Math.floor(t * 8);
-    const fires = P.lights.filter(L => L.fire && L.x + L.r >= v.x0 && L.x - L.r <= v.x0 + TW && L.y + L.r / L.fy >= v.y0 && L.y - L.r / L.fy <= v.y0 + 216);
+    const P = prep(S.A), v = S.view, VW = S.vw || TW, VH = S.vh || 216, cx = v.x0 + VW / 2, cy = v.y0 + VH / 2, tick = Math.floor(t * 8);
+    const fires = P.lights.filter(L => L.fire && L.x + L.r >= v.x0 && L.x - L.r <= v.x0 + VW && L.y + L.r / L.fy >= v.y0 && L.y - L.r / L.fy <= v.y0 + VH);
     fires.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
     // (a ring not yet baked is baked now, one a frame (2 ms at most); the rest wait, their pools showing as baked meanwhile)
     let n = 0, made = 0; const st = stateOf(S);
@@ -1060,17 +1060,18 @@
   // and 2 px drifting down and a little east at 10 to 18 px/s with a slow sway, in view coordinates; held still under less motion (40
   // flakes); a few blow in at the long hall's arrow slits
   function weather(ctx, camX, camY, t, still, S) {
-    const P = prep(S.A); let n = 0;
-    if (lookOf(P, camX + TW / 2) === YARD) {
-      const N = still ? 40 : 60, tt = still ? 0 : t;
+    // (the window the page draws may be wider or taller than the camera's 384 x 216: the flakes wrap over it, as many to the area)
+    const P = prep(S.A), VW = S.vw || TW, VH = S.vh || 216, WX = VW + 16, WY = VH + 16, area = (WX * WY) / (400 * 232); let n = 0;
+    if (lookOf(P, camX + VW / 2) === YARD) {
+      const N = Math.round((still ? 40 : 60) * Math.max(1, area)), tt = still ? 0 : t;
       for (let i = 0; i < N; i++) {
         const vy = 10 + 8 * hash(i, 3, 503), vx = 2 + 3 * hash(i, 4, 504), amp = 1.5 + 2.5 * hash(i, 5, 505), ph = hash(i, 6, 506) * TAU;
-        const wx = hash(i, 1, 501) * 400 + vx * tt + Math.sin(tt * 0.9 + ph) * amp, wy = hash(i, 2, 502) * 232 + vy * tt;
-        const x = ((wx - camX) % 400 + 400) % 400 - 8, y = ((wy - camY) % 232 + 232) % 232 - 8;
+        const wx = hash(i, 1, 501) * WX + vx * tt + Math.sin(tt * 0.9 + ph) * amp, wy = hash(i, 2, 502) * WY + vy * tt;
+        const x = ((wx - camX) % WX + WX) % WX - 8, y = ((wy - camY) % WY + WY) % WY - 8;
         drawAt(ctx, PC.flake(hash(i, 7, 507) < 0.3), Math.round(x), Math.round(y)); n++;
       }
-    } else if (!still && lookOf(P, camX + TW / 2) === HALLWAY) {
-      for (const s of P.slits) { const sx = s + 2 - camX; if (sx < -4 || sx > TW + 4) continue; for (let i = 0; i < 2; i++) { const q = ((t * 0.35 + hash(s, i, 508)) % 1), x = sx + q * 10 + Math.sin(t * 2 + i) * 1.5, y = 38 - camY + q * 26; drawAt(ctx, PC.flake(false), Math.round(x), Math.round(y)); n++; } }
+    } else if (!still && lookOf(P, camX + VW / 2) === HALLWAY) {
+      for (const s of P.slits) { const sx = s + 2 - camX; if (sx < -4 || sx > VW + 4) continue; for (let i = 0; i < 2; i++) { const q = ((t * 0.35 + hash(s, i, 508)) % 1), x = sx + q * 10 + Math.sin(t * 2 + i) * 1.5, y = 38 - camY + q * 26; drawAt(ctx, PC.flake(false), Math.round(x), Math.round(y)); n++; } }
     }
     return n;
   }
@@ -1080,7 +1081,7 @@
   function printKind(b) { if (b.knight) return "boot"; if (b.kind === "wolf") return "paws"; if (b.kind === "brute" || b.kind === "rockbrute") return "brute"; return "foot"; }
   function prints(F, S) {
     const P = prep(S.A), st = stateOf(S), out = [];
-    if (lookOf(P, S.view.x0 + TW / 2) !== YARD) return out;
+    if (lookOf(P, S.view.x0 + (S.vw || TW) / 2) !== YARD) return out;
     const seen = new Set();
     for (const b of S.bodiesOf(F)) {
       if (!b.knight && !b.foe) continue;   // (a knight's summons leave none)
