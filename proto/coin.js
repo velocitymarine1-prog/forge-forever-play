@@ -52,7 +52,7 @@
   // is bought for its price. { ok, free, cost }, with `reason` when not ok. Pure: the caller adds the class to profile.classes and,
   // when it was not free, takes `cost` from profile.coins and adds the class to profile.bought. A shop from before build 17 has no
   // `classes`, and then nothing is a class
-  const ARM_LINES = { unknown: "Not a weapon class", held: "That class is already yours", unsold: "Not for sale", poor: "Too few coins" };
+  const ARM_LINES = { unknown: "Not a weapon class", held: "That class is already owned", unsold: "Not for sale", poor: "Too few coins" };
   function classPrice(cls, shop) { for (const g of ((shop.classes || {}).groups || [])) if (g.classes.includes(cls)) return g.coins; return null; }
   function arm(cls, shop, profile) {
     const coins = classPrice(cls, shop), no = (reason, cost) => ({ ok: false, free: false, cost, reason });

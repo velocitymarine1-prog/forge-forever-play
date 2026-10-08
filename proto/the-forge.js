@@ -40,6 +40,9 @@
 // /arm and /daily); the unlock plaque and the Cart's cabinet are gone. Only the Map Table is an entry in the phone's history.
 // Since build 20 (design pass 31, card t89) the walls pane is bare: no head line over a wall, no gift line under a shelf's name and
 // no chip row (by element, or by kind on the Legendary shelf); a shelf is its name and count, the search, the sort and the things.
+// Since build 21 (design pass 32, card t90) the confirm plank paints over Vorn's plank (it was hidden under it, so a tap on a class
+// seemed to do nothing), a class held reads Owned ✓ at his stall, and a class taken there (or the first weapon chosen) raises the
+// drill (openDrill, proto/drill.js): the knight using the weapon against a straw dummy, with its damage and strengths under it.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -771,7 +774,7 @@
     if (room) { room.figure = gryFigure; if (room.redraw) room.redraw(); }
   }
   // something stands over the room, or he is out of sight: he holds his tongue (build 8: and while the lessons run, the lesson is his word)
-  function gryQuiet() { return state.forging || state.pouring || state.wallsOpen || state.room !== "forge" || session.leaving || plaqueOpen() || plankOpen() || !$("setPlank").hidden || !$("firstWeapon").hidden || !$("unlockPlaque").hidden || lessonOn("quiet") === true; }
+  function gryQuiet() { return state.forging || state.pouring || state.wallsOpen || state.room !== "forge" || session.leaving || plaqueOpen() || plankOpen() || !$("setPlank").hidden || !$("firstWeapon").hidden || !$("unlockPlaque").hidden || drillOpen() || lessonOn("quiet") === true; }
   function gryShow(text, ms, then) {
     const say = $("grySay"); $("gryLine").textContent = text; say.hidden = false; gry.line = text;
     say.classList.remove("pop"); void say.offsetWidth; if (!reduce) say.classList.add("pop");
@@ -1671,11 +1674,63 @@
       gain(t.id); if (!profile.found.includes(t.id)) profile.found.push(t.id);
       $("firstWeapon").hidden = true; state.glow = c; save();
       renderSign(); setTab("weapons"); renderInfo();
-      toast(`The ${plural(c)} rack goes up`);
       gryOpen(false);
+      if (!openDrill(c, { first: true, toast: `The ${plural(c)} rack goes up` })) toast(`The ${plural(c)} rack goes up`);   // (design pass 32) the first weapon is a class opened: the drill, its toast after
     });
     $("cfNo").addEventListener("click", () => { $("confirmPlank").hidden = true; });
   }
+  // ------------------------------------------------------------------ the drill (design pass 32, card t90; build 21): a new class is a big deal
+  // When a class is taken at Vorn's (confirmClass) or the first weapon is chosen (confirmFirst), #drillPlaque rises over everything:
+  // the eyebrow (the group and what it cost, or YOUR FIRST WEAPON), the class weapon's name, Vorn's face and his drill line (the
+  // first weapon, with no Vorn in the smithy, says where the rack goes), the stage (proto/drill.js: the knight using the weapon
+  // against a straw dummy, looping; one still under less motion, scaled by a whole number to the room left), the Damage and
+  // Strengths lines (Drill.words) and Done. Esc closes it too; Settings closes it; the yard pauses and Grycus is quiet under it.
+  // Without drill.js on the page (an old cached page) nothing opens and the flow is as it was
+  const drill = { run: null, cls: null, toast: null };   // (toast: the rack's line, shown when the drill closes, so it never sits on Done)
+  const drillOpen = () => !$("drillPlaque").hidden;
+  function openDrill(c, o) {
+    o = o || {};
+    const DR = window.Drill, t = classWeaponOf(c);
+    if (!DR || !t) return false;
+    closeDrill();
+    const el = $("drillPlaque"), group = o.group || ((SHOP.classes && SHOP.classes.groups) || []).find(g => g.classes.includes(c)) || null;
+    const eyebrow = o.first ? "Your first weapon" : "A new class" + (group ? " · " + group.name : "") + (o.free ? " · on the house" : o.cost ? " · " + o.cost + " coins" : "");
+    let words = { damage: "", strengths: "" };
+    try { words = DR.words(t); } catch (e) { (window.__errors || []).push("drill words " + c + ": " + (e && e.message || e)); }
+    el.innerHTML = '<div class="dhead"><div class="eyebrow"></div><h3></h3><div class="dsays" id="drillSays"></div></div><div class="dstage" id="drillStage"><canvas id="drillCanvas" width="160" height="64" role="img"></canvas></div><div class="dfoot"><div class="dline" id="drillDamage"></div><div class="dline" id="drillStrengths"></div><div class="pbtns"><button class="f-ember primary" id="drillDone">Done</button></div></div>';
+    el.querySelector(".eyebrow").textContent = eyebrow; el.querySelector("h3").textContent = t.name;
+    const says = $("drillSays"), line = o.first ? "" : folkSay("vorn", "drill"), s = document.createElement("span");
+    if (line) { says.appendChild(faceCanvas("vorn")); s.textContent = line; } else s.textContent = "Its rack goes up in the Armory.";
+    says.appendChild(s);
+    const dmg = $("drillDamage"), str = $("drillStrengths");
+    dmg.innerHTML = "<b>Damage:</b> "; dmg.appendChild(document.createTextNode(words.damage || ""));
+    str.innerHTML = "<b>Strengths:</b> "; str.appendChild(document.createTextNode(words.strengths || "")); str.hidden = !words.strengths;
+    $("drillCanvas").setAttribute("aria-label", t.name + ": the knight drilling with it against a straw dummy");
+    $("drillDone").addEventListener("click", closeDrill);
+    el.hidden = false; drill.cls = c; drill.toast = o.toast || null;
+    fitDrill();
+    try { drill.run = DR.mount($("drillCanvas"), t, { reduce }); } catch (e) { (window.__errors || []).push("drill " + c + ": " + (e && e.message || e)); drill.run = null; }
+    window.addEventListener("keydown", drillKey);
+    syncYardPrompt();
+    return true;
+  }
+  // the stage at a whole number of screen pixels a world pixel, as big as the room between the head and the foot allows (1 at least)
+  function fitDrill() {
+    const st = $("drillStage"), cv = $("drillCanvas"); if (!st || !cv || !drillOpen()) return;
+    const k = Math.max(1, Math.floor(Math.min((st.clientWidth - 8) / 160, (st.clientHeight - 8) / 64)));
+    cv.style.width = (160 * k) + "px"; cv.style.height = (64 * k) + "px";
+  }
+  function drillKey(e) { if (e.key === "Escape" && drillOpen()) { e.preventDefault(); closeDrill(); } }
+  function closeDrill() {
+    if (!drillOpen() && !drill.run) return false;
+    if (drill.run) { try { drill.run.stop(); } catch (e) { /* stopped */ } drill.run = null; }
+    $("drillPlaque").hidden = true; $("drillPlaque").innerHTML = ""; drill.cls = null;
+    window.removeEventListener("keydown", drillKey);
+    const line = drill.toast; drill.toast = null; if (line) toast(line);
+    syncYardPrompt();
+    return true;
+  }
+  window.addEventListener("resize", fitDrill);
   // (the unlock plaque, "The armory grows: choose two", stood here until build 17: Vorn hands the classes over in the courtyard, design pass 24 section 4.8)
   // (build 12, design pass 19) `wait` holds the level's toasts back that long: a run brought home says what it paid first ("Home with a
   // clear: 250 XP, …"), and since a clear now lifts the level nearly every time, "Level N" follows it instead of replacing it at once
@@ -1822,7 +1877,7 @@
   // the well's purse)
   const yard = { Y: null, ground: [], bakeId: 0, pieces: [], knCache: new Map(), folkCache: new Map(), kn: null, cam: { x: 0, y: 0 }, L: null, stick: null, t0: 0, last: 0, t: 0, raf: 0, zone: null, promptText: "", keys: {},
     fx: { purse: null, flick: 0, lit: null }, toastedWell: false, bakeMs: null, arrows: null };
-  const yardPaused = () => !!(state.room !== "yard" || plaqueOpen() || plankOpen() || folkOpen() || !$("setPlank").hidden || document.hidden || session.leaving || turn.plate || !$("firstWeapon").hidden);
+  const yardPaused = () => !!(state.room !== "yard" || plaqueOpen() || plankOpen() || folkOpen() || !$("setPlank").hidden || document.hidden || session.leaving || turn.plate || !$("firstWeapon").hidden || drillOpen());
   function canvasOf(fr) { const c = document.createElement("canvas"); c.width = fr.w; c.height = fr.h; const g = c.getContext("2d"), id = g.createImageData(fr.w, fr.h); id.data.set(fr.d); g.putImageData(id, 0, 0); return c; }
   function pxCanvas(px, w, h, flip) { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d"); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const col = px[y * w + x]; if (col) { g.fillStyle = col; g.fillRect(flip ? w - 1 - x : x, y, 1, 1); } } return c; }
   function knightSprite(facing, anim, i) { const key = facing + anim + i; let c = yard.knCache.get(key); if (!c) { c = pxCanvas(KN.frame(facing, anim, i).px, 32, 32); yard.knCache.set(key, c); } return c; }
@@ -2155,7 +2210,7 @@
       const h = document.createElement("div"); h.className = "grp"; h.textContent = g.name + " · " + g.coins + " coins"; list.appendChild(h);
       for (const c of g.classes) {
         const t = classWeaponOf(c), own = profile.classes.includes(c), held = owned(x => classOf(x) === c).length;
-        const tag = priceTag(own ? "Yours ✓" : free > 0 ? "On the house" : g.coins.toLocaleString(), own ? "own" : free > 0 ? "free" : "");
+        const tag = priceTag(own ? "Owned ✓" : free > 0 ? "On the house" : g.coins.toLocaleString(), own ? "own" : free > 0 ? "free" : "");   // (design pass 32: Owned, never "yours")
         const b = listRow(t ? sprite(t, 1) : null, t ? t.name : cap(c), (FK.arms(c) || "") + (held && !own ? " · you hold " + held + ", chained" : ""), tag);
         if (!own && held) b.classList.add("chained");
         if (own) b.disabled = true; else b.addEventListener("click", () => confirmClass(c, g, t, tag));
@@ -2179,9 +2234,11 @@
         return;
       }
       state.glow = c; renderAll();
-      toast("The " + plural(c) + " rack goes up" + (r.free ? "" : " · " + r.cost + " coins"));
+      const line = "The " + plural(c) + " rack goes up" + (r.free ? "" : " · " + r.cost + " coins");
       if (!r.free) coinRise(0, profile.coins + r.cost);
       if (folkOpen() && folk.who === "vorn") { const keep = $("folkList") ? $("folkList").scrollTop : 0; openFolk("vorn", { keep: true, said: folkSay("vorn", "bought") }); const l2 = $("folkList"); if (l2) l2.scrollTop = keep; }
+      // (design pass 32) the drill over his plank, the big deal; the rack's toast waits for its Done (it would sit on the button)
+      if (!openDrill(c, { group: g, free: !!r.free, cost: r.cost | 0, toast: line })) toast(line);
     });
   }
   // the Rack (pass 24 section 4.10): the two hands and every weapon the knight can wield, newest first; a chained one says who sells it
@@ -2248,7 +2305,7 @@
     if (!enter("yard", { at: "forge" })) return;
     if (yard.kn && yard.Y) yard.Y.goTo(yard.kn, "nell");
   }
-  $("app").addEventListener("pointerdown", e => { if (!folkOpen()) return; if (e.target.closest("#folkPlank, #confirmPlank, .sign, #setPlank, #yardZone, #yardPrompt")) return; closeFolk(); }, true);
+  $("app").addEventListener("pointerdown", e => { if (!folkOpen()) return; if (e.target.closest("#folkPlank, #confirmPlank, #drillPlaque, .sign, #setPlank, #yardZone, #yardPrompt")) return; closeFolk(); }, true);   // (pass 32: the drill's Done is not a tap outside)
 
   // ------------------------------------------------------------------ the Map Table (design pass 25 with its revision 1, pass 26 sections 3.2 to 3.4)
   // The map itself is proto/map-table.js (the painter, the live layer, the rules, the trip, the reveal); this is the page's side: the
@@ -2653,7 +2710,7 @@
     if (!settings) { toast("Settings didn't load"); return false; }
     owed.hold = true;   // (build 12) a level-up owed after the plaque waits for Settings to close, so its racks never open under it
     if (!lessonOn("pinned")) closePlaque();   // (build 8: the lessons' plaque stays under Settings, so the step is not lost)
-    gryHush(); closeFolk();
+    gryHush(); closeFolk(); closeDrill();   // (design pass 32: the drill is only a show; the class is kept)
     settings.closeErase(); settings.render();
     $("setPlank").hidden = false; $("setBtn").setAttribute("aria-pressed", "true");
     if (atBench && $("bench")) { const b = $("bench"), pl = $("setPlank"); window.requestAnimationFrame(() => { pl.scrollTop = Math.max(0, b.offsetTop - 8); }); }
@@ -2736,6 +2793,8 @@
     profile.picks = Progress.picksLeft(profile);
   }
   window.TheForge = { state, get profile() { return profile; }, own, world, rows, kinds, players, session, svc, pick, swap, forge, pour, setStation, openCabinet, closeCabinet, setTab, fresh, grant, connect, openNaming, submitName, openArmory, closeArmory, armoryOut, openBay, openFolk, closeFolk, folkOpen, closePlaque, confirmFirst, localForge, renderAll, toasts: [], rises: [], toast, levelLine, xpRise, hold: startHold, release: endHold, World,
+    // (design pass 32) the drill: its run (seek(t) draws a moment for a check or a picture), and the doors
+    openDrill, closeDrill, drillOpen, get drill() { return drill.run; },
     save, load, goDown, writeHandoff, takeLoadoutBack, takeRunBack, lastRun: null, equip, worldKey, wentDown: null, wentTo: null, goHome, openSettings, closeSettings, fitRoom, layout: null, setMotion, get reduce() { return reduce; }, get settings() { return settings; },
     // (build 17) the castle: the rooms and the two new ones (the harness steps the yard through yard.step)
     enter, get roomName() { return state.room; }, ROOMS, hasYard, hasMap, noyard, toGame, popMap, get mapPushed() { return map.pushed; }, saveYardMark, histState,
