@@ -855,6 +855,8 @@
   // (the shared switch) lays the frame out at height x width and turns it a quarter; a fine pointer never sees the plate
   const coarse = params.get("pointer") ? params.get("pointer") === "coarse" : !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
   const viewport = () => { const vv = window.visualViewport; return { w: Math.max(1, Math.round(vv ? vv.width : window.innerWidth)), h: Math.max(1, Math.round(vv ? vv.height : window.innerHeight)) }; };
+  // the phone's safe-area insets as the game sees them (design pass 30: #probe's padding is the four game insets, turned with the frame)
+  function insets() { const p = $("probe"); if (!p) return { t: 0, r: 0, b: 0, l: 0 }; const cs = window.getComputedStyle(p), n = v => parseFloat(v) || 0; return { t: n(cs.paddingTop), r: n(cs.paddingRight), b: n(cs.paddingBottom), l: n(cs.paddingLeft) }; }
   function fitTurn() {
     const v = viewport(), portrait = v.h > v.w, el = $("phone");
     turn.turned = turn.forced && portrait;   // forced landscape only turns a viewport that is upright
@@ -1996,8 +1998,10 @@
     const el = $("yardPrompt"), z = yard.zone, k = yard.kn, L = yard.L;
     if (!z || !k || !L || state.room !== "yard" || folkOpen() || plaqueOpen() || plankOpen()) { el.hidden = true; return; }
     const cv = $("yard");
-    if (!moveOnly || el.hidden) { yard.promptText = yardPromptFor(z); if (el.textContent !== yard.promptText) el.textContent = yard.promptText; el.hidden = false; }
-    el.style.left = Math.round(cv.offsetLeft + (k.x - yard.cam.x) * L.per) + "px";
+    if (!moveOnly || el.hidden) { yard.promptText = yardPromptFor(z); if (el.textContent !== yard.promptText) el.textContent = yard.promptText; el.hidden = false; yard.promptHalf = el.offsetWidth / 2 || 40; }
+    // (design pass 30) clamped inside the pane and the screen's insets (the notch's strip at either side), as the cellar's prompt is
+    const ins = insets(), half = yard.promptHalf || 40, lo = ins.l + half, hi = Math.max(lo, $("yardpane").clientWidth - ins.r - half);
+    el.style.left = Math.round(Math.max(lo, Math.min(hi, cv.offsetLeft + (k.x - yard.cam.x) * L.per))) + "px";
     el.style.top = Math.round(cv.offsetTop + (k.y - 34 - yard.cam.y) * L.per) + "px";
   }
   (function yardArrows() {
@@ -2286,7 +2290,7 @@
     if (state.room !== "map" || !map.M) return null;
     const pane = $("mappane"), cv = $("map"); if (!pane.clientWidth || !pane.clientHeight) return null;
     const dpr = window.devicePixelRatio || 1, devW = pane.clientWidth * dpr, devH = pane.clientHeight * dpr, k = MT.fit(devW, devH), per = k / dpr;
-    const vw = Math.min(map.M.W, Math.floor(devW / k)), vh = Math.min(map.M.H, Math.floor(devH / k)), cx0 = Math.floor((map.M.W - vw) / 2), cy0 = Math.floor((map.M.H - vh) / 2);
+    const vw = Math.min(map.M.W, Math.ceil(devW / k)), vh = Math.min(map.M.H, Math.ceil(devH / k)), cx0 = Math.floor((map.M.W - vw) / 2), cy0 = Math.floor((map.M.H - vh) / 2);   // (rounded up to the pane since design pass 30: no line of the pane beside the table)
     const same = map.L && map.L.vw === vw && map.L.vh === vh && map.L.k === k;
     cv.width = vw; cv.height = vh; cv.style.width = (vw * per) + "px"; cv.style.height = (vh * per) + "px";
     map.L = { k, per, vw, vh, cx0, cy0, dpr, paneW: pane.clientWidth, paneH: pane.clientHeight };

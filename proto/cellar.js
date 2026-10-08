@@ -49,52 +49,66 @@
 
   // ------------------------------------------------------------------ the room
   // spec is spec/cellar.json: { w, h, room: { seed, wallTop, wallBot, side, front, stairs, torches, torchY, rack, board, rail }, light }
-  function Scene(spec) {
-    spec = spec || root.FORGE_CELLAR;
-    const o = spec.room || {}, W = spec.w, H = spec.h;
-    this.spec = spec; this.W = W; this.H = H;
+  // opts.pad = { l, t, r, b } (design pass 30, build 19: the room with wings): the picture is baked that much bigger than the room on each
+  // side, the shell (the back wall's bricks, the beam, the floor's flagstones, the wall-foot shadow, the posts, the side and front walls)
+  // drawn out to the picture's edges, and every prop at the spec's place: the room's own coordinates never move (set and fill take them;
+  // a point of the picture is the room's point plus the pad), and a pad of 0 bakes the plain room byte for byte. draw() blits the picture
+  // at (-l, -t), so a page draws the room at (0, 0) as ever and the wings fall where the window is bigger than the room
+  function Scene(spec, opts) {
+    spec = spec || root.FORGE_CELLAR; opts = opts || {};
+    const o = spec.room || {}, RW = spec.w, RH = spec.h;
+    const P = this.pad = Object.assign({ l: 0, t: 0, r: 0, b: 0 }, opts.pad || {});
+    for (const k of ["l", "t", "r", "b"]) P[k] = Math.max(0, Math.round(P[k]) || 0);
+    const W = RW + P.l + P.r, H = RH + P.t + P.b;   // the picture's size
+    this.spec = spec; this.W = W; this.H = H; this.roomW = RW; this.roomH = RH;
     const base = this.base = new Array(W * H).fill(null), lit = this.lit = new Uint8Array(W * H);
-    const set = (x, y, c, l) => { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < W && y < H && c) { base[y * W + x] = c; lit[y * W + x] = l === undefined ? 1 : l; } };
+    // put: a point of the picture; set and fill: a point of the room (the spec's coordinates)
+    const put = (x, y, c, l) => { if (x >= 0 && y >= 0 && x < W && y < H && c) { base[y * W + x] = c; lit[y * W + x] = l === undefined ? 1 : l; } };
+    const set = (x, y, c, l) => put(Math.round(x) + P.l, Math.round(y) + P.t, c, l);
     const fill = (x0, y0, x1, y1, f, l) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const c = typeof f === "function" ? f(x, y) : f; if (c) set(x, y, c, l); } };
     this.set = set; this.fill = fill;
-    const p = { set, fill };
+    // q: the shell's painter, in the picture's own space (with no pad it is the room's)
+    const qfill = (x0, y0, x1, y1, f, l) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const c = typeof f === "function" ? f(x, y) : f; if (c) put(x, y, c, l); } };
+    const q = { set: put, fill: qfill };
     const r = rng(o.seed || 1209);
     const wallTop = o.wallTop === undefined ? 8 : o.wallTop, wallBot = o.wallBot || 64, side = o.side === undefined ? 8 : o.side, front = o.front === undefined ? 8 : o.front;
     this.wallTop = wallTop; this.wallBot = wallBot; this.side = side; this.front = front;
-    // the back wall: the smithy's stone bricks
-    S.bricks(p, r, W, wallTop, wallBot);
+    const foot = wallBot + P.t;   // the wall's foot in the picture
+    // the back wall: the smithy's stone bricks, in whole courses from under the beam down to the floor
+    S.bricks(q, r, W, wallTop, foot);
     // the floor: flagstones seen from above, in the smithy floor's tones (12 px rows of stones 18 to 30 px wide)
-    for (let row = 0; wallBot + row * 12 < H; row++) {
-      const y0 = wallBot + row * 12;
+    for (let row = 0; foot + row * 12 < H; row++) {
+      const y0 = foot + row * 12;
       let x = -Math.floor(r() * 20);
       while (x < W) {
         const w = 18 + Math.floor(r() * 13), t = T.floor[Math.floor(r() * 3)], cracked = r() < 0.1;
-        fill(Math.max(0, x), y0, Math.min(W - 1, x + w - 1), Math.min(H - 1, y0 + 11), (xx, yy) => {
+        qfill(Math.max(0, x), y0, Math.min(W - 1, x + w - 1), Math.min(H - 1, y0 + 11), (xx, yy) => {
           if (yy === y0 || xx === x) return T.floorJoint;
           if (yy === y0 + 1 || xx === x + 1) return T.floorLit;
           if (yy === y0 + 11 || xx === x + w - 1) return T.floorShade;
           return t;
         });
-        if (cracked) { let cx = x + 4 + Math.floor(r() * Math.max(1, w - 8)), cy = y0 + 3; for (let i = 0; i < 6; i++) { set(cx, cy, T.floorJoint); cx += r() < 0.5 ? 1 : 0; cy += 1; if (cy > y0 + 10) break; } }
+        if (cracked) { let cx = x + 4 + Math.floor(r() * Math.max(1, w - 8)), cy = y0 + 3; for (let i = 0; i < 6; i++) { put(cx, cy, T.floorJoint); cx += r() < 0.5 ? 1 : 0; cy += 1; if (cy > y0 + 10) break; } }
         x += w;
       }
     }
     // a shadow dithered along the foot of the wall
-    for (let y = wallBot; y < wallBot + 5; y++) for (let x = 0; x < W; x++) if (BAYER[(y & 3) * 4 + (x & 3)] < 1 - (y - wallBot) / 5) set(x, y, T.floorJoint);
-    // the beam and the posts (the smithy's)
-    S.beam(p, W);
-    if (o.posts !== false) for (const px of [side, W - side - 7]) S.post(p, px, 8, wallBot - 1);
-    // side and front walls, seen from above: a lit inner rim, dark stone, brick joints, a soot line where they meet the floor
+    for (let y = foot; y < foot + 5; y++) for (let x = 0; x < W; x++) if (BAYER[(y & 3) * 4 + (x & 3)] < 1 - (y - foot) / 5) put(x, y, T.floorJoint);
+    // the beam and the posts (the smithy's), along the picture's top and at its corners
+    S.beam(q, W);
+    if (o.posts !== false) for (const px of [side, W - side - 7]) S.post(q, px, 8, foot - 1);
+    // side and front walls, seen from above, at the picture's edges: a lit inner rim, dark stone, brick joints, a soot line where they
+    // meet the floor
     const topC = d => d === 0 ? T.course : d === 1 ? T.wall[3] : (d % 4 === 2 ? T.under : "#2c2638");
     if (side) {
-      fill(0, 8, side - 1, H - 1, (x, y) => topC(side - 1 - x), 0);
-      fill(W - side, 8, W - 1, H - 1, (x, y) => topC(x - (W - side)), 0);
-      for (let y = 8; y < H - front; y++) { set(side, y, OUT, 0); set(W - side - 1, y, OUT, 0); }
-      for (let y = 12; y < H - front; y += 9) { set(2, y, T.joint, 0); set(3, y, T.joint, 0); set(W - 3, y + 4, T.joint, 0); set(W - 4, y + 4, T.joint, 0); }
+      qfill(0, 8, side - 1, H - 1, (x, y) => topC(side - 1 - x), 0);
+      qfill(W - side, 8, W - 1, H - 1, (x, y) => topC(x - (W - side)), 0);
+      for (let y = 8; y < H - front; y++) { put(side, y, OUT, 0); put(W - side - 1, y, OUT, 0); }
+      for (let y = 12; y < H - front; y += 9) { put(2, y, T.joint, 0); put(3, y, T.joint, 0); put(W - 3, y + 4, T.joint, 0); put(W - 4, y + 4, T.joint, 0); }
     }
     if (front) {
-      fill(0, H - front, W - 1, H - 1, (x, y) => topC(y - (H - front)), 0);
-      for (let x = side; x < W - side; x++) set(x, H - front - 1, OUT, 0);
+      qfill(0, H - front, W - 1, H - 1, (x, y) => topC(y - (H - front)), 0);
+      for (let x = side; x < W - side; x++) put(x, H - front - 1, OUT, 0);
     }
     this.props = {};
     // the door to the levels in the left wall (design pass 12, section 3.14). Design pass 24 (section 4.12, build 17) took it out of
@@ -199,12 +213,14 @@
     const W = this.W, H = this.H, L0 = this.light, d = new Uint8ClampedArray(W * H * 4), glow = S.GLOW;
     const n = burning === undefined ? this.torches.length : Math.max(0, Math.min(this.torches.length, burning));
     const L = this.torches.slice(0, n).map((tc, i) => ({ x: tc.x, y: tc.y, R: L0.radius + L0.flicker * Math.sin(f * 1.7 + i * 2.1) }));
+    const P = this.pad || { l: 0, t: 0 };
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x; let [r, gg, b] = this.rgb[i];
       if (this.lit[i] && L.length) {
         let k = 0;
-        for (const l of L) { const dy = y - l.y, dd = Math.hypot(x - l.x, dy > 0 && y >= this.wallBot ? dy * L0.floor : dy); k = Math.max(k, 1 - dd / l.R); }
-        const m = S.glow(k, x, y);
+        const sx = x - P.l, sy = y - P.t;   // (the room's own point: the torches stand in the room, and the wings lie in their light's reach)
+        for (const l of L) { const dy = sy - l.y, dd = Math.hypot(sx - l.x, dy > 0 && sy >= this.wallBot ? dy * L0.floor : dy); k = Math.max(k, 1 - dd / l.R); }
+        const m = S.glow(k, sx, sy);
         r += (glow[0] - r) * m; gg += (glow[1] - gg) * m * 0.9; b += (glow[2] - b) * m * 0.8;
       }
       const o = i * 4; d[o] = r; d[o + 1] = gg; d[o + 2] = b; d[o + 3] = 255;
@@ -224,7 +240,8 @@
   // draw the room at time t; burning is how many torches are lit (all by default); still holds the flicker and the flames
   Scene.prototype.draw = function (ctx, t, still, burning) {
     const frames = this.bake(), n = burning === undefined ? this.torches.length : burning, tick = still ? 0 : Math.floor(t * this.light.fps);
-    ctx.drawImage(n >= this.torches.length ? frames[tick % 4] : this.catching[Math.max(0, n)], 0, 0);
+    const P = this.pad || { l: 0, t: 0 };
+    ctx.drawImage(n >= this.torches.length ? frames[tick % 4] : this.catching[Math.max(0, n)], -P.l, -P.t);
     this.torches.forEach((tc, i) => { if (i < n) flame(ctx, Math.floor(tc.x), Math.floor(tc.y) + 3, still ? 0 : (tick + Math.floor(tc.x)) % 4); });
   };
   // a torch flame, 5 x 8, on four frames in the hearth's fire ramp

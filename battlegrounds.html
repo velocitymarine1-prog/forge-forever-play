@@ -16,8 +16,9 @@
 <style>
 /* Forge Forever: The Battlegrounds (design pass 7, built by card t65; the house and the way to the main menu from design pass 9, built
    by card t69). Landscape, two thumbs. One dark look on purpose, the Forge's:
-   its frames, its three typefaces, its palette, its brick in the gutters. The stage is one canvas of 384 x 216 world pixels scaled by a
-   whole number of device pixels; the HUD is HTML over it; planks and plates lie above both. */
+   its frames, its three typefaces, its palette. The stage is one canvas at a whole number of device pixels per world pixel, covering
+   the whole screen (design pass 30, build 19: the cellar's room and a level's view are drawn through a window as big as the glass, so
+   no brick and no frame shows); the HUD is HTML over it, inside the phone's safe-area insets; planks and plates lie above both. */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;
   --parch:#ead4aa;--parch-2:#e4a672;--mute:#b3a48c;--dim:#8a7d6e;--ember:#f77622;--brass:#feae34;--hot:#fee761;--blood:#e43b44;--ice:#2ce8f5;--gold:#feae34;--gold-d:#be4a2f;
   --ink:#3e2731;--ink2:#733e39;--ink3:#a22633;
@@ -26,7 +27,7 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--soot);color:var(--parch);overscroll-behavior:none}
-body{font-family:var(--text);font-size:16px;line-height:1.4;background-image:var(--bricks);background-size:56px 28px;
+body{font-family:var(--text);font-size:16px;line-height:1.4;background:#0d0a14;
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 canvas{image-rendering:pixelated;image-rendering:crisp-edges}
 button{font:inherit;color:inherit;touch-action:manipulation}
@@ -44,18 +45,20 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .f-plank canvas,.f-parch canvas,.f-iron canvas,.f-ember canvas,.f-slot canvas,.f-gold canvas{image-rendering:pixelated}
 /* the probe reads the safe-area insets for the stage's fit */
 #probe{position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--st) var(--sr) var(--sb) var(--sl)}
-/* the game root: the whole viewport; in forced landscape it is laid out at height x width and turned a quarter (the script sizes it) */
-.game{position:fixed;left:0;top:0;width:100%;height:100%;overflow:hidden;touch-action:none;transform-origin:0 0}
-.stagewrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:var(--st) var(--sr) var(--sb) var(--sl)}
-.game.forced .stagewrap{padding:var(--sr) var(--sb) var(--sl) var(--st)}
-#stage{display:block;width:384px;height:216px;background:var(--soot);box-shadow:0 0 0 3px #0d0a14,0 0 0 6px var(--oak-d)}
-/* a level fills the screen (Isaac, 7 Oct 2026): the canvas covers the game's whole box from its top-left corner (its last world pixel cut by
-   the box), no frame and no brick; the cellar keeps its framed stage */
+/* the game root: the whole viewport, no padding (design pass 30: the picture reaches the glass's edges); in forced landscape it is laid out
+   at height x width and turned a quarter (the script sizes it). The four game insets, --gl --gt --gr --gb, are the phone's safe-area insets
+   as the game sees them, turned with it: every control that sits against an edge adds its edge's inset, and only the controls do */
+.game{position:fixed;left:0;top:0;width:100%;height:100%;overflow:hidden;touch-action:none;transform-origin:0 0;--gl:var(--sl);--gt:var(--st);--gr:var(--sr);--gb:var(--sb)}
+.game.forced{--gt:var(--sr);--gr:var(--sb);--gb:var(--sl);--gl:var(--st)}
+.stagewrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0}
+#stage{display:block;width:384px;height:216px;background:#0d0a14}
+/* the page fills the screen (Isaac, 7 Oct 2026: a level; every screen since design pass 30): the canvas covers the game's whole box from its
+   top-left corner (its last world pixel cut by the box), no frame and no brick. (The script of the build before, cached on a phone for a
+   deploy's first minutes, never sets .full for the cellar: its 640 x 360 stage stands centred, on the night) */
 .game.full .stagewrap{padding:0;justify-content:flex-start;align-items:flex-start;overflow:hidden}
 .game.full #stage{flex:none;box-shadow:none;background:#0d0a14}
-/* the HUD */
-.hud{position:absolute;inset:0;pointer-events:none;font-family:var(--data);padding:var(--st) var(--sr) var(--sb) var(--sl)}
-.game.forced .hud{padding:var(--sr) var(--sb) var(--sl) var(--st)}
+/* the HUD: inside the insets */
+.hud{position:absolute;inset:0;pointer-events:none;font-family:var(--data);padding:var(--gt,0px) var(--gr,0px) var(--gb,0px) var(--gl,0px)}
 .hud>*{pointer-events:auto}
 .hudin{position:relative;width:100%;height:100%;pointer-events:none}
 .hudin>*{pointer-events:auto;position:absolute}
@@ -130,8 +133,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .prompt{height:30px;padding:0 8px;display:flex;align-items:center;transform:translate(-50%,-100%);cursor:pointer;background-color:transparent;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--hot);white-space:nowrap}
 .note{left:50%;top:46px;transform:translateX(-50%);max-width:70%;padding:2px 8px;font-size:10.5px;letter-spacing:.03em;text-align:center;color:var(--parch);background:rgba(24,20,37,.82);border:2px solid var(--stone-2);pointer-events:none!important}
 /* planks: over a paused cellar */
-.veil{position:absolute;inset:0;background:rgba(13,10,20,.62);display:flex;align-items:center;justify-content:center;padding:calc(8px + var(--st)) calc(8px + var(--sr)) calc(8px + var(--sb)) calc(8px + var(--sl));z-index:5}
-.game.forced .veil{padding:calc(8px + var(--sr)) calc(8px + var(--sb)) calc(8px + var(--sl)) calc(8px + var(--st))}
+.veil{position:absolute;inset:0;background:rgba(13,10,20,.62);display:flex;align-items:center;justify-content:center;padding:calc(8px + var(--gt,0px)) calc(8px + var(--gr,0px)) calc(8px + var(--gb,0px)) calc(8px + var(--gl,0px));z-index:5}
 .plank{max-width:560px;width:100%;max-height:100%;overflow:auto;color:var(--soot);animation:rise .3s steps(4,end)}
 @keyframes rise{from{transform:translateY(18px);opacity:0}to{transform:none;opacity:1}}
 .plank h2{margin:0 0 4px;text-align:center;font-family:var(--display);font-weight:800;font-size:27px;line-height:1;color:var(--ink);text-wrap:balance}
@@ -202,7 +204,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .fade.on{opacity:1}
 /* a wipe's line rides on the fade itself (data-line), over the black that covers the note */
 .fade.wipe::after{content:attr(data-line);position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:70%;padding:2px 8px;font-family:var(--data);font-size:10.5px;letter-spacing:.03em;text-align:center;color:var(--parch);background:rgba(24,20,37,.82);border:2px solid var(--stone-2);white-space:nowrap}
-.toast{position:absolute;left:50%;bottom:calc(10px + var(--sb));transform:translateX(-50%);z-index:8;max-width:70%;padding:4px 10px;font-family:var(--data);font-size:12px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);opacity:0;transition:opacity .25s;pointer-events:none;text-align:center}
+.toast{position:absolute;left:50%;bottom:calc(10px + var(--gb,0px));transform:translateX(-50%);z-index:8;max-width:70%;padding:4px 10px;font-family:var(--data);font-size:12px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);opacity:0;transition:opacity .25s;pointer-events:none;text-align:center}
 .toast.show{opacity:1}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 /* under the harness (and ?motion=reduce) the page's own motion is off, so a check or a picture never catches a plank half risen */

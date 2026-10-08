@@ -52,10 +52,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .f-stone{border:9px solid transparent;border-image:var(--frame-stone) 4 fill round;image-rendering:pixelated}
 .f-plank>*,.f-parch>*,.f-gold>*,.f-iron>*,.f-slot>*,.f-clay>*,.f-stone>*,.f-ember>*{image-rendering:auto}
 .f-plank canvas,.f-slot canvas,.f-clay canvas,.f-parch canvas,.f-gold canvas,.f-iron canvas{image-rendering:pixelated}
-/* the frame: the whole screen on a phone (padded by the safe areas), at most 1180 x 820 on a desktop, centred on the brick; in forced
-   landscape it is laid out at height x width and turned a quarter (the script sizes it) */
-.phone{position:fixed;inset:0;margin:auto;width:100%;height:100%;max-width:1180px;max-height:820px;padding:var(--st) var(--sr) var(--sb) var(--sl);background:var(--soot);overflow:hidden;transform-origin:0 0}
-.phone.forced{margin:0;max-width:none;max-height:none;padding:var(--sr) var(--sb) var(--sl) var(--st)}
+/* the frame: the whole screen on a phone, to the glass's edges (design pass 30, build 19: no padding; the picture runs under the notch and
+   the home indicator), at most 1180 x 820 on a desktop, centred on the brick; in forced landscape it is laid out at height x width and
+   turned a quarter (the script sizes it). The four game insets, --gl --gt --gr --gb, are the phone's safe-area insets as the game sees
+   them, turned with it: every control that sits against an edge (the sign's row, the slots, the plaque, the planks, Settings, the toast,
+   the Armory's arrows, the map's plates, the yard's stick) adds its edge's inset, and only the controls do. #probe carries them for the
+   script (the cellar's device) */
+.phone{position:fixed;inset:0;margin:auto;width:100%;height:100%;max-width:1180px;max-height:820px;background:var(--soot);overflow:hidden;transform-origin:0 0;--gl:var(--sl);--gt:var(--st);--gr:var(--sr);--gb:var(--sb)}
+.phone.forced{margin:0;max-width:none;max-height:none;--gt:var(--sr);--gr:var(--sb);--gb:var(--sl);--gl:var(--st)}
+#probe{position:absolute;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--gt,0px) var(--gr,0px) var(--gb,0px) var(--gl,0px)}
 @media (min-width:1200px) and (min-height:840px){.phone{border:3px solid #0d0a14;box-shadow:0 0 0 3px var(--oak-d),0 16px 0 -4px #0d0a14}}
 /* the app inside it: the sign across the top; the room the whole screen, or beside the walls pane when .open (a slot tapped); in the
    Armory (.in-armory) the hall takes the room's place; every overlay is placed against this box */
@@ -63,7 +68,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .app:not(.open) .wallspane{display:none}
 .app.open{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"sign sign" "room walls"}
 /* the sign, one row: the way home, the room's name, the title, the chips, ← Courtyard (in the Map Table only; the slot is the old ARMORY button's), the cog */
-.sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips armory cog";align-items:center;column-gap:8px;padding:6px 8px;background:var(--oak-d);border-bottom:3px solid var(--soot)}
+.sign{grid-area:sign;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;grid-template-areas:"home name title chips armory cog";align-items:center;column-gap:8px;padding:calc(6px + var(--gt,0px)) calc(8px + var(--gr,0px)) 6px calc(8px + var(--gl,0px));background:var(--oak-d);border-bottom:3px solid var(--soot)}
 .sign .home{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:none;cursor:pointer}
 .sign .home canvas{width:16px;height:16px}
 .sign #homeBtn{grid-area:home}
@@ -136,7 +141,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .say.pop{animation:say .27s steps(3) 1}
 @keyframes say{from{opacity:0;transform:translate(-22px,calc(-100% + 6px))}to{opacity:1;transform:translate(-22px,-100%)}}
 .app.open .npc,.app.open .say,.room.seq .npc,.room.seq .say,.phone.pouring .say{visibility:hidden}
-.slots{position:absolute;left:0;right:0;bottom:4%;display:flex;justify-content:center;align-items:flex-end;gap:6px;pointer-events:none}
+.slots{position:absolute;left:0;right:0;bottom:calc(4% + var(--gb,0px));display:flex;justify-content:center;align-items:flex-end;gap:6px;pointer-events:none}
 .slots>*{pointer-events:auto}
 .slotwrap{display:flex;flex-direction:column;align-items:center;gap:2px}
 .plate{font-family:var(--data);font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:1px 6px;background:var(--stone-2);border:2px solid var(--stone-2);color:var(--dim);line-height:1.2}
@@ -178,7 +183,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 #state,#price,#armState{display:none!important}
 /* plaques and planks (overlays inside the app): a wide card over the room; the planks and the first-weapon and unlock overlays stand
    over the walls pane while it is open, and may scroll. A plaque never scrolls (design pass 15) */
-.plaque,.plank-over,.overlay{position:absolute;left:8%;right:8%;top:52px;bottom:8px;z-index:5;color:var(--soot);animation:rise .35s steps(4,end)}
+.plaque,.plank-over,.overlay{position:absolute;left:8%;right:8%;top:52px;bottom:calc(8px + var(--gb,0px));z-index:5;color:var(--soot);animation:rise .35s steps(4,end)}
 .plank-over,.overlay{overflow:auto}
 .plank-over{z-index:7;top:60px;left:22%;right:22%}
 .overlay{z-index:6}
@@ -375,9 +380,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .legcap b{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--display);font-weight:700;font-size:16px;line-height:1.1;color:var(--hot);text-shadow:0 2px 0 var(--soot)}
 .legcap span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--data);font-size:9.5px;letter-spacing:.04em;line-height:1.3;color:var(--parch);text-shadow:1px 1px 0 var(--soot)}
 .wallnote{white-space:nowrap;padding:3px 9px;background:var(--stone);border:2px solid var(--stone-2);font-family:var(--data);font-size:11px;letter-spacing:.04em;color:var(--mute);pointer-events:none}
-.armnav{position:absolute;bottom:5px;z-index:2;width:38px;height:44px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:20px;line-height:1;color:var(--parch)}
-.armnav.prev{left:4px}
-.armnav.next{right:4px}
+.armnav{position:absolute;bottom:calc(5px + var(--gb,0px));z-index:2;width:38px;height:44px;padding:0;background:none;cursor:pointer;font-family:var(--data);font-size:20px;line-height:1;color:var(--parch)}
+.armnav.prev{left:calc(4px + var(--gl,0px))}
+.armnav.next{right:calc(4px + var(--gr,0px))}
 .app>.veil{grid-area:room;grid-column:1/-1;z-index:3;background:var(--soot);opacity:0;pointer-events:none}
 .app.walk>.veil{animation:walk .32s steps(4,end) 1}
 @keyframes walk{0%{opacity:1}100%{opacity:0}}
@@ -393,8 +398,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .app.lefty #yardZone{left:auto;right:0}
 .ystick{position:absolute;width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;border:2px solid rgba(234,212,170,.35);background:rgba(24,20,37,.35);pointer-events:none!important;z-index:2}
 .ystick i{position:absolute;left:50%;top:50%;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(234,212,170,.55);border:2px solid rgba(24,20,37,.6)}
-.ystick.rest{left:66px;bottom:66px;top:auto;margin:0 0 -44px -44px;opacity:.45}
-.app.lefty .ystick.rest{left:auto;right:22px}
+.ystick.rest{left:calc(66px + var(--gl,0px));bottom:calc(66px + var(--gb,0px));top:auto;margin:0 0 -44px -44px;opacity:.45}
+.app.lefty .ystick.rest{left:auto;right:calc(22px + var(--gr,0px))}
 /* the yard's own notes: "+50" rising into the coin chip as "+N XP" does, and the "!" over Vorn is drawn on the canvas */
 #chipCoins{position:relative}
 .coinrise{position:absolute;left:50%;top:100%;margin-top:2px;transform:translate(-50%,0);z-index:9;white-space:nowrap;font-family:var(--data);font-weight:600;font-size:14px;line-height:1;color:var(--hot);pointer-events:none;opacity:0;
@@ -418,8 +423,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .place.dim,.legendhit.dim{opacity:.35;pointer-events:none}
 .legendhit{position:absolute;pointer-events:auto;background:none;border:0;padding:0;cursor:pointer}
 .legendhit:focus-visible,.place:focus-visible{outline:2px solid var(--hot);outline-offset:1px}
-.mapplate{position:absolute;top:8px;width:318px;max-width:calc(50% - 12px);max-height:calc(100% - 16px);overflow:auto;z-index:5;color:var(--parch);animation:rise .3s steps(4,end)}
-.mapplate.right{right:10px}.mapplate.left{left:10px}
+.mapplate{position:absolute;top:8px;width:318px;max-width:calc(50% - 12px);max-height:calc(100% - 16px - var(--gb,0px));overflow:auto;z-index:5;color:var(--parch);animation:rise .3s steps(4,end)}
+.mapplate.right{right:calc(10px + var(--gr,0px))}.mapplate.left{left:calc(10px + var(--gl,0px))}
 .mapplate.key{width:440px;max-width:calc(100% - 20px)}
 .mapplate h5{font-family:var(--display);font-weight:800;font-size:25px;line-height:1;margin:0 26px 0 0;text-align:center;color:var(--parch)}
 .mapplate .line{font-size:12.5px;line-height:1.25;color:#d9cdb8;margin:2px 0 6px;text-align:center}
@@ -477,7 +482,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .folk .hand.empty b{color:var(--dim)}
 .folk .swaphands{height:40px;padding:0 10px;background:none;cursor:pointer;font-family:var(--data);font-size:12px;color:var(--parch)}
 /* Settings: the four switches (settings.js), Erase, and under Developer the bench that used to sit beside the phone */
-.setplank{left:8px;right:8px;top:52px;bottom:8px;overflow:auto;color:var(--parch)}
+.setplank{left:calc(8px + var(--gl,0px));right:calc(8px + var(--gr,0px));top:52px;bottom:calc(8px + var(--gb,0px));overflow:auto;color:var(--parch)}
 .setplank h3{color:var(--parch)}
 .set-rows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
 .set-row{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;align-items:center;width:100%;min-height:52px;padding:3px 8px;background:none;cursor:pointer;text-align:left}
@@ -505,8 +510,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .bench label{font-family:var(--data);font-size:11px;color:var(--mute);display:flex;gap:4px;align-items:center;flex:none}
 .bench .info{grid-column:1/-1;font-family:var(--data);font-size:11.5px;color:var(--mute);letter-spacing:.03em;margin:0}
 /* the toast, inside the frame so it turns with it */
-.toast{position:absolute;left:50%;bottom:calc(24px + var(--sb));transform:translateX(-50%);z-index:20;font-family:var(--data);font-size:13px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);padding:6px 12px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.phone.forced .toast{bottom:calc(24px + var(--sl))}
+.toast{position:absolute;left:50%;bottom:calc(24px + var(--gb,0px));transform:translateX(-50%);z-index:20;font-family:var(--data);font-size:13px;color:var(--soot);background:var(--parch);border:3px solid var(--soot);box-shadow:0 0 0 3px var(--oak);padding:6px 12px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 /* the turn plate: a phone held upright (the cellar's), fixed to the viewport, above the frame */
 .turn{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:calc(18px + var(--st)) 18px calc(18px + var(--sb));text-align:center;background:rgba(24,20,37,.96)}
@@ -521,8 +525,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="62112cf" data-booted="0" data-errors="0">
-<div class="phone" id="phone"><div class="app" id="app">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="dd85f31" data-booted="0" data-errors="0">
+<div class="phone" id="phone"><div id="probe"></div><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
       <h1 id="signName">The Forge</h1><span class="title" id="title"></span>

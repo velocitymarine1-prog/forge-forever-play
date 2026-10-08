@@ -64,10 +64,11 @@
   // the ribbon's place: centred over the back wall, under the HUD's top row (the stage's top 17 world pixels), as wide as a plank may be;
   // while his beat glances at the rack it steps right of the rack, so the glance shows
   function ribbonBox() {
-    const T = TB(), Lo = T.state.layout, W = $("game").clientWidth, w = Math.floor(Math.min(Ls.widest("ribbon", W), Lo.w - 12));
+    const T = TB(), Lo = T.state.layout, W = $("game").clientWidth, roomW = (T.VIEW ? T.VIEW.w : 384) * Lo.s;   // (design pass 30: the canvas covers the glass; the ribbon keeps to the room)
+    const w = Math.floor(Math.min(Ls.widest("ribbon", W), roomW - 12));
     let x = Math.round((W - w) / 2);
     const prev = L && L.state.beat ? Ls.steps()[Ls.index(L.step) - 1] : null;   // (a beat is the step before's: its glance is in its data)
-    if (prev && prev.beat && prev.beat.glance === "rack") x = Math.min(Math.max(x, Math.round(Lo.x + (BOXES.rack.x + BOXES.rack.w) * Lo.s) + 10), Math.round(Lo.x + Lo.w - 6 - w));
+    if (prev && prev.beat && prev.beat.glance === "rack") x = Math.min(Math.max(x, Math.round(Lo.x + (BOXES.rack.x + BOXES.rack.w) * Lo.s) + 10), Math.round(Lo.x + roomW - 6 - w));
     return { x, y: Math.round(Lo.y + 17 * Lo.s), w };
   }
   function view(id, ctl) {

@@ -397,19 +397,17 @@
     const availW = gw - pl - pr, availH = gh - pt - pb, dpr = window.devicePixelRatio || 1;
     const k = Math.max(1, Math.floor(Math.min(availW / W, availH / H) * dpr));
     const cw = W * k / dpr, ch = H * k / dpr;
-    if (LEVEL) {
-      // (Isaac, 7 Oct 2026) a level fills the screen, every platform: the camera's view (W x H) is still whole inside the safe area at a whole
-      // number of device pixels per world pixel, and the canvas covers the game's whole box at that scale, the level drawn around the view
-      // (drawLevel's window); the HUD keeps to the screen's corners as before, and no brick shows
-      const s = k / dpr, CW = Math.ceil(gw / s), CH = Math.ceil(gh / s);
-      if (stage.width !== CW || stage.height !== CH) { stage.width = CW; stage.height = CH; ctx.imageSmoothingEnabled = false; }
-      stage.style.width = CW * s + "px"; stage.style.height = CH * s + "px";
-      game.classList.add("full");
-      state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s, k, w: CW * s, h: CH * s, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr, full: true, cw: CW, ch: CH };
-    } else {
-      stage.style.width = cw + "px"; stage.style.height = ch + "px";
-      state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s: k / dpr, k, w: cw, h: ch, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr };
-    }
+    // (Isaac, 7 Oct 2026: a level; every screen since design pass 30, build 19) the page fills the screen, every platform: the view (W x H:
+    // a level's camera, or the cellar's whole room) is whole inside the safe area at a whole number of device pixels per world pixel, and
+    // the canvas covers the game's whole box at that scale, the frame drawn through a window around the view (drawLevel's, centred on
+    // the camera; the cellar's, centred on the room, with the room's wings baked out to its edges); the HUD keeps to the screen's corners
+    // as before, and no brick shows
+    const per = k / dpr, CW = Math.ceil(gw / per), CH = Math.ceil(gh / per);   // (per: CSS px to a world px)
+    if (stage.width !== CW || stage.height !== CH) { stage.width = CW; stage.height = CH; ctx.imageSmoothingEnabled = false; }
+    stage.style.width = CW * per + "px"; stage.style.height = CH * per + "px";
+    game.classList.add("full");
+    state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s: per, k, w: CW * per, h: CH * per, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr, full: true, cw: CW, ch: CH };
+    if (!LEVEL) roomWindow();
     // a phone held upright gets the turn plate, and the game waits
     const plate = portrait && coarse && !state.forced;
     $("turnPlate").hidden = !plate;
@@ -421,6 +419,24 @@
     return state.layout;
   }
   function lockLandscape() { try { const o = screen.orientation; if (o && o.lock) { const p = o.lock("landscape"); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* this browser doesn't lock */ } }
+  // the cellar through the level's window (design pass 30, build 19): with no camera and a world of W x H, windowAt centres the window on
+  // the room, so the room sits in the middle of the glass; the layout's x, y is the room's origin on the glass (the HUD's prompt, the
+  // lessons' boxes and the checks read it, as they do a level's); the scene is baked again with wings out to the window's edges when the
+  // window's size changes (a turn, a window resized: milliseconds); and the fight's floor and walls grow by the same wings, so the knight
+  // walks to the wall he can see. (A level's window is drawLevel's, each frame.)
+  function roomWindow() {
+    const L = state.layout; if (LEVEL || !L || !L.full || !scene) return null;
+    const win = state.win = windowAt(0, 0);
+    L.x = -win.x0 * L.s; L.y = -win.y0 * L.s;
+    const pad = { l: -win.x0, t: -win.y0, r: win.w - W + win.x0, b: win.h - H + win.y0 }, cur = scene.pad || { l: 0, t: 0, r: 0, b: 0 };
+    if (pad.l !== cur.l || pad.t !== cur.t || pad.r !== cur.r || pad.b !== cur.b) { try { scene = new C.Scene(AREA, { pad }); } catch (e) { window.__errors.push("the cellar's wings: " + (e && e.message)); } }   // (a bake that fails leaves the room as it was, in the middle, and says so)
+    if (fight && !fight.level) {
+      const F = Object.assign({ x0: 8, x1: W - 8, y0: 8, y1: H - 8 }, AREA.floor || {}), rm = AREA.room || {}, side = rm.side || 0;
+      fight.floor = { x0: F.x0 - pad.l, x1: F.x1 + pad.r, y0: F.y0, y1: F.y1 + pad.b };
+      fight.walls = { x0: side - pad.l, x1: W - side + pad.r, y0: rm.wallBot || 0, y1: H - (rm.front || 0) + pad.b };
+    }
+    return win;
+  }
   // a point of the viewport in the game's own space (turned back when the game is turned)
   const toGame = (cx, cy) => state.turned ? [cy, state.layout.vw - cx] : [cx, cy];
   const paused = () => !!(state.plank || state.plate || document.hidden || state.left);
@@ -1054,8 +1070,11 @@
     if (state.perf) { const now = window.performance.now(); if (state.perf.last) { state.perf.frames.push(now - state.perf.last); if (state.perf.frames.length > 240) state.perf.frames.shift(); } state.perf.last = now; }
     if (LEVEL) { drawLevel(); return; }
     const k = fight.k, t = state.t, still = reduce, fxf = still ? 0 : Math.floor(t * 8) % 4;
+    const Lw = state.layout, win = Lw && Lw.full ? (state.win || roomWindow()) : null;   // (design pass 30: the room through its window, its wings around it)
     ctx.save();
+    if (win) { ctx.fillStyle = "#0d0a14"; ctx.fillRect(0, 0, win.w, win.h); }   // (under the picture, should the bake ever fall short: night)
     if (state.shake.t > 0 && !still) ctx.translate(Math.round((rnd() * 2 - 1) * state.shake.amp), Math.round((rnd() * 2 - 1) * state.shake.amp));
+    if (win) ctx.translate(-win.x0, -win.y0);
     scene.draw(ctx, t, still, state.lit);
     drawBoard();
     // floor decals: patches, cracks, traps, the fields
@@ -1801,7 +1820,7 @@
   // the harness's handle on the screen
   window.TheBattlegrounds = {
     // (input(o): a plain object stands for the thumbs until changed; a function is a driver, called once a step with dt, its answer the thumbs' input)
-    state, world, toasts, markSeen() { return store.set(SEEN, "1"); }, lessons: null, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, scene, VIEW, AREA, LEVEL,
+    state, world, toasts, markSeen() { return store.set(SEEN, "1"); }, lessons: null, input(o) { input.test = typeof o === "function" ? o : o ? Object.assign({}, o) : null; }, pick, reset, leave, use, fit, openPlank, closePlank, setForced, toGame, writeBack, syncHud, cam, get scene() { return scene; }, VIEW, AREA, LEVEL,
     // a level (design pass 12): the run's id, the satchel's state, the way home, the clear, the adapter over the director's state, a synthetic event
     runId, again, finish, sendHome, askLeave, LV, pickup, firstTime, note, spent, get lv() { return state.lv; },   // (spent: this page booted the cellar from a spent level, design pass 22)
     // (design pass 21) the area table and the level played, its words, the way on, a passage's fade (go and the castle plate's pick went

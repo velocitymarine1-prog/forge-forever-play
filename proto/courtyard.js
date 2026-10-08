@@ -1057,7 +1057,9 @@
   function fit(frameW, frameH, paneW, paneH, dpr, spec) {
     spec = spec || SPEC; dpr = dpr || 1;
     const V = spec.view || { w: 384, h: 216 }, k = Math.max(1, Math.floor(Math.min(frameH / V.h, frameW / V.w) * dpr)), per = k / dpr;
-    return { k, per, vw: Math.max(1, Math.min(spec.w, Math.floor(paneW / per))), vh: Math.max(1, Math.min(spec.h, Math.floor(paneH / per))) };
+    // (design pass 30, build 19) the view is rounded up to the pane, never down, so no line of the pane's stone shows beside the yard; on
+    // every iPhone the cellar's k already covers the pane (the frame's height sets it: k 5 at 852 x 393, a view of 512 x 207 of the 640)
+    return { k, per, vw: Math.max(1, Math.min(spec.w, Math.ceil(paneW / per))), vh: Math.max(1, Math.min(spec.h, Math.ceil(paneH / per))) };
   }
 
   const api = { SPEC, R, Layer, Piece, shapes: { rect, ell, poly, or, not, seg }, Ground, Yard, tablePiece, smoke, sparks, FLAME, FIRE, FLASKS, hash, bay, OUT, fit, CELL, version: 1 };
