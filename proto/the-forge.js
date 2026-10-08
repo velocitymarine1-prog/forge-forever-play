@@ -38,6 +38,8 @@
 // from the yard; and the Map Table (state.room "map": proto/map-table.js's map on its table, by the yard's gate) is where a level is
 // picked and Go leaves for the Battlegrounds page. Vorn's classes and the well's coins are Coin.arm and Coin.daily (and the service's
 // /arm and /daily); the unlock plaque and the Cart's cabinet are gone. Only the Map Table is an entry in the phone's history.
+// Since build 20 (design pass 31, card t89) the walls pane is bare: no head line over a wall, no gift line under a shelf's name and
+// no chip row (by element, or by kind on the Legendary shelf); a shelf is its name and count, the search, the sort and the things.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -114,8 +116,8 @@
   function have(id) { const o = own.get(id); return o ? o.n : 0; }
   let profile = Progress.newProfile("isaac");
   const session = { revealed: new Set(), equipped: [], active: 0, savedAt: null, slideToastShown: false, noPayToastShown: false, backPay: null, levelSaved: null, loadFailed: false, pending: [], lastClaim: null, assistTap: false, erased: false, leaving: false, booted: false, roomSet: false };
-  const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", el: null, kindChip: null, q: "", glow: null, glowItem: null, bulk: false,
-    room: "forge", page: "armory", hallX: { armory: 0, legends: 0 }, lastCabKind: null, hold: null, wallsOpen: false, picking: false };
+  const state = { station: "anvil", a: null, b: null, ma: null, mb: null, forging: false, pouring: false, tab: "weapons", view: "wall", cab: null, sort: "newest", q: "", glow: null, glowItem: null, bulk: false,
+    room: "forge", page: "armory", hallX: { armory: 0, legends: 0 }, hold: null, wallsOpen: false, picking: false };
   const svc = { url: null, player: null, smiths: 0, spare: null };
   const turn = { forced: window.Settings ? Settings.isOn("forced") : false, turned: false, plate: false };   // landscape only (amendment 9)
   const isForged = t => !!(t.parents && t.parents.length);
@@ -1496,11 +1498,6 @@
   }
 
   // ------------------------------------------------------------------ the wall
-  function renderWallHead() {
-    const open = profile.classes.length, nxt = Progress.nextUnlock(profile.level);
-    if (state.tab === "weapons") $("wallHead").textContent = `Weapon classes: ${open} of ${CLASS_COUNT} open · Legendary ${Progress.crucibleAwake(profile, G) ? "open" : "at 25"} · ${nxt ? "next two on the house at level " + nxt : "all open"}`;
-    else { const n = owned(t => t.kind !== "weapon").reduce((s, t) => s + have(t.id), 0); $("wallHead").textContent = `Crafting materials: ${n} things · ${profile.coins.toLocaleString()} coins${Progress.crucibleAwake(profile, G) ? " · " + profile.embers + " Legend Ember" + (profile.embers === 1 ? "" : "s") : ""}`; }
-  }
   function rackButton(cls, list, opts) {
     const b = document.createElement("button");
     b.className = "rack f-plank" + (opts.gold ? " gold" : "") + (opts.chained ? " chained" : "") + (state.glow === cls ? " new" : "");
@@ -1520,7 +1517,6 @@
   }
   function renderWall() {
     const wall = $("wall"); wall.innerHTML = "";
-    renderWallHead();
     if (state.tab === "weapons") {
       const rs = racks();
       const awake = Progress.crucibleAwake(profile, G);
@@ -1550,53 +1546,33 @@
   // ------------------------------------------------------------------ the cabinet: an endless, windowed shelf; the cart
   const ROW_H = 96;
   let shelfList = [], perRow = 4;
-  function elementOf(t) { return t.kind === "weapon" && t.weapon ? t.weapon.element : (t.hints && t.hints.element) || "physical"; }
   function cabItems() {
     const c = state.cab;
     let list = c.kind === "class" ? owned(t => classOf(t) === c.key) : owned(t => t.kind !== "weapon" && storeOf(t) === c.key);
     if (c.kind === "store") for (const t of window.FORGE_THINGS) if (t.kind !== "weapon" && storeOf(t) === c.key && !own.has(t.id) && (c.key !== "Trophies")) { gain(t.id, 0); list.push(t); }
-    const els = new Set(list.map(elementOf));
-    const kindIds = c.key === "legendary" ? new Set(list.map(t => t.hybrid && t.hybrid.kind).filter(Boolean)) : new Set();
-    if (state.el && !els.has(state.el)) state.el = null;
-    if (state.kindChip && !kindIds.has(state.kindChip)) state.kindChip = null;
     const all = list;
-    if (state.el) list = list.filter(t => elementOf(t) === state.el);
-    if (state.kindChip) list = list.filter(t => t.hybrid && t.hybrid.kind === state.kindChip);
     if (state.q) { const q = state.q.toLowerCase(); list = list.filter(t => t.name.toLowerCase().includes(q)); }
     const by = { newest: (a, b) => own.get(b.id).seq - own.get(a.id).seq, tier: (a, b) => b.tier - a.tier || own.get(b.id).seq - own.get(a.id).seq, name: (a, b) => a.name.localeCompare(b.name) }[state.sort];
-    return { list: list.sort(by), els: Array.from(els), kindIds: Array.from(kindIds), total: all.length };
+    return { list: list.sort(by), total: all.length };
   }
   function openCabinet(c) {
     if (!c) return;
     state.cab = c; state.view = "cabinet"; state.q = ""; $("search").value = "";
-    if (!state.el || c.kind !== (state.lastCabKind || c.kind)) state.el = null;
-    state.kindChip = null;
-    state.lastCabKind = c.kind;
-    $("wall").hidden = true; $("wallHead").hidden = true; $("cabinet").hidden = false;
+    $("wall").hidden = true; $("cabinet").hidden = false;
     $("cabTitle").textContent = c.kind === "class" ? plural(c.key) : c.key;
     $("shelves").scrollTop = 0;
     renderCabinet();
   }
-  function closeCabinet() { state.view = "wall"; state.cab = null; $("cabinet").hidden = true; $("wall").hidden = false; $("wallHead").hidden = false; renderWall(); }
+  function closeCabinet() { state.view = "wall"; state.cab = null; $("cabinet").hidden = true; $("wall").hidden = false; renderWall(); }
   function renderCabinet() {
     const c = state.cab;
     const isCart = c.kind === "cart";
-    $("shelfTools").hidden = isCart; $("chips").hidden = isCart; $("shelves").hidden = isCart; $("cartHead").hidden = !isCart; $("cart").hidden = !isCart;
+    $("shelfTools").hidden = isCart; $("shelves").hidden = isCart; $("cartHead").hidden = !isCart; $("cart").hidden = !isCart;
     if (isCart) return renderCart();
-    const { list, els, kindIds, total } = cabItems();
+    const { list, total } = cabItems();
     shelfList = list;
     $("cabCount").textContent = list.length === total ? `${total}` : `${list.length} of ${total}`;
     $("sort").textContent = state.sort.toUpperCase();
-    const gl = $("giftLine");
-    if (c.kind === "class" && c.key === "legendary") { gl.hidden = false; gl.textContent = `Fused in the Crucible. ${kinds.length} kind${kinds.length === 1 ? "" : "s"} named in the world.`; }
-    else if (c.kind === "class" && G.classes[c.key]) { gl.hidden = false; gl.textContent = `On the right of the anvil, a ${cap(c.key)} gives ${G.classes[c.key].gift.map(w => w.replace("_", " ")).join(" or ")}`; }
-    else gl.hidden = true;
-    const chips = $("chips"); chips.innerHTML = "";
-    if (els.length > 1) for (const e of ["all", ...els]) { const b = document.createElement("button"); const on = e === "all" ? !state.el : state.el === e; b.setAttribute("aria-pressed", String(on));
-      const col = e === "all" || !PF.ELEM[e] ? "#8b9bb4" : PF.ELEM[e][2]; b.innerHTML = `<i style="background:${col}"></i>${e}`;
-      b.addEventListener("click", () => { state.el = e === "all" ? null : e; $("shelves").scrollTop = 0; renderCabinet(); }); chips.appendChild(b); }
-    if (kindIds.length > 1) for (const kid of kindIds) { const k = kinds.find(x => x.id === kid); const b = document.createElement("button"); b.setAttribute("aria-pressed", String(state.kindChip === kid)); b.textContent = k ? k.name : kid;
-      b.addEventListener("click", () => { state.kindChip = state.kindChip === kid ? null : kid; renderCabinet(); }); chips.appendChild(b); }
     perRow = Math.max(4, Math.floor(($("shelves").clientWidth || 340) / 84));
     const nRows = Math.max(3, Math.ceil(list.length / perRow));
     $("spacer").style.height = nRows * ROW_H + "px";
@@ -1605,7 +1581,7 @@
   let drawn = "";
   function drawShelves(force) {
     const sh = $("shelves"), sp = $("spacer");
-    if (!shelfList.length) { sp.innerHTML = `<div class="empty">${state.q || state.el || state.kindChip ? "Nothing on this shelf matches." : "This shelf is empty. Forge something for it."}</div>`; drawn = ""; return; }
+    if (!shelfList.length) { sp.innerHTML = `<div class="empty">${state.q ? "Nothing on this shelf matches." : "This shelf is empty. Forge something for it."}</div>`; drawn = ""; return; }
     const first = Math.max(0, Math.floor(sh.scrollTop / ROW_H) - 1), last = Math.min(Math.ceil(shelfList.length / perRow) - 1, Math.floor((sh.scrollTop + sh.clientHeight) / ROW_H) + 1);
     const key = first + ":" + last + ":" + shelfList.length + ":" + state.station + ":" + state.ma + ":" + (state.a || "") + (state.b || "");
     if (!force && key === drawn) return;
