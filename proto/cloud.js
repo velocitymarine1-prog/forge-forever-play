@@ -27,6 +27,8 @@
 //   Cloud.newKey(), Cloud.claim(key)  a key for another phone; this phone signed in with one (its game replaced by that player's)
 //   Cloud.erase(), Cloud.deleteGame() Erase my smithy online (after the local wipe); the game gone for good, online and here
 //   Cloud.foot(build), Cloud.onNote(fn)   Settings' foot line; the page's toast for what happened while it was away
+//   Cloud.call(method, path, body, ms)   (build 24, design pass 29) one call to the API with this phone's token, for proto/roll.js:
+//                                     { ok, status, json } or { ok: false, status: 0, err }
 (function (root) {
   "use strict";
   const doc = root.document || null;
@@ -466,6 +468,7 @@
     get ready_() { return readyDone; },
     canBench() { return on && !!state.smith && (state.smith.role === "dev" || state.smith.role === "admin"); },
     touch, adopt: r => adopt(r, false), newKey, claim, erase, deleteGame, foot, onNote,
+    call,   // (build 24) the Roll's claims and reads go through the same wire, with the token
     // for the checks: what would be sent, and the bookkeeping
     collect, readSync, send
   };

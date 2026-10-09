@@ -141,7 +141,7 @@
     const stock = {}; for (const [id, o] of own) stock[id] = o.n;
     const at = nowIso();
     const mine = []; for (const [k, r] of rows) if (!ledgerRows.has(k)) mine.push({ k, r });
-    const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players, grycus: gry.mem, folk: folk.mem };   // (build 17: the folk's memory beside Grycus's)
+    const data = { profile, stock, got, equipped: session.equipped, active: session.active, assist: session.assistTap, at, rows: mine, kinds: kinds.filter(k => !ledgerKinds.has(k.key)), players, grycus: gry.mem, folk: folk.mem, roll: rollMem };   // (build 17: the folk's memory beside Grycus's; build 24: the Roll's queue beside them)
     // (build 9) on the Cloudflare copy the save then goes online too (proto/cloud.js sends it a moment later)
     const put = d => { localStorage.setItem("forge-forever:" + worldKey(), JSON.stringify(d)); session.savedAt = at; if (window.Cloud) Cloud.touch(); return true; };
     try { return put(data); }
@@ -191,6 +191,7 @@
       session.savedAt = d.at || null;
       gry.mem = GRY ? GRY.memory(d.grycus) : null;   // (a save from before build 6 has none: he meets the player)
       folk.mem = FK ? FK.memory(d.folk) : null;   // (build 17: Nell's and Vorn's; a save from before has none: they meet the knight)
+      rollMem = rollMemory(d.roll);   // (build 24: the claims still to be settled by the world; a save from before has none, and its old firsts are claimed once at boot)
       return true;
     } catch (e) { session.loadFailed = true; (window.__errors || []).push("load: " + (e && e.message || e)); return false; }
   }
@@ -272,7 +273,8 @@
   // (the handoff only: the save is already current after every action, and a save here would write an erased smithy back)
   function handoffOnLeave() { if (!session.booted || session.erased || window.TheForge.wentDown) return; writeHandoff(null); saveYardMark(); }
   window.addEventListener("pagehide", handoffOnLeave);
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") handoffOnLeave(); });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") handoffOnLeave(); else if (session.booted) setTimeout(settleQueue, 1500); });   // (build 24: back to the page, the Roll's queue goes)
+  window.addEventListener("online", () => setTimeout(settleQueue, 1500));
   // in comes the loadout, and nothing else: taken when it is for this world and newer than the Forge's own save
   function takeLoadoutBack() {
     let d = null;
@@ -397,7 +399,9 @@
           return c;
         }
       }
-      return localForge(left, right, station, false);
+      // (build 24, design pass 29) on the online copy a forge the phone's world calls a first is settled by the server before the plaque
+      const c = localForge(left, right, station, false, rollOn());
+      return rollOn() && c && !c.error ? settleForge(c, left, right, station) : c;
     },
     async name(thingId, name) {
       if (svc.url) {
@@ -542,7 +546,9 @@
     if (kind && !profile.kinds.includes(kind.id)) profile.kinds.push(kind.id);
     if (!profile.found.includes(thing.id)) profile.found.push(thing.id);
   }
-  function localForge(left, right, station, pendingClaim) {
+  // (build 24) with defer, a first is not counted here: the claim carries what it founded, and the world's answer counts it (applyAnswers)
+  const deferred = (c, defer, founded) => { if (defer && c && c.status === "first") c.deferred = { founded: founded ? founded.id : null }; return c; };
+  function localForge(left, right, station, pendingClaim, defer) {
     const [kase, base, added] = F.roles(left, right, station);
     if (kase === "fuse") { const why = F.fuseCheck(base, added, G); if (why) return { error: why, status: "refused" }; }
     const key = F.keyText(kase, base.id, added.id);
@@ -552,8 +558,8 @@
     if (row) {
       const thing = row.thing || world.get(row.linked_to);
       let status = Discovery.status(row, thing, profile.id);
-      if (status === "first") { thing.discovery = { first: profile.id, at, novel: true }; countFirst(thing); }
-      return claimOf(thing, status, row, kase, pair, "ledger");
+      if (status === "first") { thing.discovery = { first: profile.id, at, novel: true }; if (!defer) countFirst(thing); }
+      return deferred(claimOf(thing, status, row, kase, pair, "ledger"), defer, null);
     }
     const tier = F.resultTier(kase, base, added, G);
     let kind = kase === "fuse" ? kinds.find(k => k.key === F.kindKey(base, added)) || null : null;
@@ -585,8 +591,132 @@
     world.set(v.id, v);
     const nrow = { key, pair, thing: v, at, player: profile.id, case: kase };
     rows.set(key, nrow);
-    countFirst(v, founded);
-    return claimOf(v, pendingClaim ? "pending" : "first", nrow, kase, pair, "combiner", kind, founded);
+    if (!defer) countFirst(v, founded);
+    return deferred(claimOf(v, pendingClaim ? "pending" : "first", nrow, kase, pair, "combiner", kind, founded), defer, founded);
+  }
+  // ---- the Roll of First Forges (design pass 29 with its revision 1, build 24): on the online copy the world decides every first
+  // rollOn: only where the cloud is (the Pages copy with its switch); everywhere else the world of one forges exactly as before.
+  // rollMem is the queue of claims the world has not answered yet, kept in the save beside Grycus's and the folk's memory (so another
+  // phone of the same player carries it too): { v, queue: [{ recipe, id, forged, founded }] }, at most 1000; v is set once the
+  // save's old firsts (from before build 24) have been queued
+  const rollOn = () => !!(window.Roll && Roll.on());
+  let rollMem = { queue: [] };
+  function rollMemory(saved, fresh) {
+    const m = { queue: [] };
+    if (saved && typeof saved === "object") {
+      if (saved.v !== undefined) m.v = saved.v | 0;
+      for (const e of (Array.isArray(saved.queue) ? saved.queue : [])) if (e && typeof e.recipe === "string" && typeof e.id === "string" && world.has(e.id) && !m.queue.some(x => x.recipe === e.recipe)) m.queue.push({ recipe: e.recipe, id: e.id, forged: typeof e.forged === "string" ? e.forged : null, founded: typeof e.founded === "string" ? e.founded : null });
+      m.queue = m.queue.slice(0, 1000);
+    }
+    if (fresh) m.v = 1;
+    return m;
+  }
+  const queued = recipe => rollMem.queue.some(e => e.recipe === recipe);
+  function enqueue(e) { if (queued(e.recipe) || rollMem.queue.length >= 1000) return false; rollMem.queue.push(e); return true; }
+  // settleForge(c, …): a forge's claim settled by the world, during the forging's own 2.67 s (2.5 s at most): the world's first gets the
+  // banner and the ★; another knight's recipe is known, their twin is rediscovered; no answer in time is pending, and the entry waits in
+  // the queue for the next settle
+  async function settleForge(c, left, right, station) {
+    if (c.status === "pending") { if (!queued(c.key)) c.status = "known"; return c; }   // (re-forging your own draft: the world has it, or still waits on it)
+    if (c.status !== "first" || !c.key) return c;
+    const thing = c.thing, entry = { recipe: c.key, id: thing.id, forged: c.at || nowIso(), founded: c.deferred && c.deferred.founded ? c.deferred.founded : null };
+    enqueue(entry); save();
+    const st = window.Cloud ? Cloud.status : "off", erasing = !!(window.Cloud && Cloud.readSync && Cloud.readSync().erase);
+    if ((st === "online" || st === "starting") && !erasing) {
+      const r = await Roll.claim([Roll.wire(entry, thing, F)].filter(Boolean), 2500);
+      if (r.ok) {
+        applyAnswers(r.results, { quiet: true });
+        const a = (r.results || []).find(x => x.recipe === entry.recipe);
+        const got = a ? a.status : null;
+        if (got === "first" || got === "mine") { c.status = "first"; c.provisional = false; }
+        else if (got === "known") c.status = "known";
+        else if (got === "twin") c.status = "rediscovered";
+        else { c.status = "pending"; c.provisional = true; }
+        c.first = (thing.discovery || {}).first; c.at = (thing.discovery || {}).at;
+        if (c.status !== "pending") { setTimeout(() => { settleQueue(); }, 0); return c; }
+        return c;
+      }
+    }
+    c.status = "pending"; c.provisional = true;
+    return c;
+  }
+  // yieldFirst(thing, r): the world gave this thing's first to another knight: the plaque names them, the ★ lets it go, a naming closes
+  function yieldFirst(thing, r) {
+    const who = r.first || {};
+    thing.discovery = { first: who.id || "someone", by: who.name || null, at: r.at || (thing.discovery || {}).at || null, world: true };
+    const f = profile.firsts; for (const k of ["weapons", "legends", "ingredients"]) if (Array.isArray(f[k])) f[k] = f[k].filter(id => id !== thing.id);
+    profile.unnamed = (profile.unnamed || []).filter(id => id !== thing.id);
+    if (thing.naming && thing.naming.status === "open") thing.naming = Object.assign({}, thing.naming, { status: "closed" });
+  }
+  // applyAnswers(results, o): each answer takes its entry out of the queue; first and mine count the thing as the world's first, known
+  // and twin yield it; bad is dropped; anything else (retry) stays queued. Returns what was spoken, for the toast
+  function applyAnswers(results, o) {
+    o = o || {};
+    const spoken = [];
+    for (const r of (results || [])) {
+      if (!r || typeof r.recipe !== "string") continue;
+      const i = rollMem.queue.findIndex(e => e.recipe === r.recipe); if (i < 0) continue;
+      const e = rollMem.queue[i];
+      if (r.status === "bad") { rollMem.queue.splice(i, 1); (window.__errors || []).push("roll: a claim the world refused, " + r.recipe); continue; }
+      if (!["first", "mine", "known", "twin"].includes(r.status)) continue;
+      rollMem.queue.splice(i, 1);
+      const thing = world.get(e.id); if (!thing) continue;
+      if (r.status === "first" || r.status === "mine") {
+        const kind = e.founded ? kinds.find(k => k.id === e.founded) || null : null;
+        countFirst(thing, kind);
+        thing.discovery = Object.assign({}, thing.discovery || {}, { first: profile.id, at: r.at || (thing.discovery || {}).at || nowIso(), world: true });
+        spoken.push({ name: thing.name, mine: true });
+      } else { yieldFirst(thing, r); spoken.push({ name: thing.name, mine: false, by: r.first && r.first.name }); }
+    }
+    save(); renderSign();
+    if (!o.quiet && spoken.length) sayRoll(spoken);
+    return spoken;
+  }
+  // the one toast for what the world said (pass 3's words); while a plaque is up it waits for the plaque to close
+  function sayRoll(spoken) {
+    if (!spoken.length) return;
+    let line;
+    if (spoken.length === 1) line = spoken[0].mine ? `The forge has spoken: ${spoken[0].name}. First forged by you.` : `The forge has spoken: ${spoken[0].name}, first forged by ${spoken[0].by || "another knight"} while you were away.`;
+    else { const n = spoken.filter(x => x.mine).length; line = `The forge has spoken on ${spoken.length} things: ${n === 0 ? "none are your firsts" : n === spoken.length ? "all are your firsts" : n === 1 ? "1 is your first" : n + " are your firsts"}.`; }
+    if (plaqueOpen()) owed.spoken = line; else toast(line);
+  }
+  // settleQueue(): the queue goes 50 at a time while the phone is online and no erase waits; one run at a time; a failed batch stops the
+  // run until the next trigger (boot, back online, back to the page, into the yard, the Roll opened, a forge answered)
+  let settling = null;
+  function settleQueue() {
+    if (settling) return settling;
+    if (!rollOn() || !rollMem.queue.length || !window.Cloud) return Promise.resolve(false);
+    if (Cloud.status !== "online" || (Cloud.readSync && Cloud.readSync().erase)) return Promise.resolve(false);
+    settling = (async () => {
+      let spoken = [], went = true;
+      try {
+        for (let guard = 0; guard < 40 && rollMem.queue.length; guard++) {
+          rollMem.queue = rollMem.queue.filter(e => world.has(e.id));
+          const batch = rollMem.queue.slice(0, 50), claims = batch.map(e => Roll.wire(e, world.get(e.id), F)).filter(Boolean);
+          if (!claims.length) break;
+          const n0 = rollMem.queue.length;
+          const r = await Roll.claim(claims, 8000);
+          if (!r.ok) { went = false; break; }
+          spoken = spoken.concat(applyAnswers(r.results, { quiet: true }));
+          if (rollMem.queue.length >= n0) break;   // (nothing settled: the rest waits for the next trigger)
+        }
+      } catch (e) { (window.__errors || []).push("roll: " + (e && e.message || e)); went = false; }
+      finally { settling = null; }
+      if (spoken.length) sayRoll(spoken);
+      return went;
+    })();
+    return settling;
+  }
+  // settleOld(): a save from before build 24 claims its old firsts once, oldest first (its rows' keys are their recipes); they keep
+  // counting meanwhile, and only a known or twin answer takes one off the ★
+  function settleOld() {
+    if (!rollOn() || rollMem.v !== undefined) return false;
+    const old = [];
+    for (const [k, r] of rows) { if (ledgerRows.has(k) || !r || !r.thing) continue; const d = r.thing.discovery || {}; if (d.first !== profile.id || d.world) continue; if (!world.has(r.thing.id)) continue; const kind = r.thing.hybrid && r.thing.hybrid.kind ? kinds.find(x => x.id === r.thing.hybrid.kind) : null; old.push({ recipe: k, id: r.thing.id, forged: typeof d.at === "string" ? d.at : null, founded: kind && kind.first === profile.id && kind.thing === r.thing.id ? kind.id : null }); }
+    old.sort((a, b) => (a.forged || "") < (b.forged || "") ? -1 : (a.forged || "") > (b.forged || "") ? 1 : 0);
+    for (const e of old) enqueue(e);
+    rollMem.v = 1; save();
+    return old.length;
   }
   function claimOf(thing, status, row, kase, pair, source, kind, founded) {
     const d = thing.discovery || {};
@@ -668,7 +798,7 @@
   // what a forge or a pour paid (section 3.4): the rise as the plaque comes up; a level gained waits for the plaque to close (afterPlaque);
   // the first forge in a visit that paid nothing because two weapons made a thing already had says why, once, after the shelf toast
   const NO_PAY_LINE = "Two weapons pay XP only for something new";
-  const owed = { level: null, why: false, hold: false };
+  const owed = { level: null, why: false, hold: false, spoken: null };
   function forgePaid(xpBefore, levelBefore, guarded) {
     const paid = profile.xp - xpBefore;
     xpRise(paid);
@@ -680,8 +810,10 @@
   // racks to open and the Crucible's wake come with it), and the why-line follows the shelf toast by 1.8 s
   function afterPlaque() {
     if (owed.hold) return;   // (Settings is opening over the page: what is owed waits until it closes)
+    const up = !!owed.level;
     if (owed.level) { const up = owed.level; owed.level = null; Promise.resolve().then(() => afterLevelChange(up.before, null)); }
     if (owed.why) { owed.why = false; session.noPayToastShown = true; setTimeout(() => toast(NO_PAY_LINE), 1800); }
+    if (owed.spoken) { const m = owed.spoken; owed.spoken = null; setTimeout(() => toast(m), up ? 1800 : 0); }   // (build 24: the world's word on earlier forges, after any level-up)
   }
   function renderSign() {
     profile.level = Progress.levelFor(profile.xp);
@@ -1264,7 +1396,7 @@
   // the discovery line (section 3.3.3), one quiet line at the foot: a first or a known pair, a re-discovery, a pending claim; opened
   // from the Armory, a weapon no longer held says so
   function discHTML(claim, t, view) {
-    const d = t.discovery || {}, who = d.first === profile.id ? "you" : (d.first || "someone");
+    const d = t.discovery || {}, who = d.first === profile.id ? "you" : (d.by || d.first || "someone");   // (build 24: the world's answer names the knight)
     let line;
     if (claim.status === "pending") line = "Pending · the world will settle it when you're back online";
     else if (claim.status === "rediscovered") line = `Already in the world · first forged by <b>${esc(who)}</b>`;
@@ -1326,7 +1458,7 @@
   function share(t) {
     const cls = classOf(t);
     const named = t.naming && t.naming.status === "named" ? ` Named by ${t.naming.by}.` : "";
-    const txt = `${t.name} (${TIER[t.tier]} ${cls || "ingredient"}): ${traitLine(t, false).toLowerCase()}. ${recipeLine(t) ? "Forged from " + recipeLine(t) + "." : ""}${t.discovery && t.discovery.first ? " First forged by " + t.discovery.first + "." : ""}${named} Forge Forever`;
+    const txt = `${t.name} (${TIER[t.tier]} ${cls || "ingredient"}): ${traitLine(t, false).toLowerCase()}. ${recipeLine(t) ? "Forged from " + recipeLine(t) + "." : ""}${t.discovery && t.discovery.first ? " First forged by " + (t.discovery.first === profile.id ? (profile.name || "me") : (t.discovery.by || t.discovery.first)) + "." : ""}${named} Forge Forever`;
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => toast("Copied: " + txt), () => toast(txt)); else toast(txt);
   }
   // the static card (design pass 15): nothing in a plaque scrolls. Its sizes are multiples of --k, and its icon is --art screen pixels
@@ -1826,7 +1958,12 @@
   function openBay(cls) { if (state.room !== "armory" || !cls) return false; if (folkOpen() && folk.who === "bay" && folk.cls === cls) { closeFolk(); return false; } return openFolk("bay", { cls }); }
   // the ★ chip counts the smith's firsts; in the Armory they carry the star
   $("chipLevel").addEventListener("click", () => toast(levelLine()));   // (build 12) where the player stands: "Lv 3 · 45 of 110 XP to Lv 4"
-  $("chipFirsts").addEventListener("click", () => { const n = profile.firsts.weapons.length; toast(n ? `${n} weapon${n === 1 ? "" : "s"} you forged first in the world: ${n === 1 ? "it carries" : "they carry"} a ★ in the Armory` : "No weapon forged first in the world yet: a first carries a ★ in the Armory"); });
+  $("chipFirsts").addEventListener("click", () => {
+    // (build 24, design pass 29) in the yard the chip walks the knight to the Roll's board, which opens on arrival; elsewhere its toast says where the Roll stands
+    if (state.room === "yard" && yard.kn && yard.Y && yard.Y.placeOf("roll") && !yardPaused() && !(lessonOn("quiet") === true)) { yard.Y.goTo(yard.kn, "roll"); return; }
+    const n = profile.firsts.weapons.length, where = yard.Y && yard.Y.placeOf("roll") ? " · the Roll of First Forges stands by the well" : "";
+    toast((n ? `${n} weapon${n === 1 ? "" : "s"} you forged first in the world: ${n === 1 ? "it carries" : "they carry"} a ★ in the Armory` : "No weapon forged first in the world yet: a first carries a ★ in the Armory") + where);
+  });
   function viewWeapon(t) {
     const claim = { thing: t, status: t.oracle && t.oracle.provisional && svc.url ? "pending" : "known", kind: t.hybrid ? kinds.find(k => k.id === t.hybrid.kind) || null : null };
     if (classOf(t) === "legendary") showLegend(claim, null, null, { view: true }); else showPlaque(claim, null, null, { view: true });
@@ -1842,6 +1979,7 @@
     if (was === "map" && room !== "map") mapLeave();
     if (was === "yard" && room !== "yard") yardLeave();
     state.room = room; session.roomSet = true;
+    if (room === "yard") settleQueue();   // (build 24: into the yard, the Roll's queue goes)
     const app = $("app");
     app.classList.toggle("in-armory", room === "armory"); app.classList.toggle("in-yard", room === "yard"); app.classList.toggle("in-map", room === "map");
     $("signName").textContent = ROOMS[room];
@@ -2067,6 +2205,7 @@
     lessonOn("yardUse", z.id);
     if (z.kind === "folk") return openFolk(z.id);
     if (z.kind === "well") { wellUse(); return true; }
+    if (z.kind === "roll") { if (k) k.facing = "away"; return openFolk("roll"); }   // (build 24: the Roll of First Forges, read facing the board)
     if (z.kind === "table") return enter("map");
     const d = z.door; if (!d) return false;
     if (d.shut) { toast(d.shut); return true; }
@@ -2143,17 +2282,18 @@
     if (yard.stick) yard.stick.up();
     folk.who = who; folk.cls = who === "bay" ? o.cls : null;
     const bayList = who === "bay" ? armoryWeapons().filter(t => classOf(t) === o.cls).sort((a, b) => (b.tier - a.tier) || a.name.localeCompare(b.name)) : [];
-    const P = $("folkPlank"); P.innerHTML = ""; P.setAttribute("aria-label", who === "nell" ? "Nell's cart" : who === "vorn" ? "Vorn's weapons" : who === "bay" ? "The " + plural(o.cls) + " rack" : "The Rack");
+    const P = $("folkPlank"); P.innerHTML = ""; P.setAttribute("aria-label", who === "nell" ? "Nell's cart" : who === "vorn" ? "Vorn's weapons" : who === "bay" ? "The " + plural(o.cls) + " rack" : who === "roll" ? "The Roll of First Forges" : "The Rack");
     const head = document.createElement("div"); head.className = "fhead";
     if (who === "bay") head.appendChild(bayList.length ? sprite(bayList[0], 2) : document.createElement("canvas"));
     else if (who === "rack") { const cv = document.createElement("canvas"); try { Smithy.glyph(cv, "sword", 3); } catch (e) { /* no crest */ } head.appendChild(cv); }
+    else if (who === "roll") head.appendChild(crestCanvas());
     else head.appendChild(faceCanvas(who));
     const t = document.createElement("div"); t.style.minWidth = "0"; t.innerHTML = '<div class="fwho"></div><div class="fsays" id="folkSays"></div>';
-    t.querySelector(".fwho").textContent = who === "bay" ? plural(o.cls).toUpperCase() + " · " + bayList.length : who === "rack" ? "THE RACK" : FK.title(who);
+    t.querySelector(".fwho").textContent = who === "bay" ? plural(o.cls).toUpperCase() + " · " + bayList.length : who === "rack" ? "THE RACK" : who === "roll" ? rollBoard().title : FK.title(who);
     head.appendChild(t);
     const x = document.createElement("button"); x.className = "fx f-iron"; x.id = "folkClose"; x.textContent = "✕"; x.setAttribute("aria-label", "Close"); x.addEventListener("click", closeFolk); head.appendChild(x);
     P.appendChild(head);
-    if (who === "nell") renderNell(P, o); else if (who === "vorn") renderVorn(P, o); else if (who === "bay") renderBay(P, o, bayList); else renderRack(P, o);
+    if (who === "nell") renderNell(P, o); else if (who === "vorn") renderVorn(P, o); else if (who === "bay") renderBay(P, o, bayList); else if (who === "roll") renderRoll(P, o); else renderRack(P, o);
     P.hidden = false;
     $("yardPrompt").hidden = true;
     return true;
@@ -2248,6 +2388,66 @@
   // the Rack (pass 24 section 4.10): the two hands and every weapon the knight can wield, newest first; a chained one says who sells it
   function handsNow() { session.equipped = session.equipped.filter(id => own.has(id) && world.has(id)); const a = Math.max(0, Math.min(session.equipped.length - 1, session.active | 0)); const front = session.equipped[a], back = session.equipped.find((id, i) => i !== a); return { front: front || null, back: back || null }; }
   function setHands(front, back) { session.equipped = [front, back].filter(Boolean); session.active = 0; save(); renderPegs(); }
+  // ------------------------------------------------------------------ the Roll's plank (design pass 29 section 3.6, build 24)
+  // The folk's plank headed by the Roll's crest: the board's title, a line saying where you stand, a bar (your ★, what counts, how
+  // fresh), the top 50 knights as rows (a rank plate gold, silver and bronze for the first three, the name, when they last forged a
+  // first, a ★ tag with the count), your row lit and flashed once, and pinned under the list with your real rank when you are outside
+  // it. Online: the copy kept from the last read at once under Reading the Roll…, the queue settled first (2.5 s at most), then the
+  // answer; offline or signed out, the kept copy dimmed with its line. With the cloud off: the world of one's own Roll (Roll.local)
+  const rollUi = { seq: 0, tab: null };
+  function rollBoard() {
+    const bs = window.Roll ? Roll.boards() : [];
+    if (rollUi.tab === null) { try { rollUi.tab = localStorage.getItem("forge-forever:roll-tab") || ""; } catch (e) { rollUi.tab = ""; } }
+    return bs.find(b => b.id === rollUi.tab) || bs[0] || { id: "first-forges", title: "THE ROLL OF FIRST FORGES", glyph: "★", what: "weapons no one had forged before", lines: {} };
+  }
+  function crestCanvas() {
+    const cv = document.createElement("canvas"); cv.width = 16; cv.height = 16; cv.setAttribute("aria-hidden", "true");
+    try { const L = Y.rollCrest(), g = cv.getContext("2d"); L.px.forEach((c, i) => { if (c) { g.fillStyle = c; g.fillRect(i % 16, Math.floor(i / 16), 1, 1); } }); } catch (e) { /* a blank crest */ }
+    return cv;
+  }
+  function rollRowEl(r, glyph) {
+    const d = document.createElement("div"); d.className = "rollrow" + (r.me ? " me" : ""); d.setAttribute("role", "listitem");
+    const rk = document.createElement("span"); rk.className = "rk" + (r.medal ? " m" + r.medal : ""); rk.textContent = r.rank; d.appendChild(rk);
+    const mid = document.createElement("div"); mid.style.minWidth = "0"; mid.innerHTML = '<div class="n"></div><div class="s"></div>';
+    mid.firstChild.textContent = r.name; if (r.me) { const i = document.createElement("i"); i.textContent = " · you"; mid.firstChild.appendChild(i); } mid.lastChild.textContent = r.sub; d.appendChild(mid);
+    const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = glyph + " " + r.value; d.appendChild(tag);
+    return d;
+  }
+  function rollPaint(P, data, st) {
+    st = st || {};
+    const B = rollBoard(), v = Roll.view(data, B, Object.assign({ mine: profile.firsts.weapons.length, waiting: rollMem.queue.length, name: profile.name || "You" }, st));
+    says(v.line);
+    const bar = P.querySelector("#rollBar"), list = P.querySelector("#folkList"), pin = P.querySelector("#rollPin"); if (!bar || !list || !pin) return;
+    const bs = Roll.boards();
+    bar.innerHTML = (bs.length > 1 ? '<span class="tabs" role="tablist">' + bs.map(b => `<button type="button" role="tab" aria-selected="${b.id === B.id}" data-tab="${esc(b.id)}">${esc(b.glyph + " " + b.tab)}</button>`).join("") + "</span>" : "") +
+      `<span><b>${esc(v.bar.glyph)} ${v.bar.mine}</b> yours · ${esc(v.bar.what)}</span>` + (v.bar.waiting ? `<span class="wait">${v.bar.waiting} waiting to be settled</span>` : "") + `<span class="fresh">${esc(v.bar.fresh)}</span>`;
+    for (const b of bar.querySelectorAll("[data-tab]")) b.addEventListener("click", () => { rollUi.tab = b.dataset.tab; try { localStorage.setItem("forge-forever:roll-tab", rollUi.tab); } catch (e) { /* not kept */ } openFolk("roll", { keep: true }); });
+    list.innerHTML = ""; list.classList.toggle("dim", !!v.dim);
+    if (v.empty) { const n = document.createElement("div"); n.className = "none"; n.textContent = st.why && !data ? "Nothing kept on this phone yet." : st.reading && !data ? "" : "No names yet."; list.appendChild(n); }
+    for (const r of v.rows) { if (r.me && st.local) r.name = profile.name || r.name; list.appendChild(rollRowEl(r, v.bar.glyph)); }
+    pin.innerHTML = ""; pin.hidden = !v.pin; if (v.pin) pin.appendChild(rollRowEl(v.pin, v.bar.glyph));
+    const me = list.querySelector(".rollrow.me");
+    if (me && st.flash && !reduce) me.classList.add("flash");
+    if (me) requestAnimationFrame(() => { try { me.scrollIntoView({ block: "center" }); } catch (e) { /* in view enough */ } });
+    roll.view = v; roll.state = st;
+  }
+  const roll = { view: null, state: null };
+  async function renderRoll(P, o) {
+    const bar = document.createElement("div"); bar.className = "fbar"; bar.id = "rollBar"; P.appendChild(bar);
+    const list = document.createElement("div"); list.className = "flist"; list.id = "folkList"; list.setAttribute("role", "list"); P.appendChild(list);
+    const pin = document.createElement("div"); pin.className = "fpin"; pin.id = "rollPin"; pin.hidden = true; P.appendChild(pin);
+    const seq = ++rollUi.seq, live = () => seq === rollUi.seq && folkOpen() && folk.who === "roll";
+    const B = rollBoard();
+    if (!rollOn()) { rollPaint(P, Roll.local(world.values(), players, profile.id), { local: true, flash: true }); return; }
+    const kept = Roll.kept(B.id, "all");
+    rollPaint(P, kept ? kept.data : null, { reading: true, keptAt: kept ? kept.at : null });
+    await Promise.race([settleQueue(), new Promise(res => setTimeout(res, 2500))]);
+    if (!live()) return;
+    const r = await Roll.read(B.id, "all", 6000);
+    if (!live()) return;
+    if (r.ok) rollPaint(P, r.data, { flash: true });
+    else rollPaint(P, r.kept ? r.kept.data : null, { why: r.why, keptAt: r.kept ? r.kept.at : null });
+  }
   function renderRack(P, o) {
     const H = handsNow();
     const hands = document.createElement("div"); hands.className = "hands";
@@ -2586,6 +2786,7 @@
     gry.mem = GRY ? GRY.memory(null) : null;
     for (const t of window.FORGE_THINGS) if (t.kind !== "weapon" && storeOf(t) !== "Trophies") gain(t.id, 3);
     folk.mem = FK ? FK.memory(null) : null;
+    rollMem = rollMemory(null, true);
     state.a = null; state.b = null; state.ma = null; state.mb = null;
     closePlaque(); if (state.room !== "forge") enter("forge"); setStation("anvil"); renderSign(); setTab("weapons"); renderSlots(); renderInfo(); save();
     openFirstWeapon();
@@ -2775,6 +2976,7 @@
     session.equipped = (S.equipped || ["sword"]).filter(x => own.has(x)); session.active = 0;
     gry.mem = GRY ? Object.assign(GRY.memory(null), { met: true, greetAt: nowIso() }) : null;
     folk.mem = FK ? FK.memory(null) : null;
+    rollMem = rollMemory(null, true);   // (build 24: a new knight has no old firsts to claim)
     const base = S.base || "sword";
     state.a = own.has(base) ? base : null; state.b = null; state.ma = null; state.mb = null;
     save();
@@ -2785,6 +2987,7 @@
     profile = Progress.newProfile("isaac");
     gry.mem = GRY ? GRY.memory(null) : null;
     folk.mem = FK ? FK.memory(null) : null;
+    rollMem = rollMemory(null, true);   // (build 24: the dev smith's world never asks the server)
     profile.xp = Progress.xpForLevel(12); profile.level = 12; profile.coins = 312; profile.embers = 0;
     profile.classes = ["sword", "bow", "axe", "staff", "hammer"];
     own.clear(); seq = 0;
@@ -2809,6 +3012,8 @@
     map: { get M() { return map.M; }, get L() { return map.L; }, get plate() { return map.plate; }, get legend() { return map.legend; }, get trip() { return map.trip; }, get going() { return map.going; }, get reveal() { return map.reveal; }, get t() { return map.t; }, get pushed() { return map.pushed; },
       tap: tapArea, go: goLevel, closePlate, closeLegend, leave: leaveMap, fit: fitMap, states: areaStates, cleared: clearedNow, tapAt: mapTapAt, paint() { mapPaint(map.t); }, step(ms) { map.t += ms / 1000; mapPaint(map.t); } },
     openFolk, closeFolk, folkOpen, get folk() { return { who: folk.who, mem: folk.mem }; }, wellUse, wellReady, localDate, goToNell, renderPegs, handsNow, setHands, coinRise,
+    // (build 24) the Roll: its queue, settling, answers and what the plank last drew
+    roll: { get mem() { return rollMem; }, get on() { return rollOn(); }, get view() { return roll.view; }, get state() { return roll.state; }, settle: settleQueue, old: settleOld, apply: applyAnswers, queued, forge: settleForge },
     openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
     showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine,
     grycus: { get pose() { return gry.pose; }, get line() { return gry.line; }, get mem() { return gry.mem; }, get pending() { return gry.pending; }, get spot() { return gry.spot; }, get seq() { return gry.seq; },
@@ -2882,6 +3087,8 @@
       else if (ran && ran.cleared) afterLevelChange(ran.before, ran.res, AFTER_HOME_MS);
     }
     if (session.loadFailed) toast("Your game could not be opened just now. Close the game and open it again.");
+    // (build 24, design pass 29) the Roll: a save from before the build claims its old firsts once, then whatever waits goes to the world
+    if (rollOn() && !session.loadFailed) { settleOld(); settleQueue(); if (Cloud.status === "starting") setTimeout(settleQueue, 10000); }
     if (!profile.classes.length) openFirstWeapon();
     lessonOn("boot", { fromCellar: bootFromCellar, fresh: bootFresh });   // (build 8) the lessons start or resume, with what their step needs
   })().then(left => {

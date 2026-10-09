@@ -27,7 +27,7 @@
    (.app.in-yard: a walked yard at the cellar's scale, the stick on the left half, the prompt over the knight, tap to go), the Forge
    (its left door out to the yard, its right wall the Rack of the two hands), the Armory, and the Map Table (.app.in-map: the map of
    the realm on its table, the names as buttons over the canvas, the area's plate and the legend's). Nell's, Vorn's and the Rack's
-   lists share one oak plank (#folkPlank). The sign's one plate is ← Courtyard, in the Map Table only.
+   lists share one oak plank (#folkPlank), and since build 24 the Roll of First Forges (design pass 29) reads on it too. The sign's one plate is ← Courtyard, in the Map Table only.
    Since build 20 (design pass 31, card t89) the walls pane is bare: no head line over a wall, no gift line under a shelf's name, no
    chip row on a shelf; the shelf takes their height. */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;--shelf:#241a2a;
@@ -471,6 +471,30 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .folk .flist .cartrow.lit{animation:newrack 1s steps(5) 3}
 .folk .flist .cartrow[disabled]{opacity:.6;cursor:default}
 .folk .flist .cartrow.chained canvas{filter:grayscale(1) brightness(.6)}
+/* the Roll of First Forges' plank (design pass 29, build 24): rows that are not buttons, a rank plate gold, silver and bronze for the
+   first three, the name over when they last forged a first, a ★ tag; your row lit and flashed once; your real rank pinned under the
+   list when you are outside the top 50; the bar's freshness at the right; the kept copy dimmed while offline or reading */
+.folk .fbar .fresh{margin-left:auto;color:var(--dim)}
+.folk .fbar .wait{color:var(--brass)}
+.folk .fbar .tabs{display:flex;gap:6px}
+.folk .fbar .tabs button{height:26px;padding:0 8px;background:none;border:2px solid var(--stone-2);cursor:pointer;font-family:var(--data);font-size:11px;color:var(--mute)}
+.folk .fbar .tabs button[aria-selected="true"]{background:var(--oak);border-color:var(--oak-l);color:var(--hot)}
+.folk .flist.dim{opacity:.62}
+.folk .flist .none{font-family:var(--data);font-size:12px;color:var(--mute);padding:18px 8px;text-align:center}
+.rollrow{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;padding:4px 2px;border-bottom:2px solid var(--stone-2);color:var(--parch)}
+.rollrow .rk{width:30px;height:30px;justify-self:center;display:grid;place-items:center;font-family:var(--data);font-size:14px;font-weight:600;color:var(--mute);font-variant-numeric:tabular-nums}
+.rollrow .rk.m1{background:var(--brass);border:2px solid var(--gold-d);color:var(--soot);box-shadow:inset 2px 2px 0 var(--hot)}
+.rollrow .rk.m2{background:#c0cbdc;border:2px solid #5a6988;color:var(--soot);box-shadow:inset 2px 2px 0 #ffffff}
+.rollrow .rk.m3{background:#d77643;border:2px solid #733e39;color:var(--soot);box-shadow:inset 2px 2px 0 var(--parch-2)}
+.rollrow .n{font-family:var(--display);font-weight:700;font-size:17px;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rollrow .n i{font-family:var(--data);font-style:normal;font-weight:600;font-size:11px;letter-spacing:.06em;color:var(--brass)}
+.rollrow .s{font-family:var(--data);font-size:10px;color:var(--mute)}
+.rollrow .tag{font-family:var(--data);font-size:12px;color:var(--soot);background:var(--brass);padding:2px 6px;border:2px solid var(--gold-d);white-space:nowrap;font-variant-numeric:tabular-nums}
+.rollrow.me{background:var(--oak-d);box-shadow:inset 0 0 0 2px var(--ember)}
+.rollrow.me.flash{animation:rollflash 1s steps(5) 3}
+@keyframes rollflash{50%{box-shadow:inset 0 0 0 2px var(--hot),0 0 0 2px var(--hot)}}
+.folk .fpin{flex:none;margin-top:6px;background:#2a1f2b;border:3px solid var(--soot);padding:0 6px}
+.folk .fpin .rollrow{border-bottom:0}
 /* the drill (design pass 32, build 21; design pass 33, build 23): the plaque a new class raises over everything (z 9: above the planks
    and the confirm, under the toast and the turn plate), inside the game's insets; a head (the eyebrow and the class weapon's name:
    Vorn's face and his line stood under it until pass 33), the stage (a 160 x 64 canvas drawn by proto/drill.js, scaled to a whole
@@ -542,7 +566,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="60aef7b" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="0f6b09a" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div id="probe"></div><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -691,6 +715,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="spec/courtyard.js"></script>
 <script src="spec/folk.js"></script>
 <script src="spec/map.js"></script>
+<script src="spec/boards.js"></script>
 <script src="proto/combiner.js"></script>
 <script src="proto/naming.js"></script>
 <script src="proto/progress.js"></script>
@@ -717,6 +742,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="proto/smith.js"></script>
 <script src="proto/lessons.js"></script>
 <script src="proto/cloud.js"></script>
+<script src="proto/roll.js"></script>
 <script src="proto/forge-lessons.js"></script>
 <script src="proto/the-forge.js"></script>
 </body>

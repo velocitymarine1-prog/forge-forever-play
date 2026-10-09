@@ -23,7 +23,7 @@
 //   yard.pieceFrame(P)                 a standing piece lit where it stands, as RGBA; yard.pieces are sorted with the folk and the
 //                                      knight by their feet (P.sy)
 //   yard.live(t, still, o)             what moves at time t: flames, smoke, sparks, the folk's poses, the hens' walk, the well's glint
-//   yard.zoneAt(x, y)                  the place the feet stand in: a door, the map table, the well, a stall; or null
+//   yard.zoneAt(x, y)                  the place the feet stand in: a door, the map table, the well, the Roll's board, a stall; or null
 //   yard.tapAt(x, y)                   the place a tap on the world point hits (its tap box), or null; yard.targetOf(id) where to stand
 //   yard.world(), yard.body(x, y)      the yard as Physics sees it (a level's world of its solids) and a knight's body for it
 //   yard.step(k, vx, vy, dt)           one step of the walk through Physics.move; yard.free(x, y) whether feet can stand there
@@ -794,6 +794,106 @@
   const FLAME = [["..3..", ".353.", "34543", "35653", ".376.", "..6.."], [".3...", ".35..", "34543", "35653", ".376.", "..6.."], ["...3.", "..33.", "34553", "35653", ".376.", "..6.."], ["..3..", "..3..", "34543", "35663", ".366.", "..6.."]];
   const FIRE = { 3: "#be4a2f", 4: "#f77622", 5: "#feae34", 6: "#fee761", 7: "#fff6c8" };
 
+  // the Roll of First Forges' board (design pass 29 with its revision 1, build 24), just west of the well on the road in from the gate:
+  // pass 29's oak trestle table, the map table's make made long, its top raised into a board 34 rows tall with the Roll pinned open on
+  // it (docs/design/29-the-roll.sketch.js, rollTable and rollCrest, moved here untouched: tools/test-courtyard.js holds its pixels to
+  // the sketch's). It brings no light of its own. at is the board's foot, front and middle
+  function rollTable(at) {
+    at = at || { x: 222, y: 180 };
+    const C = { OUT, Layer }, x0 = at.x - 41, y0 = at.y - 45, W = 83, H = 46;
+    const P = { x: x0, y: y0, w: W, h: H, sy: at.y, layer: new C.Layer(W, H) }, g = P.layer;
+    const L = (x, y, c, l) => g.set(x - x0, y - y0, c, l === undefined ? 1 : l);
+    const tx0 = at.x - 40, tx1 = at.x + 40, ty0 = at.y - 44, ty1 = at.y - 11;   // the face: 81 x 34 (revision 1; pass 29's top was 81 x 23)
+
+    // the legs: three trestle posts (both ends and the middle) under an apron, a stretcher bar near the floor (pass 29's, unchanged)
+    for (const lx of [tx0 + 4, at.x - 2, tx1 - 7]) for (let y = ty1 + 1; y <= at.y; y++) { L(lx, y, OUT); L(lx + 1, y, "#733e39"); L(lx + 2, y, "#3e2731"); L(lx + 3, y, OUT); }
+    for (let x = tx0 + 7; x <= tx1 - 7; x++) { L(x, at.y - 4, "#3e2731"); L(x, at.y - 3, OUT); }
+    for (const fx of [tx0 + 3, at.x - 3, tx1 - 8]) { L(fx, at.y, OUT); L(fx + 5, at.y, OUT); }
+
+    // the apron: the face's front edge, darker oak, a brass star in the middle (unchanged)
+    for (let y = ty1 + 1; y <= ty1 + 4; y++) for (let x = tx0 + 1; x <= tx1 - 1; x++) L(x, y, y === ty1 + 4 ? OUT : x === tx0 + 1 || x === tx1 - 1 ? OUT : y === ty1 + 1 ? "#3e2731" : (x - tx0) % 13 === 0 ? "#3e2731" : "#733e39");
+
+    // the face: oak planks running the board's length in courses of five rows, their joints staggered, lit on the left; a top rail
+    // (a lit course, then its shadow) so it reads as a board on a stand; the front edge in shadow
+    for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++) {
+      const e = x === tx0 || x === tx1 || y === ty0 || y === ty1, v = y - ty0, row = Math.floor((v - 3) / 5), joint = v > 3 && (x - tx0 + (row % 2) * 19) % 38 === 0 && (v - 3) % 5 !== 0;
+      let c;
+      if (e) c = OUT;
+      else if (v === 1) c = x < tx1 - 1 ? "#e4a672" : "#b86f50";   // the rail, lit
+      else if (v === 2) c = "#b86f50";
+      else if (v === 3) c = "#3e2731";                               // the rail's shadow on the planks
+      else if (y >= ty1 - 2) c = y === ty1 - 1 ? "#3e2731" : "#733e39";
+      else c = (v - 3) % 5 === 0 || joint ? "#733e39" : x < tx0 + 4 ? "#e4a672" : "#b86f50";
+      L(x, y, c);
+    }
+
+    // the Roll, pinned open on the board: a long parchment sheet between two rolls, its rods' knobs showing above and below each roll,
+    // a brass pin through each top corner; the oak at the right end holds the inkwell
+    const sx0 = tx0 + 9, sx1 = tx1 - 17, sy0 = ty0 + 5, sy1 = ty1 - 5;
+    for (let y = sy0; y <= sy1; y++) for (let x = sx0; x <= sx1; x++) {
+      const e = y === sy0 || y === sy1;
+      L(x, y, e ? "#c28569" : y === sy0 + 1 ? "#fffaf0" : (x * 5 + y * 3) % 23 === 0 ? "#e4a672" : "#ead4aa", 0);
+    }
+    for (let x = sx0; x <= sx1; x++) L(x, sy1 + 1, "#3e2731", 1);   // its shadow on the oak
+    for (const rx of [sx0 - 5, sx1 + 1]) {
+      for (let y = sy0 - 1; y <= sy1 + 1; y++) for (let x = rx; x <= rx + 4; x++) {
+        const u = x - rx, e = u === 0 || u === 4 || y === sy0 - 1 || y === sy1 + 1;
+        L(x, y, e ? OUT : u === 1 ? "#fffaf0" : u === 2 ? "#ead4aa" : "#c28569", 0);
+      }
+      for (const ky of [sy0 - 2, sy1 + 2]) for (let x = rx + 1; x <= rx + 3; x++) L(x, ky, x === rx + 1 ? "#b86f50" : "#733e39", 1);
+    }
+    for (const px of [sx0 + 2, sx1 - 2]) { L(px, sy0 + 2, "#fee761", 0); L(px + 1, sy0 + 2, "#feae34", 0); L(px, sy0 + 3, "#be4a2f", 0); L(px + 1, sy0 + 3, "#733e39", 0); }
+
+    // the head of the Roll: a gold star, a red rule either side
+    const cx = Math.round((sx0 + sx1) / 2), hy = sy0 + 2;
+    const STAR = ["..h..", ".hyh.", "hyyyh", ".yby.", "y...y"];
+    STAR.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== ".") L(cx - 2 + i, hy + j, ch === "h" ? "#fee761" : ch === "y" ? "#feae34" : "#be4a2f", 0); }));
+    for (const [a, b] of [[sx0 + 5, cx - 5], [cx + 5, sx1 - 5]]) for (let x = a; x <= b; x++) if ((x & 1) === 0 || x === a || x === b) L(x, hy + 2, "#a22633", 0);
+
+    // two columns of inked names, five a column, the top ten, read down the left and then the right: a seal by the first three (red,
+    // silver, bronze), a name of two or three words, a short tally of strokes at the right
+    const SEAL = [["#e43b44", "#a22633"], ["#c0cbdc", "#5a6988"], ["#d77643", "#733e39"]];
+    const cols = [[sx0 + 2, cx - 2], [cx + 2, sx1 - 2]];
+    let n = 0;
+    cols.forEach(([a, b], ci) => {
+      for (let r = 0; r < 5; r++, n++) {
+        const y = hy + 7 + r * 3;
+        let x = a;
+        if (n < 3) { L(x, y, SEAL[n][0], 0); L(x + 1, y, SEAL[n][0], 0); L(x, y + 1, SEAL[n][1], 0); L(x + 1, y + 1, SEAL[n][1], 0); }
+        x += 3;
+        const words = 2 + (hash(n, ci, 7) < 0.4 ? 1 : 0), tally = 1 + Math.floor(hash(n, ci, 9) * 3);
+        for (let w = 0; w < words && x < b - 6; w++) { const len = 2 + Math.floor(hash(n, w, 11) * 4); for (let k = 0; k < len && x < b - 6; k++, x++) L(x, y, (k + w) % 5 === 2 ? "#733e39" : "#3e2731", 0); x += 2; }
+        for (let k = 0; k < tally; k++) L(b - k * 2, y, "#733e39", 0);
+      }
+    });
+
+    // an inkwell and a quill on the oak at the right end, at the board's foot
+    const ix = tx1 - 10, iy = ty1 - 8;
+    for (let y = iy; y <= iy + 3; y++) for (let x = ix; x <= ix + 4; x++) L(x, y, x === ix || x === ix + 4 || y === iy + 3 ? OUT : y === iy ? "#3a4466" : x === ix + 1 ? "#3a4466" : "#262b44", 1);
+    for (let x = ix + 1; x <= ix + 3; x++) L(x, iy - 1, OUT, 1);
+    for (const [qx, qy, c] of [[ix + 2, iy - 1, "#8b9bb4"], [ix + 1, iy - 2, "#ffffff"], [ix, iy - 3, "#ffffff"], [ix - 1, iy - 4, "#c0cbdc"], [ix, iy - 2, "#c0cbdc"], [ix - 1, iy - 3, "#ffffff"], [ix - 2, iy - 5, "#8b9bb4"]]) L(qx, qy, c, 0);
+    for (let x = ix; x <= ix + 4; x++) L(x, iy + 4, "#3e2731", 1);   // its shadow
+
+    // the brass star on the apron, over the middle leg
+    const BRASS = ["..o..", ".oho.", "ohyho", ".oyo.", "o...o"];
+    BRASS.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== ".") L(at.x - 2 + i, ty1 + j, ch === "o" ? "#be4a2f" : ch === "h" ? "#fee761" : "#feae34", 1); }));
+
+    return P;
+  }
+
+  // the plank's crest (16 x 16): the Roll seen close, its two rolls and the gold star at its head over two inked lines
+  function rollCrest() {
+    const g = new Layer(16, 16);
+    for (let y = 3; y <= 12; y++) for (let x = 4; x <= 11; x++) g.set(x, y, y === 3 || y === 12 ? "#c28569" : y === 4 ? "#fffaf0" : "#ead4aa", 1);
+    for (const rx of [1, 12]) for (let y = 2; y <= 13; y++) for (let x = rx; x <= rx + 2; x++) g.set(x, y, x === rx ? "#fffaf0" : x === rx + 1 ? "#ead4aa" : "#c28569", 1);
+    for (const rx of [1, 12]) for (const ky of [1, 14]) { g.set(rx + 1, ky, "#733e39", 1); }
+    const STAR = ["..h..", ".hyh.", "hyyyh", ".yby.", "y...y"];
+    STAR.forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== ".") g.set(6 + i, 5 + j, ch === "h" ? "#fee761" : ch === "y" ? "#feae34" : "#be4a2f", 1); }));
+    for (const y of [10]) for (let x = 5; x <= 10; x++) if (x !== 8) g.set(x, y, "#3e2731", 1);
+    g.outline(1);
+    return g;
+  }
+
   // ------------------------------------------------------------------ the whole yard: the ground, the pieces, the lights, the walk
   // a piece drawn where an earlier revision had it, moved to its revision 2 place
   function moved(P, dx, dy) { P.x += dx; P.y += dy; P.sy += dy; return P; }
@@ -816,6 +916,9 @@
     // after the windows, so every other light keeps its place in the list (a light's flicker goes by its place)
     this.table = spec.table ? tablePiece({ x: spec.table.x, y: spec.table.y }) : null;
     if (this.table) { this.pieces.push(this.table); this.lights.push({ kind: "lantern", x: this.table.flame.x, y: this.table.flame.y + 2, r: spec.table.light || 40 }); }
+    // the Roll's board after the map table (design pass 29, build 24): no light of its own, so every light keeps its place
+    this.roll = spec.roll ? rollTable({ x: spec.roll.x, y: spec.roll.y }) : null;
+    if (this.roll) this.pieces.push(this.roll);
     this._world = null; this._P = null; this._grid = null; this._probe = null;
   }
   // the light at (x, y) for flicker phase f: { k: the lamps' closeness, sun: the gate's evening gold } (pools flattened on the floor,
@@ -902,11 +1005,11 @@
     return out;
   };
   // ------------------------------------------------------------------ the places: zones, taps, where to stand
-  // a place by its id: a door, the map table, the well, Nell or Vorn
-  Yard.prototype.placeOf = function (id) { const S0 = this.spec; return S0.doors[id] || S0.folk[id] || (id === "well" ? S0.well : id === "table" ? S0.table : null) || null; };
-  const PLACES = S0 => [["table", "table", S0.table]].concat(Object.keys(S0.doors).map(id => [id, "door", S0.doors[id]]), [["well", "well", S0.well], ["nell", "folk", S0.folk.nell], ["vorn", "folk", S0.folk.vorn]]).filter(p => p[2]);
+  // a place by its id: a door, the map table, the well, the Roll's board (build 24), Nell or Vorn
+  Yard.prototype.placeOf = function (id) { const S0 = this.spec; return S0.doors[id] || S0.folk[id] || (id === "well" ? S0.well : id === "table" ? S0.table : id === "roll" ? S0.roll : null) || null; };
+  const PLACES = S0 => [["table", "table", S0.table]].concat(Object.keys(S0.doors).map(id => [id, "door", S0.doors[id]]), [["well", "well", S0.well], ["roll", "roll", S0.roll], ["nell", "folk", S0.folk.nell], ["vorn", "folk", S0.folk.vorn]]).filter(p => p[2]);
   const placed = (id, kind, P) => { const o = { id, kind, prompt: P.prompt }; o[kind === "folk" ? "folk" : kind] = P; return o; };
-  // which zone the feet are in: a door, the map table, the well or a folk, or null
+  // which zone the feet are in: a door, the map table, the well, the Roll or a folk, or null
   Yard.prototype.zoneAt = function (x, y) {
     for (const [id, kind, P] of PLACES(this.spec)) { const z = P.zone; if (z && x >= z[0] && x <= z[2] && y >= z[1] && y <= z[3]) return placed(id, kind, P); }
     return null;
@@ -1062,7 +1165,7 @@
     return { k, per, vw: Math.max(1, Math.min(spec.w, Math.ceil(paneW / per))), vh: Math.max(1, Math.min(spec.h, Math.ceil(paneH / per))) };
   }
 
-  const api = { SPEC, R, Layer, Piece, shapes: { rect, ell, poly, or, not, seg }, Ground, Yard, tablePiece, smoke, sparks, FLAME, FIRE, FLASKS, hash, bay, OUT, fit, CELL, version: 1 };
+  const api = { SPEC, R, Layer, Piece, shapes: { rect, ell, poly, or, not, seg }, Ground, Yard, tablePiece, rollTable, rollCrest, smoke, sparks, FLAME, FIRE, FLASKS, hash, bay, OUT, fit, CELL, version: 2 };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.Courtyard = api;
 })(typeof window !== "undefined" ? window : globalThis);
