@@ -38,7 +38,7 @@
   // cross: the server is on another site (the GitHub Pages copy): no cookie, the token alone, and no keepalive send as a page closes
   let cross = false; try { cross = /^https?:\/\//i.test(API) && new URL(API).origin !== root.location.origin; } catch (e) { cross = false; }
   const K = { smith: "forge-forever:smith", local: "forge-forever:local:", lessons: "forge-forever:lessons:", sync: "forge-forever:cloud", device: "forge-forever:device",
-    note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts", hallSeen: "forge-forever:hall-seen" };
+    note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts", hallSeen: "forge-forever:hall-seen", keepSeen: "forge-forever:keep-seen" };
   const WAIT = 4000, DEBOUNCE = 2000, GAP = 5000, RETRY = 30000, KEEPALIVE_MAX = 60000, AWAY = 60000;
   const DEV = "isaac";   // the bench's dev smith (proto/smith.js): never sent online
   // the Battlegrounds page shows none of the save (it plays what the Forge handed down), so it is never reloaded for the cloud: a run

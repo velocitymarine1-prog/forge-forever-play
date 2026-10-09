@@ -501,6 +501,7 @@
   function moveLevel(b, intent, W, dt, pre) {
     const N = W.N, out = b.contacts || (b.contacts = []);
     out.length = 0;
+    if (b.fly) { flyStep(b, intent, W, dt, out, pre); return out; }   // (design pass 27) a flier: its own step
     if (b.climbing) { climbStep(b, intent, W, dt, out); return out; }
     if (b.air) { airStep(b, W, dt, out); return out; }
     // 1. statuses: the speed factor is the product of the body's (slow, chill, the cover's, the ram's); a stun, a freeze or a stagger
@@ -546,6 +547,32 @@
   }
   // one share of a step's motion: moved, resolved (self: the body's own motion, which a ledge always stops) and stood on its surface
   function part(b, W, dx, dy, out, self) { const x0 = b.x, y0 = b.y; b.x += dx; b.y += dy; resolveLevel(b, W, x0, y0, out, self); surface(b, W, out); }
+  // (design pass 27) a flier's step: the walk's horizontal move (its statuses' speed factor, a drive or the wish) and its impulse, in
+  // substeps, resolved against the solids at its height only (the vertical-span test passes it over what stands lower than it flies: the
+  // faces, the benches, low cover; a column or a wall turns it), never an edge, a ledge, the ground's cover or a hole; no gravity, no
+  // landing, no ground snap; its z held at fly.z (the painter bobs it, the rules do not)
+  function flyStep(b, intent, W, dt, out, pre) {
+    const N = W.N, st = b.st || {}, frozen = !!(st.freeze || b.frozen > 0), held = frozen || !!st.stun || b.stagger > 0;
+    const slow = st.slow ? ((W.D.statuses || {}).slow || {}).speed || 0.6 : 1, chill = b.chill && b.chill.n ? Math.pow(b.chill.speed || 0.8, b.chill.n) : 1, sf = slow * chill;
+    const w = intent.wish || ZERO, D = intent.drive;
+    let sx = 0, sy = 0, wx = 0, wy = 0;
+    if (D && frozen) D.done = true;
+    if (D && !frozen) { const d = driveStep(D, dt); sx = d[0]; sy = d[1]; wx = sx / dt; wy = sy / dt; }
+    else if (!held) { wx = w[0] * sf; wy = w[1] * sf; sx = wx * dt; sy = wy * dt; }
+    b.vx = wx; b.vy = wy; b._wx = wx; b._wy = wy;
+    const imp = !!(b.ix || b.iy), px = imp ? b.ix * dt : 0, py = imp ? b.iy * dt : 0;
+    if (!imp) b.pushV = null;
+    b.z = b.fly.z || 10; b.on = null; b.air = false;
+    if (pre) pre({ x: b.x + sx + px, y: b.y + sy + py });
+    const sl = Math.hypot(sx, sy), pl = Math.hypot(px, py), n = sl + pl > N.substep ? Math.ceil((sl + pl) / N.substep) : 1;
+    for (let i = 0; i < n; i++) {
+      if (sl > 0 || !imp) { const x0 = b.x, y0 = b.y; b.x += sx / n; b.y += sy / n; resolveLevel(b, W, x0, y0, out, true); }
+      if (imp) { const x0 = b.x, y0 = b.y; b.x += px / n; b.y += py / n; resolveLevel(b, W, x0, y0, out, false); }
+    }
+    if (imp) { const k = N.cover.ground.k * (frozen ? N.frozenK : 1), f = Math.max(0, 1 - k * dt); b.ix *= f; b.iy *= f; if (Math.hypot(b.ix, b.iy) < N.cutoff) { b.ix = 0; b.iy = 0; b.pushV = null; } }
+    b.z = b.fly.z || 10; b.on = null; b.air = false; b.teeter = false;
+    return out;
+  }
   // a drive's motion this step: the dodge's velocity, the quintain's shove shared over its time, a lunge along its line (in a level by
   // the line's increment, so a body a resolve moved off the line is not carried through a post), a brute's charge (px/s and px left)
   function driveStep(D, dt) {
@@ -582,7 +609,7 @@
       for (const s of W.halves) { if (!blocks(s, b)) continue; const o = out_(s, b); if (!o) continue; if (out) note(b, out, s, o[0], o[1]); b.x += o[0] * o[2]; b.y += o[1] * o[2]; slide(b, o[0], o[1]); moved = true; }
       const cx = clamp(b.x, box.x0, box.x1), cy = clamp(b.y, box.y0, box.y1);
       if (cx !== b.x || cy !== b.y) { b.x = cx; b.y = cy; clamped = true; }
-      for (const id of W.ecells[cellAt(W, b.x, b.y)]) { const e = W.edges[id]; if (edgeFor(W, e, b) && edge(W, b, e, x0, y0, self, out)) moved = true; }
+      if (!b.fly) for (const id of W.ecells[cellAt(W, b.x, b.y)]) { const e = W.edges[id]; if (edgeFor(W, e, b) && edge(W, b, e, x0, y0, self, out)) moved = true; }   // (a flier, design pass 27, is over every edge)
       if (!moved) break;
     }
     // still caught after the passes (only possible when the last pass pushed or clamped it): the nearest free point

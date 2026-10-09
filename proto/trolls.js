@@ -21,10 +21,16 @@
 // throws (dirt, clods, the drawbridge's splinters) and the soot shadows where they will land, the pouch, the splash and the rock brute's
 // rock as it lies. Building a frame costs under a millisecond in node; frames are made on first use and kept.
 // The pixels are made without a DOM, so node can check them; canvases are made only when a page asks.
+// Design pass 27 (the Keep, sections 3.7 to 3.9; built by card t91) adds three kinds on bodies of their own, ported from its sketch
+// (docs/design/27-the-keep.sketch.js): Gorvash the troll wizard (48 px: a plum robe, a crown of antler and bone, the hexstone on his staff,
+// his left hand green to the elbow; cast, point, jab, nova, ward 2, kneel and blink 3 besides), the hex bat (32 px, drawn low in its cell
+// and lifted by its height; fly 4, wind, strike as it swoops, stone folded) and the troll burster (32 px, a belly in two iron hoops glowing
+// through its cracks; run 4 and fuse 4, swelling to white). And the wizard's hexbolt among the projectiles.
 // Plain script, defines window.Trolls. Needs no other file.
 (function (root) {
   "use strict";
   const OUT = "#181425";
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const R = {
     green: ["#265c42", "#3e8948", "#63c74d", "#b4e67a"], nature: ["#193c3e", "#265c42", "#3e8948", "#63c74d"],
     bone: ["#c28569", "#e8b796", "#ead4aa", "#fffaf0"], oak: ["#3e2731", "#733e39", "#b86f50", "#e4a672"], burlap: ["#733e39", "#b86f50", "#e4a672", "#ead4aa"],
@@ -57,7 +63,12 @@
     // design pass 21 (the Great Hall): the troll knight (its shield's block, bash and reel) and the rabid troll wolf (its gallop and its
     // leap), who never climbs
     trollknight: { body: "knight", N: 32, skin: R.green, weapon: "sword", extra: { block: 1, bash: 2, reel: 1 } },
-    wolf: { body: "wolf", N: 32, skin: R.mange, weapon: "jaws", climbs: false, extra: { run: 4, leap: 1 } }
+    wolf: { body: "wolf", N: 32, skin: R.mange, weapon: "jaws", climbs: false, extra: { run: 4, leap: 1 } },
+    // design pass 27: the Keep's three, on bodies of their own (the sketch's frames: the wizard's cast, point, jab, nova, ward 2, kneel and
+    // blink 3; the bat's fly 4 (its idle too); the burster's run 4 and fuse 4)
+    wizard: { body: "wizard", N: 48, skin: R.nature, weapon: "hexstaff", extra: { cast: 1, point: 1, jab: 1, nova: 1, ward: 2, kneel: 1, blink: 3 } },
+    bat: { body: "bat", N: 32, skin: R.fur, weapon: "fangs", climbs: false, extra: { idle: 4, fly: 4 } },
+    burster: { body: "burster", N: 32, skin: R.nature, weapon: "belly", extra: { run: 4, fuse: 4 } }
   };
   const KINDS = Object.keys(KIND);
   const ANIMS = {}; for (const k of KINDS) ANIMS[k] = Object.assign({}, KIND[k].N === 48 || KIND[k].climbs === false ? LARGE : SMALL, KIND[k].extra || {});
@@ -867,12 +878,337 @@
     return { bob: i % 2, jaw: i % 2 ? 1 : 0, froth: i % 2 === 1 };   // idle: panting
   }
 
+  // ================================================================== design pass 27 (the Keep): Gorvash the troll wizard, the hex bat and
+  // the troll burster, ported from docs/design/27-the-keep.sketch.js as they were drawn there (the sketch's helpers it needs are above:
+  // poly, dith and clamp are its own; darkOf is this file's dark; the five ramps are the pass's: the wizard's plum robe, the Green Hand's
+  // fire, his grey beard, the bats' fur and wings)
+  R.robe = ["#3e2731", "#68386c", "#b55088", "#f6757a"]; R.hex = ["#265c42", "#3e8948", "#63c74d", "#b4e67a", "#ffffff"];
+  R.beard = ["#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"]; R.fur = ["#181425", "#3e2731", "#68386c", "#b55088"]; R.wing = ["#181425", "#3a4466", "#5a6988", "#8b9bb4"];
+  const HEXEYE = "#b4e67a", TAU = Math.PI * 2, darkOf = dark, clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const dith = (x, y, a) => BAYER[((y & 3) << 2) | (x & 3)] < a * 16;
+  function poly(pts) {
+    return (x, y) => { const px = x + 0.5, py = y + 0.5; let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside; } return inside; };
+  }
+  const HEXF = R.hex;
+  function hexstone(sp, cx, cy, glow, big) {
+    // the crystal: a diamond 3 wide and 5 tall (5 x 7 when blazing), white at its heart when it glows
+    const w = big ? 2.6 : 1.7, h = big ? 3.6 : 2.6;
+    region(sp, (x, y) => Math.abs(x - cx) / w + Math.abs(y - cy) / h <= 1.0, [HEXF[1], HEXF[2], HEXF[3], HEXF[4]], { ball: [cx - 0.5, cy - 1, w + 1] });
+    sp.set(cx, cy, glow ? HEXF[4] : HEXF[3]); if (big) { sp.set(cx, cy - 1, HEXF[4]); sp.set(cx - 1, cy, HEXF[3]); }
+  }
+  function claw(sp, cx, cy) {
+    // the iron claw round the crystal's foot: three prongs
+    for (const [dx, dy] of [[-2, 1], [-2, 0], [2, 1], [2, 0], [0, 3], [-1, 3], [1, 3], [-1, 2], [1, 2]]) sp.set(cx + dx, cy + dy, R.iron[(dx + dy) & 1 ? 1 : 2]);
+    sp.set(cx - 2, cy - 1, R.iron[3]); sp.set(cx + 2, cy - 1, R.iron[1]);
+  }
+  function staffShaft(sp, x0, y0, x1, y1) {
+    // a gnarled black staff: 2 px, its knots lit; its butt kept a row above the cell's bottom, so the outline closes it (the feet's row)
+    y0 = Math.min(y0, sp.N - 3); y1 = Math.min(y1, sp.N - 3);
+    region(sp, line(x0, y0, x1, y1, 2), ["#181425", "#2a1d28", "#3e2731", "#733e39"], { tex: (x, y) => hash(x, y, 31) < 0.12 ? "#733e39" : null });
+  }
+  function crown(sp, cx, top, side) {
+    // a band of bone round the brow with a green stone, and antler tines rising (side: swept back)
+    region(sp, rect(cx - 3, top + 4, cx + 3, top + 5), R.bone, { tex: (x, y) => (x + y) % 3 === 0 ? R.bone[1] : null });
+    sp.set(cx, top + 4, HEXF[2]); sp.set(cx, top + 5, HEXF[1]);
+    const tines = side ? [[[cx - 2, top + 4], [cx - 4, top + 1], [cx - 6, top]], [[cx + 1, top + 4], [cx, top]], [[cx + 3, top + 4], [cx + 4, top + 1]]]
+                       : [[[cx - 3, top + 4], [cx - 5, top + 1], [cx - 7, top + 1]], [[cx - 1, top + 4], [cx - 2, top]], [[cx + 1, top + 4], [cx + 2, top]], [[cx + 3, top + 4], [cx + 5, top + 1], [cx + 7, top + 1]]];
+    for (const t of tines) for (let k = 0; k + 1 < t.length; k++) region(sp, line(t[k][0], t[k][1], t[k + 1][0], t[k + 1][1], 1), R.bone, { flat: k ? 3 : 2 });
+  }
+  function greenHand(sp, fx, fy, open, glow, dir) {
+    // the green hand: a palm and four splayed fingers toward dir (1 right, -1 left, 0 up)
+    const G = glow ? [HEXF[1], HEXF[2], HEXF[3], HEXF[4]] : [HEXF[0], HEXF[1], HEXF[2], HEXF[3]];
+    region(sp, ell(fx, fy, 1.8, 1.6), G, { ball: [fx - 1, fy - 1, 2] });
+    if (!open) return;
+    const F = dir === 0 ? [[-2, -3], [-1, -4], [1, -4], [2, -3]] : [[3 * dir, -2], [4 * dir, -1], [4 * dir, 1], [3 * dir, 2]];
+    for (const [dx, dy] of F) { sp.set(fx + Math.sign(dx) * Math.min(1, Math.abs(dx)) + (dir ? 0 : 0), fy + (dir ? 0 : -1), G[2]); region(sp, line(fx + Math.sign(dx), fy + Math.sign(dy) * (dir === 0 ? 1 : 0), fx + dx, fy + dy, 1), G, { flat: 2 }); sp.set(fx + dx, fy + dy, G[3]); }
+  }
+  // the green hand the trolls daub on everything they take, here as his own sign: a palm, four fingers and a thumb, 8 x 7
+  const HANDPRINT = [".#.#.#..", ".#.#.#.#", ".#######", "########", ".#######", "..#####.", "..####.."];
+  const inHand = (hx, hy) => hy >= 0 && hy < HANDPRINT.length && hx >= 0 && hx < 8 && HANDPRINT[hy][hx] === "#";
+  // the robe's cloth: the green trim at the hem, folds falling from the belt (a dark line and its lit edge every 5 px)
+  function robeTex(x, y, c, belt, slant) {
+    if (y >= 42 && y <= 43) return HEXF[(x >> 1) % 2 ? 0 : 1];
+    if (y > belt + 2 && y < 42) { const f = (x + Math.floor((y - belt) * slant)) % 5; if (f === 0) return R.robe[0]; if (f === 1 && c !== R.robe[0]) return R.robe[2]; }
+    return null;
+  }
+  function wizardBody(drawing, P) {
+    const N = 48, sp = new Grid(N), S = R.nature, B = (P.bob || 0) + (P.kneel ? P.kneel * 3 : 0), glow = P.glow ? 1 : 0, step = P.step || 0;
+    const staff = P.staff || "rest", hand = P.hand || "hide", kneel = P.kneel || 0;
+    let tip = null;
+    if (drawing === "side") {
+      const X = P.lean || 0, sway = step;
+      // the staff behind the near arm when planted at rest; its crystal is the tip of a cast
+      const SP = { rest: [[33, 46], [34, 6]], raise: [[30, 30], [36, 5]], forward: [[26, 27], [42, 13]], plant: [[33, 46], [33, 7]], wide: [[38, 44], [42, 8]], down: [[40, 46], [30, 40]], jab: [[24, 26], [41, 22]] }[staff] || [[33, 46], [34, 6]];
+      const [[bx, by], [cx, cy]] = SP.map(([x, y]) => [x + (staff === "down" ? 0 : X), y + (staff === "rest" || staff === "plant" || staff === "down" ? 0 : B)]);   // (a dropped staff lies on the ground, whatever the kneel)
+      const drawStaff = () => { staffShaft(sp, bx, by, cx, cy + 3); claw(sp, cx, cy); hexstone(sp, cx, cy, glow || staff === "raise", staff === "raise"); tip = [cx, cy]; };
+      if (staff === "rest" || staff === "plant" || staff === "wide") drawStaff();
+      // the feet under the hem: bare green toes, the far one a step darker
+      if (!kneel) { region(sp, rect(18 + sway, 45, 21 + sway, 46), darkOf(S)); region(sp, rect(25 - sway, 45, 29 - sway, 46), S, { ball: [26, 45, 3] }); }
+      // the robe: hunched, an A-line to the floor, its hem ragged; the hump of the back high behind the head
+      const k = kneel ? 4 : 0;
+      const robe = poly([[16 + X, 13 + B], [12 + X, 17 + B], [10 + X, 25 + B], [10 + k, 33 + B / 2 + k], [11 - sway + k, 45], [31 + sway, 45], [29 + X, 33 + B], [27 + X, 22 + B], [25 + X, 16 + B], [21 + X, 13 + B]]);
+      region(sp, (x, y) => robe(x, y) && !(y === 45 && (x + sway) % 3 === 0), R.robe, { ball: [15 + X, 18 + B, 14], tex: (x, y, c) => robeTex(x, y, c, 30 + B, 0.15) });
+      // the green stole hanging down the front from the shoulder, fringed at its end
+      region(sp, (x, y) => robe(x, y) && y >= 17 + B && y <= 39 && x >= 25 + X + Math.floor((y - 17 - B) / 8) && x <= 26 + X + Math.floor((y - 17 - B) / 8) && !(y === 39 && x % 2), HEXF, { tex: (x, y) => x === 25 + X + Math.floor((y - 17 - B) / 8) ? HEXF[2] : HEXF[0] });
+      // the rope belt and its trinkets: a little skull and a bone
+      region(sp, rect(13 + X, 30 + B, 27 + X, 30 + B), R.leather, { flat: 3, tex: (x) => x % 2 ? R.leather[2] : null });
+      region(sp, rect(22 + X, 31 + B, 23 + X, 33 + B), R.bone, { flat: 2 }); sp.set(22 + X, 32 + B, OUT);
+      // the green hand thrust out (the rune rings' wind), raised (the ward), flung wide (the nova), or hanging in its sleeve
+      if (hand === "point") { region(sp, line(22 + X, 19 + B, 33 + X, 19 + B, 3), R.robe, { flat: 2, cast: R.robe[0] }); limb(sp, 31 + X, 19 + B, 37 + X, 19 + B, [HEXF[0], HEXF[1], HEXF[2], HEXF[3]], 1.6, 2); greenHand(sp, 39 + X, 19 + B, true, true, 1); tip = [41 + X, 19 + B]; }
+      else if (hand === "up") { region(sp, line(22 + X, 20 + B, 28 + X, 12 + B, 3), R.robe, { flat: 2 }); limb(sp, 28 + X, 12 + B, 30 + X, 6 + B, [HEXF[0], HEXF[1], HEXF[2], HEXF[3]], 1.6, 2); greenHand(sp, 30 + X, 4 + B, true, true, 0); }
+      else if (hand === "wide") { region(sp, line(16 + X, 18 + B, 8 + X, 14 + B, 3), R.robe, { flat: 1 }); greenHand(sp, 6 + X, 13 + B, true, true, -1); }
+      else if (hand === "down") { region(sp, line(22 + X, 20 + B, 23 + X, 30 + B, 3), R.robe, { flat: 1 }); greenHand(sp, 23 + X, 32 + B, false, glow, 1); }
+      // the head, low and forward: a long skull, the ear swept back, the hooked nose, a tusk, the eye glowing green
+      const hx = X + (P.head ? P.head[0] : 0), hy = B + (P.head ? P.head[1] : 0) + (kneel ? 1 : 0);
+      region(sp, ell(25 + hx, 14 + hy, 4.4, 3.8), S, { ball: [24 + hx, 13 + hy, 4.4], cast: S[0] });
+      region(sp, line(21 + hx, 12 + hy, 17 + hx, 10 + hy, 2), S, { flat: 1 });                      // the ear
+      region(sp, poly([[28 + hx, 13 + hy], [32 + hx, 15 + hy], [31 + hx, 17 + hy], [29 + hx, 16 + hy]]), S, { flat: 2 });   // the nose
+      sp.set(31 + hx, 16 + hy, S[1]); sp.set(27 + hx, 17 + hy, TUSK[1]); sp.set(27 + hx, 18 + hy, TUSK[0]);
+      sp.set(27 + hx, 13 + hy, P.flinch ? S[0] : HEXEYE); sp.set(26 + hx, 13 + hy, S[0]);
+      // the beard: braided grey to the belt, a bone bead
+      region(sp, poly([[23 + hx, 17 + hy], [28 + hx, 17 + hy], [27 + hx, 23 + hy], [26 + hx, 28 + hy], [24 + hx, 29 + hy], [24 + hx, 22 + hy]]), R.beard, { ball: [24 + hx, 19 + hy, 6], tex: (x, y) => (y + x) % 3 === 0 ? R.beard[1] : null });
+      sp.set(25 + hx, 25 + hy, R.bone[3]); sp.set(25 + hx, 26 + hy, R.bone[1]);
+      crown(sp, 25 + hx, 5 + hy, true);
+      // the staff held before the body (raised, thrust, jabbing, dropped) and the near hand on it
+      if (staff === "raise" || staff === "forward" || staff === "jab" || staff === "down") drawStaff();
+      const grip = staff === "raise" ? [32 + X, 18 + B] : staff === "forward" ? [31 + X, 22 + B] : staff === "jab" ? [30 + X, 24 + B] : staff === "down" ? null : staff === "wide" ? [37 + X, 22 + B] : [32 + X, 24 + B];
+      if (grip) { region(sp, line(24 + X, 18 + B, grip[0] - 1, grip[1], 3), R.robe, { flat: 2, cast: R.robe[0] }); region(sp, ell(grip[0], grip[1], 1.7, 1.6), S, { ball: [grip[0] - 1, grip[1] - 1, 2] }); }
+      if (P.smoke) smokeOver(sp, P.smoke);
+    } else {
+      const up = drawing === "up", m = x => up ? 47 - x : x, X = 0;
+      // the staff in the troll's right hand (our left facing the camera), planted or raised; the crystal its tip
+      const SD = { rest: [[11, 46], [11, 6]], plant: [[11, 46], [11, 6]], raise: [[13, 30], [13, 5]], forward: [[13, 30], [13, 4]], wide: [[5, 44], [4, 10]], down: [[6, 46], [16, 42]], jab: [[13, 30], [13, 4]] }[staff] || [[11, 46], [11, 6]];
+      const [[bx, by], [cx, cy]] = SD.map(([x, y]) => [m(x), y + (staff === "rest" || staff === "plant" || staff === "down" ? 0 : B)]);
+      const drawStaff = () => { staffShaft(sp, bx, by, cx, cy + 3); claw(sp, cx, cy); hexstone(sp, cx, cy, glow || staff === "raise", staff === "raise"); tip = [cx, cy]; };
+      if (up) drawStaff();
+      if (!kneel) { region(sp, rect(18 - step, 45, 21 - step, 46), darkOf(S)); region(sp, rect(26 + step, 45, 29 + step, 46), S, { ball: [27, 45, 3] }); }
+      const k = kneel ? 3 : 0;
+      const robe = poly([[17, 14 + B], [13, 18 + B], [12, 28 + B], [10 - k, 45], [37 + k, 45], [35, 28 + B], [34, 18 + B], [30, 14 + B]]);
+      region(sp, (x, y) => robe(x, y) && !(y === 45 && x % 3 === 0), R.robe, { ball: [18, 18 + B, 15], tex: (x, y, c) => {
+        if (up && inHand(x - 20, y - (21 + B))) return HAND[(x + y) & 1 ? 0 : 1];                   // the green hand, his sign, big on the back
+        return robeTex(x, y, c, 30 + B, 0);
+      } });
+      // facing us, the green stole: two bands from the shoulders to the knees, fringed
+      if (!up) region(sp, (x, y) => robe(x, y) && y >= 18 + B && y <= 39 && (x === 16 || x === 17 || x === 30 || x === 31) && !(y === 39 && x % 2), HEXF, { tex: (x) => x === 16 || x === 30 ? HEXF[2] : HEXF[0] });
+      region(sp, rect(14, 30 + B, 33, 30 + B), R.leather, { flat: 3, tex: (x) => x % 2 ? R.leather[2] : null });
+      if (!up) { region(sp, rect(27, 31 + B, 28, 33 + B), R.bone, { flat: 2 }); sp.set(27, 32 + B, OUT); }
+      // the shoulders, hunched up round the head
+      region(sp, ell(23.5, 16 + B, 10, 3.6), R.robe, { ball: [20, 15 + B, 10], cast: R.robe[0] });
+      // the green hand: hanging at the troll's left (our right facing the camera), raised for the ward, flung wide, or pointed at us
+      const L = x => m(x);
+      if (hand === "point") { region(sp, line(L(32), 18 + B, L(36), 23 + B, 3), R.robe, { flat: 2 }); greenHand(sp, L(37), 25 + B, true, true, up ? -1 : 1); tip = [L(38), 25 + B]; }
+      else if (hand === "up") { region(sp, line(L(32), 17 + B, L(36), 9 + B, 3), R.robe, { flat: 2 }); limb(sp, L(36), 9 + B, L(37), 5 + B, [HEXF[0], HEXF[1], HEXF[2], HEXF[3]], 1.6, 2); greenHand(sp, L(37), 3 + B, true, true, 0); }
+      else if (hand === "wide") { region(sp, line(L(32), 17 + B, L(39), 14 + B, 3), R.robe, { flat: 2 }); greenHand(sp, L(41), 13 + B, true, true, up ? -1 : 1); }
+      else { region(sp, line(L(33), 18 + B, L(35), 28 + B, 3), R.robe, { flat: 1 }); limb(sp, L(35), 27 + B, L(35), 31 + B, [HEXF[0], HEXF[1], HEXF[2], HEXF[3]], 1.6, 2); greenHand(sp, L(35), 32 + B, false, glow, 1); }
+      // the head between the shoulders: ears drooping out, the crown
+      const hy = B + (P.head ? P.head[1] : 0) + (kneel ? 1 : 0);
+      region(sp, ell(23.5, 12 + hy, 4.4, 4), S, { ball: [22.5, 11 + hy, 4.4], cast: S[0] });
+      region(sp, or(line(19, 12 + hy, 15, 15 + hy, 2), line(28, 12 + hy, 32, 15 + hy, 2)), S, { flat: 1 });
+      if (!up) {
+        sp.set(21, 11 + hy, P.flinch ? S[0] : HEXEYE); sp.set(26, 11 + hy, P.flinch ? S[0] : HEXEYE);
+        region(sp, rect(23, 12 + hy, 24, 14 + hy), S, { flat: 2 }); sp.set(23, 15 + hy, S[0]); sp.set(24, 15 + hy, S[0]);
+        sp.set(21, 15 + hy, TUSK[1]); sp.set(26, 15 + hy, TUSK[1]);
+        // the beard: wide under the tusks, falling to two braids with bone beads
+        region(sp, or(poly([[19, 16 + hy], [28, 16 + hy], [26, 23 + hy], [21, 23 + hy]]), rect(23, 23 + hy, 24, 31 + hy)), R.beard, { ball: [21, 18 + hy, 6], tex: (x, y) => (y + x) % 3 === 0 ? R.beard[1] : null });
+        sp.set(23, 27 + hy, R.bone[3]); sp.set(24, 27 + hy, R.bone[1]); sp.set(23, 30 + hy, R.bone[2]);
+      }
+      crown(sp, 23.5, 3 + hy, false);
+      if (!up) drawStaff();
+      // the near hand on the staff
+      if (staff !== "down" && staff !== "wide") { const gy = staff === "raise" ? 18 + B : 24 + B; region(sp, line(m(15), 17 + B, m(12), gy, 3), R.robe, { flat: 2, cast: R.robe[0] }); region(sp, ell(m(12), gy, 1.7, 1.6), S, { ball: [m(12) - 1, gy - 1, 2] }); }
+      if (P.smoke) smokeOver(sp, P.smoke);
+    }
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  // the blink: green smoke eats the body from the hem up (s 1 to 3), leaving the eyes and the crystal last
+  function smokeOver(sp, s) {
+    const W = sp.N, H = sp.N, keep = new Set([HEXEYE, HEXF[3], HEXF[4]]);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const c = sp.get(x, y); if (!c) continue;
+      const frac = (H - y) / H, eat = s / 3 * 1.25 - frac;   // the lower part first
+      if (eat > 0 && !keep.has(c)) sp.set(x, y, dith(x, y, Math.min(1, eat * 2.2)) ? (hash(x, y, 41) < 0.5 ? HEXF[1] : HEXF[2]) : (dith(x + 1, y, Math.min(1, eat * 1.6)) ? null : c));
+    }
+    if (s >= 3) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const c = sp.get(x, y); if (c && !keep.has(c) && hash(x, y, 42) < 0.55) sp.set(x, y, null); }
+  }
+  function wizardPose(anim, i) {
+    const g = i % 2;
+    if (anim === "walk") return { step: [1, 0, -1, 0][i % 4], bob: i % 2 ? 0 : 1, staff: "plant", hand: "down", glow: g };
+    if (anim === "cast" || anim === "wind") return { lean: -1, staff: "raise", hand: "down", glow: 1 };              // the hexbolts' wind: the staff high, the crystal blazing
+    if (anim === "point") return { lean: 1, staff: "plant", hand: "point", glow: 1 };              // the rune rings' wind: the green hand thrust out
+    if (anim === "strike") return { lean: 1, staff: "forward", hand: "down", glow: 1 };            // the loose
+    if (anim === "jab") return { lean: 2, staff: "jab", hand: "down", glow: 0 };                   // the staff's jab
+    if (anim === "recover") return { lean: 0, bob: 1, staff: "plant", hand: "down", glow: 0 };
+    if (anim === "nova") return { lean: 0, staff: "wide", hand: "wide", glow: 1 };                 // arms flung wide
+    if (anim === "ward") return { kneel: 1, staff: "plant", hand: "up", glow: g };                 // on one knee, the green hand raised under the dome
+    if (anim === "kneel") return { kneel: 2, staff: "down", hand: "down", head: [1, 3], glow: 0 };  // the ward broken: on his knees, the staff dropped
+    if (anim === "blink") return { staff: "plant", hand: "down", smoke: i + 1, glow: 1 };
+    if (anim === "hit" || anim === "stone") return { lean: -1, head: [-1, -1], flinch: true, staff: "plant", hand: "down" };
+    return { bob: g, staff: "rest", hand: "down", glow: g };   // idle: a breath, the crystal pulsing
+  }
+  const WIZARD_ANIMS = { idle: 2, walk: 4, cast: 1, point: 1, strike: 1, jab: 1, recover: 1, nova: 1, ward: 2, kneel: 1, blink: 3, hit: 1, stone: 1 };
+
+  // ================================================================== THE HEX BAT (body "bat", 32 px)
+  // The wizard's familiars: small black-plum bats with slate wings, green eyes and white fangs. They fly at z 10 (the frame is drawn with
+  // its bottom row at the bat's feet, lifted by its height), so the body sits low in the cell and the wings spread above and round it.
+  // P: { wing (0 up, 1 level, 2 down), mouth (0, 1), swept (the swoop), folded (falling stone), flinch }
+  function batWing(sp, sx, sy, dir, wing, swept, ramp) {
+    // one wing from the shoulder (sx, sy) toward dir (-1 left, 1 right): three finger bones and the scalloped membrane between
+    const lift = swept ? [-1, 0, 1] : [[-7, -9, -6], [-2, -3, -1], [3, 5, 6]][wing];
+    const reach = swept ? [6, 8, 9] : [8, 10, 11];
+    const tips = [0, 1, 2].map(k => [sx + dir * reach[k] * (swept ? 0.7 : 1), sy + lift[k] + (swept ? 4 + k : 0)]);
+    const wrist = [sx + dir * 3, sy - (swept ? 0 : wing === 0 ? 4 : wing === 1 ? 1 : -1)];
+    const pts = [[sx, sy], wrist, tips[0], [wrist[0] + dir * 4, wrist[1] + 2], tips[1], [wrist[0] + dir * 5, wrist[1] + 4], tips[2], [sx + dir * 2, sy + 3]];
+    region(sp, poly(pts.map(([x, y]) => [x + 0.5, y + 0.5])), ramp, { ball: [sx + dir * 4, sy - 3, 7], tex: (x, y, c) => hash(x, y, 51) < 0.08 ? ramp[0] : null });
+    for (const t of tips) region(sp, line(wrist[0], wrist[1], t[0], t[1], 1), R.wing, { flat: 3 });
+    region(sp, line(sx, sy, wrist[0], wrist[1], 1), R.wing, { flat: 3 });
+  }
+  // the rows of a cell moved down n (a bat's body, drawn low, brought to the cell's bottom row: its feet stand there as every kind's)
+  function dropRows(sp, n) { const N = sp.N, px = new Array(N * N).fill(null); for (let y = 0; y + n < N; y++) for (let x = 0; x < N; x++) px[(y + n) * N + x] = sp.px[y * N + x]; sp.px = px; }
+  function batBody(drawing, P) {
+    const N = 32, sp = new Grid(N), wing = P.wing === undefined ? 1 : P.wing, F = R.fur;
+    let tip = null;
+    if (P.folded) {
+      // a stone bat falling: wings wrapped round the body
+      region(sp, ell(16, 26, 3.5, 4.5), R.wing, { ball: [15, 24, 4] }); region(sp, ell(16, 22, 2.2, 2), F, { ball: [15, 21, 2] });
+      sp.set(15, 20, F[2]); sp.set(17, 20, F[2]);
+      dropRows(sp, 1); outline(sp); sp.tip = [16, 24]; return sp;
+    }
+    if (drawing === "side") {
+      // facing right: the far wing behind, darker, the near wing over the body; the head turned right with its ears back
+      batWing(sp, 15, 24, -1, wing, P.swept, darkOf(R.wing));
+      region(sp, ell(15.5, 25, 3.4, 2.4), F, { ball: [14.5, 24, 3.4], tex: (x, y) => (x + y) % 3 === 0 ? F[1] : null });
+      region(sp, ell(19.5, 23.5, 2.2, 2), F, { ball: [19, 23, 2.2] });
+      sp.set(18, 21, F[3]); sp.set(19, 20, F[2]); sp.set(18, 20, F[1]); sp.set(20, 21, F[2]);       // the ears
+      sp.set(20, 23, P.flinch ? F[1] : HEXEYE); sp.set(21, 24, F[2]);
+      if (P.mouth) { sp.set(21, 25, "#a22633"); sp.set(22, 25, TUSK[1]); sp.set(21, 26, TUSK[1]); } else sp.set(21, 25, TUSK[1]);
+      batWing(sp, 16, 24, 1, wing, P.swept, R.wing);
+      region(sp, or(rect(14, 27, 14, 28), rect(16, 27, 16, 28)), F, { flat: 1 });                       // the feet tucked
+      tip = [22, 25];
+    } else {
+      const up = drawing === "up";
+      batWing(sp, 14, 24, -1, wing, P.swept, up ? R.wing : R.wing);
+      batWing(sp, 17, 24, 1, wing, P.swept, R.wing);
+      region(sp, ell(15.5, 25, 2.6, 3.2), F, { ball: [14.5, 24, 3], tex: (x, y) => (x + y) % 3 === 0 ? F[1] : null });
+      region(sp, ell(15.5, 21.5, 2.4, 2), F, { ball: [14.5, 21, 2.4] });
+      sp.set(13, 19, F[2]); sp.set(13, 18, F[3]); sp.set(18, 19, F[2]); sp.set(18, 18, F[3]); sp.set(14, 19, F[1]); sp.set(17, 19, F[1]);
+      if (!up) {
+        sp.set(14, 21, P.flinch ? F[1] : HEXEYE); sp.set(17, 21, P.flinch ? F[1] : HEXEYE); sp.set(15, 22, F[3]); sp.set(16, 22, F[3]);
+        if (P.mouth) { sp.set(15, 23, "#a22633"); sp.set(16, 23, "#a22633"); sp.set(14, 23, TUSK[1]); sp.set(17, 23, TUSK[1]); } else { sp.set(14, 23, TUSK[1]); sp.set(17, 23, TUSK[1]); }
+      }
+      region(sp, or(rect(14, 28, 14, 29), rect(17, 28, 17, 29)), F, { flat: 1 });
+      tip = [15, 23];
+    }
+    dropRows(sp, 2); if (tip) tip = [tip[0], tip[1] + 2];
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  function batPose(anim, i) {
+    if (anim === "fly") return { wing: [0, 1, 2, 1][i % 4] };
+    if (anim === "wind") return { wing: 0, mouth: 1 };
+    if (anim === "strike") return { swept: true, mouth: 1 };
+    if (anim === "recover") return { wing: 2 };
+    if (anim === "hit") return { wing: 1, flinch: true };
+    if (anim === "stone") return { folded: true };
+    return { wing: [0, 1, 2, 1][i % 4] };
+  }
+  const BAT_ANIMS = { idle: 4, fly: 4, wind: 1, strike: 1, recover: 1, hit: 1, stone: 1 };
+
+  // ================================================================== THE TROLL BURSTER (body "burster", 32 px)
+  // A troll the wizard has filled with his green fire until it eats him from the inside: a swollen belly held in two rusty iron hoops,
+  // glowing through black cracks, a manic grin, the skin gone dark and sickly (the brutes' darker green), arms out, clawing. Its fuse is
+  // four frames: the belly swells by a pixel a frame, the cracks spread and brighten, the last frame white at the heart.
+  // P: { step, bob, lean, swell (0..3), glow (0..4: how lit the cracks are), arms (reach | back | up), flinch, smoke }
+  // the cracks: five jagged lines out from the heart of the belly, longer and brighter as the fuse burns (lit 0: dark seams)
+  const CRACKS = [[-0.9, 3], [-0.15, 4], [0.7, 3], [1.6, 4], [2.5, 3], [3.6, 4], [4.6, 3]];
+  function onCrack(x, y, cx, cy, r, lit) {
+    const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy); if (d > r - 0.8) return false;
+    if (d < 1.2 + lit * 0.5) return true;   // the heart
+    const a = Math.atan2(dy, dx);
+    for (const [a0, len] of CRACKS) { const reach = Math.min(r - 1, len + lit); if (d > reach) continue; const jag = a0 + Math.sin(d * 1.7 + a0 * 3) * 0.22; let da = Math.abs(((a - jag) + 3 * Math.PI) % (2 * Math.PI) - Math.PI); if (da * d < 0.75) return true; }
+    return false;
+  }
+  function belly(sp, cx, cy, r, glow, front) {
+    const G = HEXF, lit = glow || 0;
+    region(sp, ell(cx, cy, r, r * 0.95), R.nature, { ball: [cx - 1.5, cy - 1.5, r], tex: (x, y) => {
+      if (onCrack(x, y, cx, cy, r, lit)) { const d = Math.hypot(x - cx, y - cy); return lit === 0 ? OUT : G[clamp(Math.round(1 + lit - d / 3), 1, 4)]; }
+      return null; } });
+    // the two iron hoops round it, rusted in spots
+    for (const dy of [-Math.round(r * 0.5), Math.round(r * 0.55)]) for (let x = Math.round(cx - r); x <= Math.round(cx + r); x++) { const yy = Math.round(cy + dy), inside = ((x - cx) ** 2) / (r * r) + ((yy - cy) ** 2) / (r * r * 0.9) <= 1.0; if (inside) sp.set(x, yy, hash(x, yy, 63) < 0.18 ? "#be4a2f" : R.iron[x < cx - 1 ? 3 : x < cx + 2 ? 2 : 1]); }
+  }
+  function bursterBody(drawing, P) {
+    const N = 32, sp = new Grid(N), S = R.nature, B = P.bob || 0, step = P.step || 0, sw = P.swell || 0, glow = P.glow || 0, arms = P.arms || "reach";
+    let tip = null;
+    if (drawing === "side") {
+      const X = P.lean || 0, back = step > 0 ? -2 : step < 0 ? 2 : 0, fwd = -back;
+      // the far arm reaching, a step darker
+      const far = arms === "up" ? [[12, 15], [10, 7]] : arms === "back" ? [[12, 16], [6, 20]] : [[15, 16], [24, 17]];
+      limb(sp, far[0][0] + X, far[0][1] + B, far[1][0] + X, far[1][1] + B, darkOf(S), 2, 2);
+      // the legs, short and bowed
+      region(sp, rect(11 + back, 25, 13 + back, 29), darkOf(S)); region(sp, rect(10 + back, 30, 14 + back, 30), darkOf(S));
+      region(sp, rect(16 + fwd, 25, 18 + fwd, 29), S); region(sp, rect(16 + fwd, 30, 20 + fwd, 30), S, { ball: [17 + fwd, 30, 3] });
+      // the leather loincloth under the belly
+      region(sp, rect(11 + X, 24 + B, 19 + X, 26 + B), R.leather, { tex: (x) => x % 2 ? R.leather[1] : null });
+      // the hunched shoulders running into the neck, then the swollen belly in its hoops below them
+      region(sp, or(ell(15 + X, 13.5 + B, 5.5, 3.6), line(17 + X, 12 + B, 20 + X, 12 + B, 3)), S, { ball: [13 + X, 12 + B, 6] });
+      belly(sp, 15 + X, 19 + B - Math.floor(sw / 2), 5.5 + sw, glow, true);
+      tip = [15 + X, 19 + B - Math.floor(sw / 2)];
+      // the head thrust forward: a wide grinning mouth of crooked teeth, the eyes wide and yellow
+      const hx = X + (P.head ? P.head[0] : 0), hy = B + (P.head ? P.head[1] : 0);
+      region(sp, ell(20.5 + hx, 11 + hy, 3.6, 3.2), S, { ball: [20 + hx, 10 + hy, 3.6], cast: S[0] });
+      region(sp, rect(22 + hx, 12 + hy, 24 + hx, 13 + hy), S, { flat: 2 });
+      for (let x = 19; x <= 23; x++) sp.set(x + hx, 13 + hy, x % 2 ? TUSK[1] : OUT);
+      sp.set(22 + hx, 10 + hy, P.flinch ? S[0] : EYE); sp.set(21 + hx, 10 + hy, P.flinch ? S[0] : "#ffffff");
+      region(sp, line(17 + hx, 9 + hy, 15 + hx, 7 + hy, 1), S, { flat: 1 });                        // the ear
+      if (P.smoke) for (const [dx, dy] of [[0, 0], [1, -1], [2, -2], [1, -3], [3, -3]].slice(0, 2 + P.smoke)) sp.set(24 + hx + dx, 12 + hy + dy, HEXF[(dx + dy) & 1 ? 1 : 2]);
+      // the near arm, clawing ahead (or flung back as it runs)
+      const near = arms === "up" ? [[17, 15], [19, 7]] : arms === "back" ? [[14, 17], [8, 22]] : [[17, 16], [26, 19]];
+      limb(sp, near[0][0] + X, near[0][1] + B, near[1][0] + X, near[1][1] + B, S, 2, 2);
+      for (const [dx, dy] of [[1, -1], [1, 1], [2, 0]]) sp.set(near[1][0] + X + dx * (near[1][0] > near[0][0] ? 1 : -1), near[1][1] + B + dy, TUSK[1]);
+    } else {
+      const up = drawing === "up", lA = step > 0 ? -1 : 0, lB = step < 0 ? -1 : 0;
+      region(sp, rect(11, 25 + lA, 13, 29 + lA), S); region(sp, rect(10, 30 + lA, 14, 30 + lA), S);
+      region(sp, rect(18, 25 + lB, 20, 29 + lB), S); region(sp, rect(17, 30 + lB, 21, 30 + lB), S);
+      region(sp, rect(10, 24 + B, 21, 26 + B), R.leather, { tex: (x) => x % 2 ? R.leather[1] : null });
+      const armY = arms === "up" ? -9 : arms === "back" ? 4 : 2;
+      limb(sp, 9, 15 + B, 4, 15 + B + armY, S, 2, 2); limb(sp, 22, 15 + B, 27, 15 + B + armY, S, 2, 2);
+      if (up) region(sp, ell(15.5, 14 + B, 6, 4), S, { ball: [14, 13 + B, 6] });
+      belly(sp, 15.5, 19 + B - Math.floor(sw / 2), 5.8 + sw, up ? Math.max(0, glow - 1) : glow, !up);
+      tip = [15, 19 + B - Math.floor(sw / 2)];
+      const hy = B + (P.head ? P.head[1] : 0);
+      region(sp, ell(15.5, 10 + hy, 3.8, 3.4), S, { ball: [14.5, 9 + hy, 3.8], cast: S[0] });
+      region(sp, or(line(12, 9 + hy, 9, 7 + hy, 1), line(19, 9 + hy, 22, 7 + hy, 1)), S, { flat: 1 });
+      if (!up) {
+        sp.set(13, 9 + hy, P.flinch ? S[0] : EYE); sp.set(18, 9 + hy, P.flinch ? S[0] : EYE);
+        for (let x = 13; x <= 18; x++) sp.set(x, 12 + hy, x % 2 ? TUSK[1] : OUT);
+        if (P.smoke) for (const [dx, dy] of [[0, 0], [-1, -1], [1, -2], [0, -3]].slice(0, 1 + P.smoke)) sp.set(16 + dx, 13 + hy + 1 + dy - 4, HEXF[(dx + dy) & 1 ? 1 : 2]);
+      }
+    }
+    outline(sp);
+    sp.tip = tip;
+    return sp;
+  }
+  function bursterPose(anim, i) {
+    if (anim === "walk") return { step: [1, 0, -1, 0][i % 4], bob: i % 2 ? 0 : 1, arms: "reach", glow: 1 };
+    if (anim === "run") return { step: [2, 0, -2, 0][i % 4], bob: i % 2 ? 0 : 1, lean: 1, arms: "back", glow: 1 };
+    if (anim === "fuse" || anim === "wind") return { swell: i, glow: 1 + i, arms: "up", smoke: 1 + (i >> 1), lean: 0 };
+    if (anim === "hit" || anim === "stone") return { flinch: true, lean: -1, head: [-1, -1], arms: "back", glow: 1 };   // (the stone frame is the hit pose in stone, as every kind's)
+    return { bob: i % 2, arms: "reach", glow: 1 };
+  }
+  const BURSTER_ANIMS = { idle: 2, walk: 4, run: 4, fuse: 4, hit: 1, stone: 1 };
+
+
   // ------------------------------------------------------------------ the frames
   // the pose of a kind's animation frame i
   function poseOf(kind, anim, i) {
     const body = KIND[kind].body;
     if (body === "knight") return knightPose(anim, i);
     if (body === "wolf") return wolfPose(anim, i);
+    if (body === "wizard") return wizardPose(anim, i);   // design pass 27
+    if (body === "bat") return batPose(anim, i);
+    if (body === "burster") return bursterPose(anim, i);
     if (anim === "walk") return { step: [1, 0, -1, 0][i % 4], bob: i % 2 ? 0 : 1, arm: "rest" };
     if (anim === "wind") return { lean: -1, arm: body === "archer" ? "draw" : "raise" };
     if (anim === "strike") return { lean: 1, arm: body === "archer" ? "loose" : body === "brute" ? "strike" : "swing" };
@@ -924,7 +1260,6 @@
   const LUM = c => { const v = [1, 3, 5].map(k => parseInt(c.slice(k, k + 2), 16)); return 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]; };
   const stoneOf = new Map();
   function toStone(c) { if (!stoneOf.has(c)) { const l = LUM(c); stoneOf.set(c, STONE[l < 70 ? 0 : l < 115 ? 1 : l < 165 ? 2 : 3]); } return stoneOf.get(c); }
-  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   function stonePixels(px, N, s) {
     s = Math.max(1, Math.min(4, s === undefined ? 4 : s | 0));
     return px.map((c, k) => { if (!c || c === OUT) return c; const x = k % N, y = (k / N) | 0; return BAYER[(y & 3) * 4 + (x & 3)] < s * 4 ? toStone(c) : c; });
@@ -994,11 +1329,22 @@
   function projectile(kind, angle, i) {
     const k = dirOf(angle);
     if (kind === "fire-bolt") return once("bolt" + k + "|" + ((i | 0) & 3), () => boltSprite(k, (i | 0) & 3));
+    if (kind === "hexbolt") return once("hex" + k + "|" + ((i | 0) & 3), () => hexboltSprite(k, (i | 0) & 3));
     if (kind === "stone") return once("stone" + ((i | 0) % 2), () => stoneSprite((i | 0) % 2));
     if (kind !== "ice-arrow") kind = "troll-arrow";
     return once(kind + k, () => arrowSprite(kind, k));
   }
-  const PROJECTILES = { "troll-arrow": 1, "ice-arrow": 1, "fire-bolt": 4, stone: 2 };
+  // (design pass 27) the wizard's hexbolt: a 5 px orb of the Green Hand's fire round a white heart, a 3 px trail of green sparks behind
+  // it, its heart pulsing on four frames; anchored at its centre (its hit circle's)
+  function hexboltSprite(k, f) {
+    const W = 17, c = 8, a = k * 2 * Math.PI / DIRS, ca = Math.cos(a), sa = Math.sin(a), px = new Array(W * W).fill(null), H = R.hex;
+    const put = (x, y, col) => { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < W && y < W) px[y * W + x] = col; };
+    [[4, H[2]], [5.5, H[1]], [7, H[0]]].forEach(([d, col], j) => put(c - ca * d - sa * (j % 2 ? 0.6 : -0.6) * (f % 2 ? 1 : -1), c - sa * d + ca * (j % 2 ? 0.6 : -0.6) * (f % 2 ? 1 : -1), col));
+    for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) { const d = Math.hypot(x, y); if (d > 2.3) continue; put(c + x, c + y, d <= 0.6 ? H[4] : d <= 1.5 ? (f % 2 ? H[3] : H[4]) : ((x + y + f) & 1 ? H[2] : H[3])); }
+    put(c + (f & 1 ? 1 : -1), c - 2, H[1]); put(c - (f & 1 ? 1 : -1), c + 2, H[1]);
+    return thing(px, W, W, c, c, { kind: "hexbolt", dir: k, i: f & 3 });
+  }
+  const PROJECTILES = { "troll-arrow": 1, "ice-arrow": 1, "fire-bolt": 4, stone: 2, hexbolt: 4 };
   // the rock slam's chunks (and a stone's): dirt, 3 x 3 of the ground's tones; the clod, every third chunk, 4 x 4; a splinter of the
   // drawbridge's oak; each with a soot outline, tumbling on two frames, anchored at its centre
   function chunkSprite(kind, f) {
@@ -1060,7 +1406,7 @@
   // a kind's sprite on the knight's interface: { kind, N, FACINGS, ANIMS, frame(facing, anim, i, glow, dent) }
   function sprite(kind) { if (!KIND[kind]) kind = "footman"; return { kind, N: KIND[kind].N, FACINGS, DRAWING, ANIMS: ANIMS[kind], frame: (facing, anim, i, glow, dent) => frame(kind, facing, anim, i, glow, dent) }; }
 
-  const BODY = { footman, archer, brute, knight: trollKnight, wolf };
+  const BODY = { footman, archer, brute, knight: trollKnight, wolf, wizard: (drawing, P) => wizardBody(drawing, P), bat: (drawing, P) => batBody(drawing, P), burster: (drawing, P) => bursterBody(drawing, P) };
   root.Trolls = { OUT, R, STONE, KINDS, KIND, FACINGS, DRAWING, ANIMS, frame, sprite, poseOf, toStone, stonePixels, DIRS, dirOf, PROJECTILES, projectile, chunk, shadow, pouch, splash, rock };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Trolls;
 })(typeof window !== "undefined" ? window : globalThis);

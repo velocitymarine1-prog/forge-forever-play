@@ -40,7 +40,8 @@
     glass: ["#262b44", "#3a4466", "#5a6988", "#c0cbdc"],
     parchment: ["#c28569", "#e4a672", "#ead4aa", "#fffaf0"],
     pink: ["#b55088", "#e43b44", "#f6757a", "#ffc0c8"],
-    ember: ["#3e2731", "#a22633", "#f77622", "#fee761"]
+    ember: ["#3e2731", "#a22633", "#f77622", "#fee761"],
+    hex: ["#265c42", "#3e8948", "#63c74d", "#b4e67a"]   // design pass 27: the Green Hand's fire (the hexstone's shards)
   };
   const ELEM = {
     fire: ["#a22633", "#e43b44", "#f77622", "#fee761"],
@@ -578,7 +579,7 @@
     skull: sp => { paint(sp, maskSet(or(disc(15.5, 14, 8.5), rect(11, 18, 20, 26))), auto(RAMP.bone)); paint(sp, maskSet(or(disc(12, 16, 2), disc(19, 16, 2))), flat(OUT)); sp.set(15, 20, OUT); sp.set(16, 20, OUT); for (let x = 12; x <= 19; x += 2) sp.set(x, 24, RAMP.bone[0]); },
     branch: sp => { paint(sp, stroke(t => [6 + t * 20, 26 - t * 18], t => 1.6 - t, 40), auto(RAMP.wood)); for (const [x, y] of [[12, 14], [20, 19], [24, 8], [9, 20]]) paint(sp, maskSet(ell(x, y, 3, 2)), auto(RAMP.green)); },
     ear: sp => { paint(sp, maskSet(poly([[8, 26], [6, 16], [12, 10], [28, 3], [18, 16], [16, 26]])), auto(RAMP.green)); paint(sp, maskSet(poly([[10, 22], [10, 16], [14, 13], [22, 8], [15, 17], [13, 22]])), flat("#265c42")); },
-    wing: sp => { paint(sp, maskSet(poly([[4, 8], [28, 6], [26, 14], [22, 12], [20, 20], [15, 17], [11, 26], [8, 18]])), auto(["#3e2731", "#68386c", "#b55088", "#f6757a"]));
+    wing: (sp, t, el, mat) => { paint(sp, maskSet(poly([[4, 8], [28, 6], [26, 14], [22, 12], [20, 20], [15, 17], [11, 26], [8, 18]])), auto(mat || ["#3e2731", "#68386c", "#b55088", "#f6757a"]));   // (a wing in another membrane: the bats' slate, design pass 27)
       paint(sp, stroke(t => [4 + t * 24, 8 - t * 2], () => 0.6, 30), auto(RAMP.bone)); for (const [x, y] of [[26, 14], [20, 20], [11, 26]]) paint(sp, stroke(t => [4 + (x - 4) * t, 8 + (y - 8) * t], () => 0.35, 30), flat(RAMP.bone[1])); },
     tongue: sp => paint(sp, stroke(t => [7 + t * 18, 24 - 16 * Math.sin(t * 2.2)], t => 3 - t * 1.6, 60), auto(RAMP.pink, (x, y) => (x + y) % 7 === 0)),
     eye: (sp, t, el) => { paint(sp, maskSet(ell(16, 16, 11, 7)), auto(RAMP.bone)); paint(sp, maskSet(disc(16, 16, 4.5)), auto(el || ["#265c42", "#3e8948", "#63c74d", "#d6f264"])); paint(sp, maskSet(rect(15, 12, 16, 20)), flat(OUT)); sp.set(14, 13, "#ffffff"); for (const [x, y] of [[7, 15], [8, 18], [24, 14]]) sp.set(x, y, "#e43b44"); },
@@ -617,6 +618,7 @@
     "golem-core": ["core", "earth"], "dragon-scale": ["scale", "fire"], "dragon-breath": ["jar", "fire"], "wraith-shroud": ["cloth", "void"],
     "slime-jelly": ["blob", "poison"], "skeleton-skull": ["skull"], "treant-branch": ["branch"], "goblin-ear": ["ear"], "wyvern-wing": ["wing"],
     "mimic-tongue": ["tongue"], "basilisk-eye": ["eye"], "troll-tooth": ["tusk"], "troll-hide": ["pelt"], "wolf-fang": ["tusk"],
+    "bat-wing": ["wing", null, "iron"], hexstone: ["shards", null, "hex"],   // design pass 27: the hex bats' wing in the bats' slate, Gorvash's hexstone in the Green Hand's ramp
     "gas-can": ["can"], bell: ["bell"], mirror: ["mirror"], hourglass: ["hourglass"], magnet: ["magnet"], lantern: ["lanternIcon", "holy"],
     spring: ["spring"], chain: ["chainlinks"], gear: ["gear"], "war-horn": ["hornIcon"]
   };

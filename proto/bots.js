@@ -83,7 +83,9 @@
     shadows(fight) { const M = fight.marks; return M && M.chunk ? M.chunk : []; },
     // the marks at the view's edge for the trolls off the screen (section 3.7a: Level.edgeMarks gives them in view px, as the painter draws
     // them; the squire walks to where a mark sits on the screen, so each comes back as a world point), nothing without them
-    edgeMarks(fight) { const L = root.Level, v = fight.view || { x0: 0, y0: 0 }; return L && typeof L.edgeMarks === "function" ? (L.edgeMarks(fight) || []).map(m => Object.assign({}, m, { x: m.x + v.x0, y: m.y + v.y0 })) : []; },
+    // (design pass 27) a level whose bots.marksPoint is set reads the marks as the page draws them (point: a mark over the top band stays
+    // under its target and points at it), so a troll straight above the view sends the squire up, not to one side and then the other
+    edgeMarks(fight) { const L = root.Level, v = fight.view || { x0: 0, y0: 0 }, o = ((fight.area || {}).bots || {}).marksPoint ? { point: true } : undefined; return L && typeof L.edgeMarks === "function" ? (L.edgeMarks(fight, o) || []).map(m => Object.assign({}, m, { x: m.x + v.x0, y: m.y + v.y0 })) : []; },
     // the Gallows Post sleeps until it is hit or neared (section 3.6): its huts are left alone while it does
     postAwake(fight) { const L = fight.level || {}; return !!(L.postAwake || (L.gallows && L.gallows.awake) || (L.post && L.post.awake)); },
     // the iron chest, standing shown and unopened: { x, y } (section 3.4)
@@ -167,6 +169,10 @@
     // goes from the ground's node under it, within a step of its height
     const layers = !!((fight.area || {}).bots || {}).layers;
     if (layers && k.on && !set.cls.knight.ok[n0]) { const g0 = P.nodeOf(set, { x: k.x, y: k.y, on: null }); if (set.cls.knight.ok[g0] && Math.abs(set.z[g0] - (k.z || 0)) <= 6) n0 = g0; }
+    // (design pass 27, in a level whose bots.wedgeNear is set: the Keep) a knight on a node its class cannot stand on (wedged between a barrel
+    // and a riser's face) goes to the nearest node the field reaches, never to the field's next from a node it has no value for (that sent
+    // the squire into the face, for ever)
+    if (((fight.area || {}).bots || {}).wedgeNear && set.cls.knight && !set.cls.knight.ok[n0] && p.F.dist) { const r = reachedNear(fight, k, set, set.cls.knight, p.F.dist, n0); if (r) return r; }
     let nx = P.fieldNext(set, p.F, n0);
     // (design pass 21) a walk link to another layer's node a step or two away (the dais steps' grid over the ground's, offset 2 px): the
     // knight is already there, so the way on is that node's next; where the field ends there (its seed, the nearest node to a surface too
@@ -235,6 +241,17 @@
     if (e.type === "windUp") {
       const f = (fight.foes || []).find(q => q.id === e.foe); if (!f) return;
       const tel = e.tel || {}, [ax, ay] = unit(k.x - f.x, k.y - f.y);
+      if (e.attack === "blink") return;   // (design pass 27) a caster sinking into smoke is no blow to dodge
+      // (design pass 27) a burster's fuse whose ring covers me: I walk out of it, to its edge and 6 px past (the level's bots.leaveFuse; the
+      // clumsier squire half as often), 0.20 to 0.35 s after it starts; else I fight on, and may kill it inside its fuse
+      if (tel.kind === "fuse") { const LF = N.leaveFuse === undefined ? 0 : N.leaveFuse, r = (tel.r || 44) + k.r + 4; if (dist(k.x, k.y, f.x, f.y) <= r && R() < LF) bot.queue.push({ at: fight.t + N.react[0] + (N.react[1] - N.react[0]) * R(), kind: "leave", cx: f.x, cy: f.y, r: r + 2 }); return; }
+      // (design pass 27) the wizard's rune rings across my path: a ring I stand in is dodged as any ring, but away from the rings' line (they
+      // all but touch: a dodge along the line lands in the next); a lone ring away from its centre
+      if (tel.kind === "rings") {
+        const L = tel.list || [], Rg = L.find(q => dist(k.x, k.y, q.x, q.y) <= (tel.r || 18) + k.r + 4);
+        if (Rg) { let bx, by; if (L.length >= 2) { const [lx, ly] = unit(L[L.length - 1].x - L[0].x, L[L.length - 1].y - L[0].y), side = (k.x - Rg.x) * -ly + (k.y - Rg.y) * lx >= 0 ? 1 : -1; bx = -ly * side; by = lx * side; } else [bx, by] = unit(k.x - Rg.x, k.y - Rg.y); roll(N.dodgeMelee, "dodge", bx, by); }
+        return;
+      }
       if (tel.kind === "ring") { if (dist(k.x, k.y, tel.x, tel.y) <= tel.r + k.r + 4) { const [bx, by] = unit(k.x - tel.x, k.y - tel.y); roll(N.dodgeMelee, "dodge", bx, by); } }
       else if (tel.kind === "strip") {
         const lx = tel.x1 - tel.x0, ly = tel.y1 - tel.y0, ll = Math.hypot(lx, ly) || 1, t = clamp(((k.x - tel.x0) * lx + (k.y - tel.y0) * ly) / (ll * ll), 0, 1);
@@ -284,15 +301,16 @@
   // breach or more than 80 px away (kept until it comes within 64), else its melee weapon; Osk's Hammer for a brute, his Sword for the
   // rest; the squire's Hammer for a brute, its Bow for a ranged troll over 80 px away or above the ground, with Emberbane the Sword for the
   // Emberback, else its first weapon
-  function wantHand(bot, k, f) {
+  function wantHand(fight, bot, k, f) {
     const hands = k.hands;
     if (hands.length < 2) return k.active;
     const bow = handOf(k, "bow"), hammer = handOf(k, "hammer"), plain = hands.findIndex(h => baseOf(h) === "sword" && h.u.element !== "fire");
     const dd = dist(k.x, k.y, f.x, f.y), at = bot.N.bowAt || 80, far = up(f) || dd > (k.active === bow && bow >= 0 ? at - 16 : at);
     if (bot.who === "squire") {
-      if (isBrute(f) && hammer >= 0) return hammer;
+      if (isBrute(f) && hammer >= 0 && !f.spec.keep) return hammer;   // (a caster that keeps its distance, design pass 27, is no brute to hammer)
       if (isRanged(f) && far && bow >= 0) return bow;
-      if (f.kind === "emberback" && plain >= 0 && hands[0].u.element === "fire") return plain;   // Emberbane's fire is resisted: the plain Sword
+      if (f.kind === "burster" && !(f.act && f.act.fam === "fuse") && dd > 60 && bow >= 0) return bow;   // (design pass 27) a burster running at me from over 60 px: the bow first
+      if (plain >= 0 && hands[0].u.element === "fire" && (f.kind === "emberback" || swapFromFire(fight).includes(f.kind))) return plain;   // Emberbane's fire is resisted: the plain Sword (the Emberback; the level's bots.swapFromFire, design pass 27)
       return 0;
     }
     if (bow >= 0) return far ? bow : 1 - bow;
@@ -302,7 +320,7 @@
   // the fight with a target (a troll or a thing): the wanted weapon in hand, then in melee closing to 0.9 of the reach (plus its radius), a
   // nudge of the stick to face it and Strike held; with the bow, standing 80 to 140 px off (inside the bow's range), facing it and loosing
   function fightInput(fight, bot, k, f, out, swapTo) {
-    const N = bot.N, want = swapTo === undefined ? wantHand(bot, k, f) : swapTo;
+    const N = bot.N, want = swapTo === undefined ? wantHand(fight, bot, k, f) : swapTo;
     if (want !== k.active && k.hands.length > 1 && k.swapT <= 0 && bot.swapT <= 0) { out.swap = true; bot.swapT = 0.5; return; }
     const u = k.hands[k.active].u, dd = dist(k.x, k.y, f.x, f.y), face = () => { out.move = toward(k, f.x, f.y, 0.06); out.strike = true; };
     if (u.melee && f.spec && f.spec.guard && bot.R && guardFacing(fight, f, k)) {   // (design pass 21) the shield up and facing it: on half its approaches it walks round to the side first
@@ -378,7 +396,11 @@
     const still = bot.pl && Math.hypot(p.x - bot.pl[0], p.y - bot.pl[1]) < 0.5; bot.pl = [p.x, p.y];
     if (still && tgt === p) hi = Math.min(hi, lo + 12);
     const dd = dist(k.x, k.y, tgt.x, tgt.y);
-    if (dd > hi) { const s = stepToward(fight, bot, k, tgt); out.move = toward(k, s.x, s.y, 1); }
+    // (design pass 27, a level whose bots.partyWithin is set: the Keep) a leader near as the crow flies but behind a wall (the stair's face: the
+    // leader on the landing above, the follower below) is followed by the field all the same, else the follower stands content in its band
+    // on the wrong tier and the party never climbs
+    const [fx, fy] = unit(tgt.x - k.x, tgt.y - k.y), blocked = !!((fight.area || {}).bots || {}).partyWithin && dd > lo && !wayClear(fight, k, fx, fy, Math.max(0, dd - k.r - (tgt.r === undefined ? 6 : tgt.r)));
+    if (dd > hi || blocked) { const s = stepToward(fight, bot, k, tgt); out.move = toward(k, s.x, s.y, 1); }
     else if (dd < lo) out.move = toward(k, tgt.x, tgt.y, -1);
   }
   // the lift (section 3.10): to the downed knight, then standing by it (the rules lift by proximity, 2.0 s)
@@ -490,7 +512,12 @@
       let a; if (m.dir !== undefined) a = m.dir * Math.PI / 4; else a = Math.atan2(m.y - (v.y0 + v.y1) / 2, m.x - (v.x0 + v.x1) / 2);
       return { x: clamp(m.x + Math.cos(a) * 64, F.x0 + 8, F.x1 - 8), y: clamp(m.y + Math.sin(a) * 64, F.y0 + 8, F.y1 - 8), mark: true };
     }
-    for (const a of A.arenas || []) { const x = a.hornLine ? Math.max(a.rally, a.hornLine + 30) : a.x0 + 192; if (x > k.x + 8) return { x, y: (a.rallyY || [200])[0] }; }
+    for (const a of A.arenas || []) {
+      // (design pass 27) an arena stacked in y (a climbing room's tier): the squire climbs to the rally of the first tier above it; never east to a
+      // tier's heart by x alone (the tier under the knight, cleared, took it down into a riser)
+      if (a.y0 !== undefined && a.y1 !== undefined) { if (k.x >= a.x0 - 8 && k.x <= a.x1 + 8 && a.y1 < k.y - 8) return { x: a.rally, y: (a.rallyY || [200])[0] }; continue; }   // (its own room only: a knight in the throne room never walks back to the stair)
+      const x = a.hornLine ? Math.max(a.rally, a.hornLine + 30) : a.x0 + 192; if (x > k.x + 8) return { x, y: (a.rallyY || [200])[0] };
+    }
     return null;
   }
   // a free spot 14 px from a chest on a surface (the hall's dais), the side toward the knight first
@@ -501,8 +528,13 @@
   }
   // the squire decides every 0.1 s: the nearest troll in the view it can fight (any with a bow; one on the ground within 12 px of its
   // height without); with no troll within 80 px, the nearest standing thing (the watchtower too when it has no bow); else its plan
+  // (design pass 27) the kinds the squire meets with its plain weapon when its first one is fire (the level's bots.swapFromFire: the wizard)
+  const swapFromFire = fight => (((fight.area || {}).bots || {}).swapFromFire) || [];
+  // (design pass 27) the room a knight stands in climbs (spec rooms[].climb: the Keep's great stair)
+  const climbingRoom = (fight, k) => { const RM = (((fight.area || {}).rooms) || []).find(r => k.x >= r.x0 && k.x < r.x1); return !!(RM && RM.climb); };
   function squireDecide(fight, bot, k) {
-    const N = bot.N, bow = hasBow(k), can = f => bow || (!up(f) && Math.abs((k.z || 0) - (f.z || 0)) <= 12) || climbsTo(fight, f), FO = foes(fight).filter(f => inView(fight, f) && can(f));
+    // (design pass 27) a warded caster is never struck (the squire fights what he called); a caster gone in his blink is no target
+    const N = bot.N, bow = hasBow(k), can = f => !f.ward && !f.gone && (bow || (!up(f) && Math.abs((k.z || 0) - (f.z || 0)) <= 12) || climbsTo(fight, f)), FO = foes(fight).filter(f => inView(fight, f) && can(f));
     // its target is kept while it holds (a troll stepping a pixel out of the view, a hut at the view's edge, would otherwise flip it every think)
     const cur = bot.mode === "fight" ? (fight.foes || []).find(q => q.id === bot.tid) : null, curThing = bot.mode === "thing" ? bot.tid : null;
     if (cur && alive(cur) && can(cur) && inViewPad(fight, cur, 32)) { const near = FO.length ? nearestOf(FO, k.x, k.y) : null; if (!near || near === cur || dist(near.x, near.y, k.x, k.y) + 24 >= dist(cur.x, cur.y, k.x, k.y)) return; }
@@ -531,7 +563,8 @@
       const s = stepToward(fight, bot, k, { x: g.x, y: g.y, on: g.on || null }); out.move = toward(k, s.x, s.y, 1); return out;
     }
     if (g.exit && !(((fight.area || {}).zones || {}).exit || {}).u) {   // a level's exit by x and y (the hall's lord's door): walk in and push on
-      if (inExitZone(fight, k)) { out.move = [1, 0]; bot.press = fight.t; }
+      // (design pass 27) the push follows the zone's dir: the hall's door right, the Keep's throne-room door up (pushing right there walked out of the rect)
+      if (inExitZone(fight, k)) { const d = ((((fight.area || {}).zones || {}).exit || {}).dir || ["right"])[0]; out.move = d === "up" ? [0, -1] : d === "down" ? [0, 1] : d === "left" ? [-1, 0] : [1, 0]; bot.press = fight.t; }
       else { const s = stepToward(fight, bot, k, g); out.move = toward(k, s.x, s.y, 1); }
       return out;
     }
@@ -544,6 +577,17 @@
       else if (onDeck) out.move = toward(k, tgt.x, tgt.y, 1);
       else { const s = stepToward(fight, bot, k, g); out.move = toward(k, s.x, s.y, 1); }
       return out;
+    }
+    // (design pass 27) in a climbing room between the waves the squire keeps its party with it: the standing knight of the party farthest from
+    // it, beyond bots.partyWithin px (the Keep's 160), is walked back to until it is within half that, the camera (which follows the squire)
+    // coming back over the flight the laggard needs (a knight pinned at the view's edge below the stair could never reach it); the gate's and
+    // the hall's squires have no climbing room
+    const PW = ((fight.area || {}).bots || {}).partyWithin;
+    if (PW && climbingRoom(fight, k) && fight.knights.length > 1 && !g.exit && !g.use) {
+      // (the knight once waited for is waited for until it is close, so two laggards at one distance do not pull the squire left and right)
+      const held = bot.waitFor === undefined || bot.waitFor === null ? null : fight.knights.find(q => q.seat === bot.waitFor && q !== k && standing(q) && !q.out);
+      const lag = held || fight.knights.filter(q => q !== k && standing(q) && !q.out).sort((a, b) => dist(k.x, k.y, b.x, b.y) - dist(k.x, k.y, a.x, a.y))[0];
+      if (lag) { const dl = dist(k.x, k.y, lag.x, lag.y); if (dl > PW || (held && dl > PW / 2)) { bot.waitFor = lag.seat; const s = stepToward(fight, bot, k, { x: lag.x, y: lag.y, r: lag.r, on: lag.on || null, z: lag.z || 0 }); out.move = toward(k, s.x, s.y, 1); return out; } bot.waitFor = null; }
     }
     if (g.use && (g.chest ? dist(k.x, k.y, g.chest.x, g.chest.y) <= (g.chest.r || 6) + 10 : dd <= (g.r || 6) + 10)) { out.use = true; return out; }   // the chest: a tap on the prompt or E, for the director
     if (g.chest && dd <= 4) { out.move = toward(k, g.chest.x, g.chest.y, 1); return out; }   // (design pass 21) beside a chest on a surface and not yet in reach: lean in
@@ -566,7 +610,9 @@
     opts = opts || {};
     if (!fight.level) throw new Error("bots.js: the squire plays in a level");
     knightClass(fight);
-    const S = squireSpec(), N = Object.assign({}, S, opts.clumsy ? S.clumsy : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;
+    // (design pass 27) the level's own numbers for its squire: bots.leaveFuse (the Keep's 0.8), and the clumsier squire's targets.normal.clumsy
+    const LB = (fight.area || {}).bots || {}, LC = (((fight.area || {}).targets || {}).normal || {}).clumsy || {};
+    const S = squireSpec(), N = Object.assign({}, S, LB.leaveFuse !== undefined ? { leaveFuse: LB.leaveFuse } : {}, opts.clumsy ? Object.assign({}, S.clumsy, LC.leaveFuse !== undefined ? { leaveFuse: LC.leaveFuse } : {}) : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;
     const bot = newBot(0, N, "squire");
     const Q = { N, bot, seed, rng: rng((seed ^ seedConst("squire")) >>> 0), step(dt) { return squireInput(fight, Q, bot, dt); } };
     bot.R = Q.rng;

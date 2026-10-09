@@ -115,6 +115,9 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .hp,.obj{top:44px;height:30px;border-width:6px;display:flex;align-items:center;gap:5px;padding:0 6px 0 2px;pointer-events:none!important;font-family:var(--data);font-size:13px;line-height:1;color:var(--parch);white-space:nowrap}
 .hp{left:8px}
 .obj{right:8px}
+.boss{left:50%;top:44px;transform:translateX(-50%);height:34px;max-width:40%;border-width:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0 8px;pointer-events:none!important;font-family:var(--data);font-size:10px;line-height:1;letter-spacing:.12em;color:var(--parch);white-space:nowrap}
+.boss canvas{image-rendering:pixelated;flex:none;width:120px;height:6px}
+.boss b{font-weight:600}
 .hp canvas,.obj canvas{image-rendering:pixelated;flex:none}
 #hpHeart{width:18px;height:16px}
 #hpBar{width:112px;height:12px}
@@ -239,6 +242,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
     <button class="top f-iron" id="menuBtn" aria-label="The cellar's menu" title="The cellar's menu"><canvas data-glyph="cog" aria-hidden="true"></canvas></button>
     <div class="hp f-stone" id="hpPlate" hidden role="img" aria-label="Health 100 of 100"><canvas id="hpHeart" width="9" height="8" aria-hidden="true"></canvas><canvas id="hpBar" width="56" height="6" aria-hidden="true"></canvas><b id="hpNum">100</b></div>
     <div class="obj f-stone" id="objPlate" hidden role="img" aria-label="Trolls left"><canvas id="objIcon" width="9" height="9" aria-hidden="true"></canvas><b id="objNum"></b><canvas id="objBar" width="28" height="6" hidden aria-hidden="true"></canvas></div>
+    <div class="boss f-stone" id="bossPlate" hidden role="img" aria-label="Boss"><b id="bossName"></b><canvas id="bossBar" width="120" height="6" aria-hidden="true"></canvas></div>
     <div class="note" id="note" hidden></div>
     <button class="hbtn f-iron" id="swapBtn" aria-label="Swap weapons"></button>
     <button class="hbtn f-iron" id="dodgeBtn" aria-label="Dodge">Dodge</button>
@@ -351,6 +355,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="spec/cellar.js"></script>
 <script src="spec/gate.js"></script>
 <script src="spec/hall.js"></script>
+<script src="spec/keep.js"></script>
 <script src="spec/trolls.js"></script>
 <script src="spec/abilities.js"></script>
 <script src="spec/drops.js"></script>
@@ -374,6 +379,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="proto/cellar.js"></script>
 <script src="proto/gate.js"></script>
 <script src="proto/hall.js"></script>
+<script src="proto/keep.js"></script>
 <script src="proto/physics.js"></script>
 <script src="proto/combat.js"></script>
 <script src="proto/level.js"></script>

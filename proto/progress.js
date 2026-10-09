@@ -39,10 +39,14 @@
   // a forge's XP: by the tier of what it made, when it used up an ingredient or a Legend Ember (`usesUp`) or made something the player
   // never had (`isNew`); two weapons into a thing already had pay nothing (the guard, section 3.2.2)
   function forgeXp(o) { if (!o || !(o.usesUp || o.isNew)) return 0; return xpSpec().forge.byTier[String(o.tier | 0)] || 0; }
-  // a cleared Battleground level n: `first` for level 1, then `growth` percent more a level; a replay pays `replay` percent of that
+  // a cleared Battleground level n: `first` for level 1, then `growth` percent more a level; a replay pays `replay` percent of that.
+  // (design pass 27, revision 1) `byLevel` overrides a level's pay when it is looked up (the Keep's 500 and 50); the curve is grown from
+  // its own numbers, never from an override, so level 4 still pays what it grew to
   const clears = [0];
-  function clearXp(n) { const C = xpSpec().clear, k = Math.max(1, n | 0); while (clears.length <= k) clears.push(clears.length === 1 ? C.first : grow(clears[clears.length - 1], C.growth)); return clears[k]; }
-  function replayXp(n) { return Math.floor((clearXp(n) * Math.round(10 * xpSpec().clear.replay) + 500) / 1000); }
+  const curveXp = n => { const C = xpSpec().clear, k = Math.max(1, n | 0); while (clears.length <= k) clears.push(clears.length === 1 ? C.first : grow(clears[clears.length - 1], C.growth)); return clears[k]; };
+  const overrideOf = n => ((xpSpec().clear.byLevel || {})[String(Math.max(1, n | 0))]) || null;
+  function clearXp(n) { const O = overrideOf(n); return O && typeof O.xp === "number" ? O.xp : curveXp(n); }
+  function replayXp(n) { const O = overrideOf(n); if (O && typeof O.replay === "number") return O.replay; return Math.floor((curveXp(n) * Math.round(10 * xpSpec().clear.replay) + 500) / 1000); }
   // the back pay (section 3.5): a save made under the old rules (no xpRules, or an older number) gets, once, for each area it cleared
   // the difference between the level's first-clear XP and what the old rules paid (spec/xp.json `before`); the profile takes the XP,
   // its level follows and it is marked xpRules: 2. Returns { xp, areas } (what was paid, and for which areas); { xp: 0, areas: [] }

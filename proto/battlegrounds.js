@@ -84,7 +84,8 @@
   // harness, the bench, a link), locked on the Map Table or not
   const AREAS = {
     gate: { spec: "FORGE_GATE", id: "castle-gate", name: "The Troll Gate", shut: "The gate is shut", seen: "forge-forever:gate-seen", satchel: "forge-forever:satchel" },
-    hall: { spec: "FORGE_HALL", art: "Hall", id: "great-hall", name: "The Great Hall", shut: "The hall is shut", seen: "forge-forever:hall-seen", satchel: "forge-forever:satchel:hall" }
+    hall: { spec: "FORGE_HALL", art: "Hall", id: "great-hall", name: "The Great Hall", shut: "The hall is shut", seen: "forge-forever:hall-seen", satchel: "forge-forever:satchel:hall" },
+    keep: { spec: "FORGE_KEEP", art: "Keep", id: "castle-keep", name: "The Keep", shut: "The keep is shut", seen: "forge-forever:keep-seen", satchel: "forge-forever:satchel:keep" }   // (design pass 27, build 22)
   };
   const areaKey = Object.prototype.hasOwnProperty.call(AREAS, params.get("area")) ? params.get("area") : null;
   const wantLevel = areaKey !== null, WANT = wantLevel ? AREAS[areaKey] : null;
@@ -139,7 +140,7 @@
     // design pass 21: the Great Hall's first visit (each level's first visit and satchel by its area). The gate plate's last choice of
     // brothers (forge-forever:gate-brothers) and the level picked on it (forge-forever:level-pick) were kept here too until design pass 24
     // (build 17): the castle page's Map Table writes them now
-    hallSeen: "forge-forever:hall-seen" };
+    hallSeen: "forge-forever:hall-seen", keepSeen: "forge-forever:keep-seen" };
   const SEEN = LEVEL ? WANT.seen : KEYS.seen, SATCHEL = LEVEL ? WANT.satchel : KEYS.satchel;
   // storage is a convenience: the cellar works without it, and nothing is remembered (?nostore=1 plays as if it were blocked)
   const nostore = params.get("nostore") === "1";
@@ -585,7 +586,8 @@
 
   // ------------------------------------------------------------------ what happened: events to effects, numbers, holds and shakes
   const LIFE = { smear: 0.26, streak: 0.16, star: 0.14, ring: 0.3, whirl: 0.3, crack: 1.0, dust: 0.35, blast: 0.4, puff: 0.4, straw: 0.35, sparks: 0.25, arc: 0.18, dash: 0.25 };
-  const INK = { normal: "#ffffff", crit: "#fee761", RESIST: "#8b9bb4", IMMUNE: "#8b9bb4", WEAK: "#f77622", COMBO: "#feae34", WALL: "#feae34", BLOCK: "#feae34", raw: "#fee761", heal: "#63c74d", bonk: "#e4a672", block: "#c0cbdc", reflect: "#2ce8f5", miss: "#8b9bb4", bleed: "#e43b44" };
+  const INK = { normal: "#ffffff", crit: "#fee761", RESIST: "#8b9bb4", IMMUNE: "#8b9bb4", WEAK: "#f77622", COMBO: "#feae34", WALL: "#feae34", BLOCK: "#feae34", raw: "#fee761", heal: "#63c74d", bonk: "#e4a672", block: "#c0cbdc", reflect: "#2ce8f5", miss: "#8b9bb4", bleed: "#e43b44",
+    WARD: "#63c74d" };   // (design pass 27) a blow on the Green Hand's ward
   const ELC = { physical: ["#5a6988", "#8b9bb4", "#c0cbdc", "#ffffff"] };
   const elemRamp = e => PF.ELEM[e] || ELC.physical;
   function ramp(el, mat) { if (el && el !== "physical" && PF.ELEM[el]) return PF.ELEM[el]; const m = PF.RAMP[mat] || PF.RAMP.steel; return mat === "wood" ? PF.RAMP.steel : m; }
@@ -621,7 +623,8 @@
   // happens the note teaches it (section 3.8). Returns true for an event the cellar's take() must not see
   // (design pass 21: a troll knight's block and guard break, and the wave, a phase, the end and a passage go to the painter too, for the
   // block and reel poses and the Great Hall's art on the fight's clock: the keep's door, the kennels, the hide over the hearth)
-  const SCENE_TAKES = new Set(["mark", "markEnd", "wreck", "fell", "die", "windUp", "foeBlock", "guardBreak", "wave", "phase", "passage", "hayLit"]);
+  const SCENE_TAKES = new Set(["mark", "markEnd", "wreck", "fell", "die", "windUp", "foeBlock", "guardBreak", "wave", "phase", "passage", "hayLit",
+    "spawn", "onward", "blast", "fizzle"]);   // (design pass 27: the Keep's doors, roost and seal, a burster's blast and fizzle)
   function takeLevel(e) {
     if (SCENE_TAKES.has(e.type) || e.type === END) scene.take(e, fight);   // (windUp: the Emberback's flare, a ring with no troll behind it)
     if (e.type === "palisade") scene.fell["pal" + e.id] = state.t;   // a palisade topples from the director's event (its four frames on the screen's clock, as the painter times them)
@@ -635,7 +638,7 @@
     }
     // (the satchel is saved on every count too, so a reload keeps the finds and the counts earned since the last pickup; since design pass 21
     // a wolf counts apart from the trolls, and a rare enemy is what the drop table's find says, the Emberback's rare_enemies)
-    if (e.type === "die") { if (e.foe !== undefined) { if (e.kind === "wolf") lv.wolves++; else lv.felled++; const fd = findOf(e.kind); if (fd && lv.finds[fd] !== undefined) lv.finds[fd]++; saveSatchel(); } if (e.why === "DROWNED" || e.why === "SPIKED") say(e.x, e.y - 24, e.why, INK.block); }
+    if (e.type === "die") { if (e.foe !== undefined) { if (e.kind === "wolf") lv.wolves++; else if (e.kind === "bat") lv.bats++; else lv.felled++; const fd = findOf(e.kind); if (fd && lv.finds[fd] !== undefined) lv.finds[fd]++; saveSatchel(); } if (e.why === "DROWNED" || e.why === "SPIKED") say(e.x, e.y - 24, e.why, INK.block); }   // (a bat counts apart, design pass 27)
     if (e.type === "wreck") { if (e.kind === "hut" || e.kind === "tent") { lv.huts++; saveSatchel(); } else if (e.kind === "engine" || e.kind === "trebuchet") { lv.engines++; saveSatchel(); } }
     if (e.type === "regrow") { if (e.amount >= 1) say(e.x, e.y - 4, "+" + Math.round(e.amount), INK.heal); firstTime("regrow", "It heals. Burn it."); }   // the troll's green + of regrowth (its y comes lifted: the rules say it over the chest)
     if (e.type === "fx" && e.kind === "crack") { scene.stamp({ type: "mark", kind: "crack", id: e.seed | 0, x: e.x, y: e.y, z: 0, r: 8 }); return true; }
@@ -687,7 +690,7 @@
   const findOf = kind => { const D = window.FORGE_DROPS; if (!D || !D.trolls) return kind === "emberback" ? "rare_enemies" : null; const t = D.trolls[kind]; return t && typeof t.find === "string" ? t.find : null; };
   // the level's own state on the page: the note, the satchel, the counts for the tally (the trolls felled; since design pass 21 the wolves
   // apart), what the first-time lines have taught, the level's start line said, the stir to come
-  const lv = { line: null, waved: false, badly: false, ours: false, done: false, clearT: 0, felled: 0, wolves: 0, huts: 0, engines: 0, edgeSeen: false,
+  const lv = { line: null, waved: false, badly: false, ours: false, done: false, clearT: 0, felled: 0, wolves: 0, bats: 0, huts: 0, engines: 0, edgeSeen: false,
     things: [], finds: { gold_chests: 0, iron_chests: 0, rare_enemies: 0, quest_embers: 0 }, firsts: new Set(), sent: null, started: false, stirAt: 0 };
   state.lv = lv;
   const isMine = e => e.seat === undefined || e.seat === fight.k.seat;
@@ -720,6 +723,8 @@
     breather(e) { note("Breather · +" + (e.heal || (AREA.breather || {}).heal || 40), "onward", LVN.secs.breather); },
     // (design pass 21) a wave's phase: its line and its name, as a wave's ("The kennels burst open · The pack")
     phase(e) { note([e && e.line, e && e.name ? title(e.name) : null].filter(Boolean).join(" · "), "phase"); },
+    // (design pass 27) the boss's ward breaks: its line; his fury and the others' death with their master say nothing (the plate and the field do)
+    wardBreak() { note(said((PG.boss || {}).wardBreaks, "The ward breaks!"), "ward"); },
     // (design pass 21) through a passage: the fade lifts and the knight walks in
     passage(e) { passed(e); },
     // (design pass 21 section 3.6) a troll knight's shield: BLOCK in the wall's colour over the hit (the rules' hit carries the tag) and a
@@ -743,7 +748,8 @@
     clear() { DIRECTOR.gateOurs(); },
     pickup(e) { if (isMine(e)) pickup(e.id || e.thing, e.from); },
     chestOpen(e) { if (isMine(e)) { lv.finds.iron_chests = 1; saveSatchel(); } },
-    spawn(e) { if (e.from === "hut" || e.door === "hut" || e.hut !== undefined) firstTime("hut", "Huts send trolls. Wreck them."); if (e.kind === "brute" || e.kind === "rockbrute") firstTime("brute", "Hit it hard and fast."); if (e.kind === "emberback") firstTime("emberback", "A glowing one. It drops a rare find."); },
+    spawn(e) { if (e.from === "hut" || e.door === "hut" || e.hut !== undefined) firstTime("hut", "Huts send trolls. Wreck them."); if (e.kind === "brute" || e.kind === "rockbrute") firstTime("brute", "Hit it hard and fast."); if (e.kind === "emberback") firstTime("emberback", "A glowing one. It drops a rare find.");
+      if (PG.boss && e.kind === PG.boss.tag && !e.again) note(said(PG.boss.intro, ""), "boss"); },   // (design pass 27) the boss turns from the doors: his line
     aimLine() { firstTime("aimLine", "Red line: step off it."); },
     mark(e) { if (e.kind === "stone") firstTime("stone", "Red ring: a stone is coming. Move."); },
     foeShotEnd(e) { if (e.why === "over" || e.over) firstTime("trench", "In a trench, arrows from the side fly over you."); },
@@ -866,6 +872,7 @@
     if (e.sum) { const s = state.sums[e.d] || (state.sums[e.d] = { acc: 0, at: state.t, x: e.x, y: e.y, tag: null }); s.acc += e.amount; s.x = e.x; s.y = e.y; if (e.tag) s.tag = e.tag; return; }
     if (e.kind === "dot") { say(e.x + (rnd() * 6 - 3), e.y - 6, Math.max(1, Math.round(e.amount)), e.why === "bleed" ? INK.bleed : elemRamp(e.why)[2]); return; }
     if (e.tag === "IMMUNE") { say(e.x, e.y - 10, "IMMUNE", INK.IMMUNE); return; }   // the word instead of a number
+    if (e.tag === "WARD") { say(e.x, e.y - 10, "WARD", INK.WARD); addFx({ kind: "sparks", x: e.x, y: e.y, seed: fight.steps, n: 4 }); return; }   // (design pass 27) the ward: the word in green and a spark, no number
     say(e.x, e.y - 10, Math.round(e.amount) + (e.crit ? "!" : ""), e.crit ? INK.crit : tagged ? INK[e.tag] : e.fin ? INK.COMBO : e.kind === "raw" ? INK.raw : INK.normal, e.crit || !!e.fin);
     if (e.fin && e.move) finisherHit(e);   // (design pass 20) a finisher's flash, star and sparks, and its move's own
     if (e.tag) say(e.x, e.y - 17, e.tag, INK[e.tag] || INK.normal);
@@ -1003,7 +1010,8 @@
     // walking into the zone's wall (the stairs up; a zone to the left, as the cellar's door was) or toward the gate for the zone's dwell
     // does what E does there
     const z = zone === "passage" ? LV.passageHere() : Z[zone], mv = myMove(), F = AREA.floor || {};
-    const pushing = zone === "passage" ? !!z && [].concat(z.dir || "up").some(d => toward(mv, d)) : z && z.dwell && [].concat(z.dir || "up").some(d => d === "up" ? mv[1] < -0.5 && (!!z.u || fight.k.y <= F.y0 + 0.5) : d === "left" ? mv[0] < -0.5 && (!!z.u || fight.k.x <= F.x0 + 0.5) : d === "right" ? mv[0] > 0.5 : d === "down" && mv[1] > 0.5);
+    // (design pass 27) an exit rect against a wall inside the floor (the Keep's throne-room door at the dais's north wall, y 97): the knight pressed against the rect's top counts as pushing on, as one at the floor's top edge does
+    const pushing = zone === "passage" ? !!z && [].concat(z.dir || "up").some(d => toward(mv, d)) : z && z.dwell && [].concat(z.dir || "up").some(d => d === "up" ? mv[1] < -0.5 && (!!z.u || fight.k.y <= F.y0 + 0.5 || (!!z.rect && fight.k.y <= z.rect[1] + fight.k.r + 1)) : d === "left" ? mv[0] < -0.5 && (!!z.u || fight.k.x <= F.x0 + 0.5) : d === "right" ? mv[0] > 0.5 : d === "down" && mv[1] > 0.5);
     const dwell = zone === "passage" && z ? (z.dwell === undefined ? 0.4 : z.dwell) : z && z.dwell;
     if (pushing) { state.stairs += STEP; if (state.stairs >= dwell - 1e-9) { state.stairs = 0; useZone(zone); } } else state.stairs = 0;
   }
@@ -1539,7 +1547,7 @@
     if (n.hidden) return;
     const box = el => ({ x0: el.offsetLeft, y0: el.offsetTop, x1: el.offsetLeft + el.offsetWidth, y1: el.offsetTop + el.offsetHeight });
     const W = n.offsetParent ? n.offsetParent.clientWidth : 0, nw = n.offsetWidth, nb = { x0: W / 2 - nw / 2, x1: W / 2 + nw / 2, y0: n.offsetTop, y1: n.offsetTop + n.offsetHeight };
-    const plates = [$("hpPlate"), $("objPlate")].filter(el => !el.hidden).map(box), touches = q => nb.x0 < q.x1 + 4 && nb.x1 > q.x0 - 4 && nb.y0 < q.y1 && nb.y1 > q.y0;
+    const plates = [$("hpPlate"), $("objPlate"), $("bossPlate")].filter(el => el && !el.hidden).map(box), touches = q => nb.x0 < q.x1 + 4 && nb.x1 > q.x0 - 4 && nb.y0 < q.y1 && nb.y1 > q.y0;
     if (plates.some(touches)) n.style.top = (Math.max.apply(null, plates.map(q => q.y1)) + 4) + "px";
   }
   // the level's note (section 3.14): the timed line by priority, else, with an empty loadout, the level's own line until the first wave
@@ -1598,7 +1606,7 @@
   const obv = { mode: "", n: "", bar: -1 };
   function syncObjective() {
     const plate = $("objPlate"); if (!LEVEL) return;
-    const g = state.plank || state.left ? null : state.guide, mode = g && g.gate ? "gate" : g && g.left !== null && g.left !== undefined ? "trolls" : "";
+    const g = state.plank || state.left ? null : state.guide, mode = bossV.shown ? "" : g && g.gate ? "gate" : g && g.left !== null && g.left !== undefined ? "trolls" : "";   // (the trolls-left plate hides while the boss plate shows, design pass 27)
     if (mode !== obv.mode) {
       obv.mode = mode; plate.hidden = !mode; obv.n = ""; obv.bar = -1; placeNote();
       if (mode === "trolls") { paintRows($("objIcon"), sealRows(TROLLHEAD), { g: "#63c74d", G: "#3e8948", e: "#fee761", u: "#ead4aa", k: OUT }); $("objBar").hidden = true; $("objNum").hidden = false; }
@@ -1607,10 +1615,40 @@
     if (mode === "trolls") { const n = String(g.left); if (n !== obv.n) { obv.n = n; $("objNum").textContent = n; plate.setAttribute("aria-label", n + (g.left === 1 ? " troll left" : " trolls left")); } }
     if (mode === "gate") { const f = Math.round(26 * Math.max(0, g.gate.hp) / Math.max(1, g.gate.hpMax)); if (f !== obv.bar) { obv.bar = f; const c = $("objBar").getContext("2d"); c.fillStyle = OUT; c.fillRect(0, 0, 28, 6); for (let x = 0; x < 26; x++) for (let y = 1; y <= 4; y++) { c.fillStyle = x < f ? (y === 1 ? "#f6757a" : y === 4 ? "#a22633" : "#e43b44") : "#3e2731"; c.fillRect(x + 1, y, 1, 1); } plate.setAttribute("aria-label", "The gate: " + Math.ceil(g.gate.hp) + " of " + Math.round(g.gate.hpMax)); } }
   }
+  // (design pass 27 section 3.11) the boss plate: his name and his bar, nothing else, shown while the wave's boss lives (fight.level.boss):
+  // two notches at 70 and 40 %, the chip of a blow as on the health plate, green hatching over the fill while he is warded, the fill a step
+  // brighter in fury; redrawn only when what it shows changes
+  const bossV = { shown: false, key: "", hp: -1, chip: 0, holdTo: 0, at: 0 };
+  function syncBoss() {
+    const plate = $("bossPlate"); if (!plate) return;
+    const b = fight.level ? fight.level.boss : null, show = !!(b && !b.dead && !state.left);
+    if (show !== bossV.shown) { bossV.shown = show; plate.hidden = !show; bossV.key = ""; bossV.hp = -1; obv.mode = ""; if (show) $("bossName").textContent = said((PG.boss || {}).name, String(b.name || "").split(" ")[0]); placeNote(); }
+    if (!show) return;
+    const max = b.hpMax > 0 ? b.hpMax : 1, hp = Math.max(0, Math.min(max, b.hp)), t = state.t;
+    if (bossV.hp < 0) { bossV.hp = hp; bossV.chip = hp; bossV.at = t; }
+    if (hp < bossV.hp - 1e-9) { bossV.chip = Math.max(bossV.chip, bossV.hp); bossV.holdTo = t + 0.4; }
+    bossV.hp = hp;
+    if (bossV.chip < hp) bossV.chip = hp; else if (bossV.chip > hp && t >= bossV.holdTo) bossV.chip = Math.max(hp, bossV.chip - max * 0.6 * Math.max(0, t - bossV.at));
+    bossV.at = t;
+    const IN = 118, fill = hp > 0 ? Math.max(1, Math.round(IN * hp / max)) : 0, chip = Math.max(0, Math.round(IN * bossV.chip / max) - fill), warded = !!b.ward, fury = !!b.fury, hatch = warded && !reduce ? (Math.floor(t * 6) & 1) : 0;
+    const key = fill + "|" + chip + "|" + (warded ? 1 : 0) + "|" + (fury ? 1 : 0) + "|" + hatch;
+    if (key !== bossV.key) {
+      bossV.key = key;
+      const g = $("bossBar").getContext("2d"); g.clearRect(0, 0, 120, 6); g.fillStyle = OUT; g.fillRect(0, 0, 120, 6);
+      for (let x = 0; x < IN; x++) for (let y = 1; y <= 4; y++) {
+        let c = x < fill ? (fury ? (y === 1 ? "#ffffff" : y === 4 ? "#e43b44" : "#f6757a") : (y === 1 ? "#f6757a" : y === 4 ? "#a22633" : "#e43b44")) : x < fill + chip ? "#ead4aa" : "#3e2731";
+        if (warded && x < fill && ((x + y + hatch * 2) & 3) === 0) c = "#63c74d";
+        g.fillStyle = c; g.fillRect(x + 1, y, 1, 1);
+      }
+      g.fillStyle = OUT; for (const q of [0.7, 0.4]) g.fillRect(1 + Math.round(IN * q), 0, 1, 6);   // the notches at 70 and 40 %
+    }
+    const pct = String(Math.round(100 * hp / max));
+    if (pct !== bossV.pct) { bossV.pct = pct; plate.setAttribute("aria-label", said((PG.boss || {}).name, "Boss") + ": " + pct + " of 100"); }
+  }
   // what changes every frame: a legend's ability clock, the recovery clock, the charge, the held button, the prompt's place
   function syncLive() {
     const k = fight.k, hand = fight.hands[k.active];
-    if (LEVEL) { syncHealth(); syncObjective(); const burning = !!k.burn && !k.down && !k.out; if (burning !== hud.hint) { hud.hint = burning; $("dodgeBtn").classList.toggle("hint", burning); } }
+    if (LEVEL) { syncBoss(); syncHealth(); syncObjective(); const burning = !!k.burn && !k.down && !k.out; if (burning !== hud.hint) { hud.hint = burning; $("dodgeBtn").classList.toggle("hint", burning); } }
     if (hand.ua) syncAbility(hand);
     if (state.noteUntil && state.t >= state.noteUntil) { state.noteUntil = 0; syncHud(); }   // the first-legend note is over
     if (LEVEL && state.lv.line && state.lv.line.kind !== "downed" && state.lv.line.until <= state.t) syncHud();   // a timed line is over
@@ -1741,7 +1779,7 @@
   // with NEW on a first find, the pay (the Legend Ember's chances are rolled at the Forge), a level-up; visiting, or with storage blocked,
   // the finds could not be carried home. Since design pass 21 its title, its time line and the counts it names are the level's (the Great
   // Hall's wolves felled apart from its trolls), and the way on to the next level shows between Home and Again
-  const COUNTS = { trolls: L => L.felled + (L.felled === 1 ? " troll" : " trolls"), wolves: L => L.wolves + (L.wolves === 1 ? " wolf" : " wolves") };
+  const COUNTS = { trolls: L => L.felled + (L.felled === 1 ? " troll" : " trolls"), wolves: L => L.wolves + (L.wolves === 1 ? " wolf" : " wolves"), bats: L => L.bats + (L.bats === 1 ? " bat" : " bats") };
   function renderTally() {
     const L = state.lv, sent = L.sent || {}, secs = Math.max(0, Math.round(L.clearT || fight.t)), mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, "0"), TL = PG.tally || {};
     $("tallyTitle").textContent = said(TL.title, "THE GATE IS OURS");
@@ -1837,7 +1875,7 @@
   // worst case for the frame in arena 3's lower screen (done criterion 17): three sword-brothers, the alive cap of trolls and the roar
   // footmen round the Stilt Camp and its tower, thinking and fighting (fight.brains), six more trolls above the view for the edge marks,
   // every mark kind at its cap (the marks are stood in for until the rules keep them), the camera on them
-  if (LEVEL) { scene.tiles.finish(0); scene.tiles.finish(1); if (perf === "stress") (areaKey === "hall" ? stressHall : stress)(); }
+  if (LEVEL) { scene.tiles.finish(0); scene.tiles.finish(1); if (perf === "stress") (areaKey === "hall" ? stressHall : areaKey === "keep" ? stressKeep : stress)(); }
   function stress() {
     const W = fight.world, P = window.Physics, caps = SPEC.caps, k = fight.k;
     Combat.setView(fight, 1536, 216); Combat.place(fight, k, 1660, 300);
@@ -1907,6 +1945,34 @@
     }
     for (let i = 0; i < (caps.clods || 24); i++) { const [x, y] = pick(2700, 3290, 340, 412); P.addSolid(W, { kind: "clod", shape: "c", x, y, r: 4, ht: 6 }); }
     for (let i = 0; i < 40; i++) { const [x, y] = pick(2700, 3290, 200, 412); scene.stamp({ type: "mark", kind: i % 2 ? "scorch" : "rubble", id: i, x, y, z: 0, r: 6 + (i % 5) }); }
+    fight.tdirty = true;
+  }
+  // the Keep's worst case (design pass 27 section 3.14): the antechamber with Gorvash at his post, the bat cap in the air, four bursters
+  // fusing round the knight, three sword-brothers, the trolls off the screen for the edge marks, every mark at its cap, the camera on them
+  function stressKeep() {
+    const W = fight.world, P = window.Physics, caps = SPEC.caps, k = fight.k;
+    Combat.setView(fight, 2112, 60); Combat.place(fight, k, 2240, 230);
+    fight.knights.slice(1).forEach((b, i) => Combat.place(fight, b, 2200 + (i % 2) * 70, 250 + i * 22));
+    state.arrive = 0;
+    const wz = Combat.spawn(fight, "wizard", 2304, 120, { tell: 0, on: "dais" }); if (wz) { wz.hp = wz.hpMax * 0.55; fight.level.boss = wz; }
+    for (const [x, y] of [[2150, 200], [2330, 260], [2200, 330], [2420, 300]]) { const b = Combat.spawn(fight, "burster", x, y, { tell: 0 }); if (b) b.act = { kind: "fuse", fam: "fuse", phase: "wind", t: 0.6 + y / 1000, T: 2.0, atk: window.FORGE_TROLLS.burster.attacks.fuse, seat: 0, token: null, drive: null, hits: [], tel: { kind: "fuse", r: 44 } }; }
+    for (let i = 0; i < 8; i++) Combat.spawn(fight, "bat", 2120 + i * 36, 170 + (i % 3) * 40, { tell: 0 });
+    for (const [x, y] of [[2060, 330], [2500, 330], [2560, 200]]) Combat.spawn(fight, "trollknight", x, y, { tell: 0 });
+    for (const x of [2000, 2080, 2520, 2600]) Combat.spawn(fight, "footman", x, 410, { tell: 0 });   // off the screen, below the view: the edge marks
+    fight.brains = true;
+    const rm = Combat.rng(3110), pick = (x0, x1, y0, y1) => [x0 + Math.floor(rm() * (x1 - x0)), y0 + Math.floor(rm() * (y1 - y0))], M = fight.marks;
+    const fill = (list, cap, x0, x1, y0, y1, d, make) => {
+      const spots = []; for (let y = y0 + d / 2; y < y1; y += d) for (let x = x0 + d / 2; x < x1; x += d) spots.push([Math.round(x + (rm() - 0.5) * 4), Math.round(y + (rm() - 0.5) * 4)]);
+      for (let i = 0; i < spots.length + cap * 8 && list.length < cap; i++) { const [x, y] = i < spots.length ? spots[i] : pick(x0, x1, y0, y1); make(x, y); } };
+    if (M) {
+      fill(M.crater, caps.craters || 24, 1950, 2660, 330, 416, 30, (x, y) => Combat.crater(fight, x, y, 14, 10, { side: "troll" }));
+      fill(M.fire, caps.worldFire || 12, 1950, 2200, 160, 320, 26, (x, y) => Combat.fire(fight, x, y, 12, 4, "troll", { look: "hex" }));
+      fill(M.ice, caps.ice || 16, 2210, 2420, 160, 320, 26, (x, y) => Combat.ice(fight, x, y, 10, 8, "troll"));
+      fill(M.puddle, caps.puddles || 16, 2430, 2660, 160, 320, 22, (x, y) => Combat.puddle(fight, x, y, 8, 20, "world"));
+      Combat.chunks(fight, 2300, 300, 0, null, { n: [caps.chunks || 24, caps.chunks || 24], dist: [16, 70], flight: [0.6, 0.8], shadow: 3, damageKnight: 2, damageTroll: 4, push: 4, clodEvery: 3 }, "troll", false);
+    }
+    for (let i = 0; i < (caps.clods || 24); i++) { const [x, y] = pick(1950, 2660, 330, 416); P.addSolid(W, { kind: "clod", shape: "c", x, y, r: 4, ht: 6 }); }
+    for (let i = 0; i < 40; i++) { const [x, y] = pick(1950, 2660, 160, 416); scene.stamp({ type: "mark", kind: i % 2 ? "scorch" : "rubble", id: i, x, y, z: 0, r: 6 + (i % 5) }); }
     fight.tdirty = true;
   }
   lockLandscape();

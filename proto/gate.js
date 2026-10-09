@@ -337,28 +337,29 @@
   // (art: a level's own art, design pass 21: its paintRows paints the columns in place of the gate's ground)
   function Tiles(A, art) {
     this.A = A; this.n = Math.ceil((A.w || 3072) / TW); this.tiles = []; this.hitches = 0; this.rowsPer = 2;
+    this.TH = Math.max(TH, (A.h | 0) || 0);   // (design pass 27) a level taller than the gate's 432 (the Keep's great stair, 648) has tiles that tall
     this.rows = art && art.paintRows ? art.paintRows : paintRows;
-    for (let c = 0; c < this.n; c++) this.tiles.push({ px: new Array(TW * TH).fill(null), rows: 0, canvas: null, ctx: null, put: 0, done: false });
+    for (let c = 0; c < this.n; c++) this.tiles.push({ px: new Array(TW * this.TH).fill(null), rows: 0, canvas: null, ctx: null, put: 0, done: false });
   }
   // rows y0 to y1 of a tile, painted, into its canvas (in a page; node has no canvas and reads the pixels)
   Tiles.prototype.band = function (t, y0, y1) {
     if (y1 <= y0 || !root.document || !root.document.createElement) return;
-    if (!t.canvas) { const cv = root.document.createElement("canvas"); cv.width = TW; cv.height = TH; const g = cv.getContext("2d"); if (!g || !g.createImageData || !g.putImageData) return; t.canvas = cv; t.ctx = g; }
+    if (!t.canvas) { const cv = root.document.createElement("canvas"); cv.width = TW; cv.height = this.TH; const g = cv.getContext("2d"); if (!g || !g.createImageData || !g.putImageData) return; t.canvas = cv; t.ctx = g; }
     const img = t.ctx.createImageData(TW, y1 - y0), d = img.data;
     for (let y = y0; y < y1; y++) for (let x = 0; x < TW; x++) { const col = t.px[y * TW + x]; if (!col) continue; const [r, gg, b] = rgb(col), o = ((y - y0) * TW + x) * 4; d[o] = r; d[o + 1] = gg; d[o + 2] = b; d[o + 3] = 255; }
     t.ctx.putImageData(img, 0, y0); t.put = y1;
   };
-  Tiles.prototype.finish = function (col) { const t = this.tiles[col]; if (!t || t.done) return t; const rows = this.rows; rows(this.A, col, t.rows, TH, t.px); this.band(t, t.rows, TH); t.rows = TH; t.done = true; return t; };
+  Tiles.prototype.finish = function (col) { const t = this.tiles[col]; if (!t || t.done) return t; const rows = this.rows, TH_ = this.TH; rows(this.A, col, t.rows, TH_, t.px); this.band(t, t.rows, TH_); t.rows = TH_; t.done = true; return t; };
   Tiles.prototype.allDone = function () { return this.tiles.every(t => t.done); };
   // paint the next rows within a budget (ms, by now()); returns true while there is work left
   Tiles.prototype.work = function (budget, now) {
-    const t0 = now ? now() : 0, rows = this.rows;
+    const t0 = now ? now() : 0, rows = this.rows, TH_ = this.TH;
     let slices = 0;
     for (const [c, t] of this.tiles.entries()) {
       while (!t.done) {
-        const y1 = Math.min(TH, t.rows + this.rowsPer);
+        const y1 = Math.min(TH_, t.rows + this.rowsPer);
         rows(this.A, c, t.rows, y1, t.px); this.band(t, t.rows, y1); t.rows = y1; slices++;
-        if (t.rows >= TH) t.done = true;
+        if (t.rows >= TH_) t.done = true;
         if (now ? now() - t0 >= budget : slices >= 8) return !this.allDone();
       }
     }
@@ -369,8 +370,8 @@
   Tiles.prototype.canvas = function (col) {
     const t = this.tiles[col]; if (!t) return null;
     if (!t.done) { this.hitches++; this.finish(col); }
-    if (t.canvas && t.put >= TH) return t.canvas;
-    return (t.canvas = canvasOf(t.px, TW, TH));
+    if (t.canvas && t.put >= this.TH) return t.canvas;
+    return (t.canvas = canvasOf(t.px, TW, this.TH));
   };
 
   // ------------------------------------------------------------------ the pieces' art (section 3.12), baked once per kind, size and variant
@@ -623,6 +624,12 @@
     paintChars(sp, [".yyyy.", "yy..yy", "yy..yy", "yy..yy", "yy..yy", "yy..yy", ".yyyy."], { y: "#fee761" }, 10, 1);
     region(sp, (x, y) => (x >= 1 && x <= 13 && y >= 14 && y <= 16) || (x >= 13 && x <= 18 && Math.abs(y - 15) <= Math.min(5, 18 - x)), GOLDY);
     return done(sp, 18, 15); });
+  // (design pass 27) GO in a climbing room: the letters under a yellow arrow pointing up, 19 x 24 with its soot, anchored at the arrow's tip
+  SPR.goUp = () => once("ggoUp", () => { const sp = G(21, 26);
+    region(sp, (x, y) => (x >= 8 && x <= 12 && y >= 6 && y <= 11) || (y >= 1 && y <= 5 && Math.abs(x - 10) <= y - 1), GOLDY);
+    paintChars(sp, [".yyyyy", "yy....", "yy....", "yy.yyy", "yy..yy", "yy..yy", ".yyyy."], { y: "#fee761" }, 2, 14);
+    paintChars(sp, [".yyyy.", "yy..yy", "yy..yy", "yy..yy", "yy..yy", "yy..yy", ".yyyy."], { y: "#fee761" }, 10, 14);
+    return done(sp, 10, 1); });
   // a health bar (design pass 18 section 3.7): w wide, 4 tall (soot, the light row, the dark row, soot), f inner pixels filled; red over a
   // troll, a piece or the gate, green over a sword-brother; tip: its last filled column pale green (a troll's regrowth). Anchored at its top
   // centre's row 1. Baked once per width, fill and kind
@@ -761,16 +768,18 @@
   // the live marks' frames: fire (4 flicker frames, 4 fade levels), the knights' frost, the trolls' ice (a shimmer; its shrink is the
   // radius), puddles (2 shimmer frames, 4 drying levels), the Emberback's glowing rubble cooling (4 steps)
   MK.live = (kind, r, f, level) => { r = Math.max(2, Math.round(r)); f = (f | 0) & 3; level = clamp(level === undefined ? 3 : level | 0, 0, 3); return once("live" + kind + "|" + r + "|" + f + "|" + level, () => {
-    const w = 2 * r + 3, top = kind === "fire" ? 4 : 0, h = w + top, sp = G(w, h), c = r + 1, cy = c + top, a = (level + 1) / 4;
+    const w = 2 * r + 3, top = kind === "fire" || kind === "hexfire" ? 4 : 0, h = w + top, sp = G(w, h), c = r + 1, cy = c + top, a = (level + 1) / 4;
     for (let y = top; y < h; y++) for (let x = 0; x < w; x++) {
       const dd = Math.hypot(x - c, y - cy); if (dd > r + 0.5) continue;
       if (kind === "fire") { if (dith(x, y, 0.3 * a)) sp.set(x, y, (x + y + f) % 3 ? "#a22633" : "#f77622"); }
+      else if (kind === "hexfire") { if (dith(x, y, 0.3 * a)) sp.set(x, y, (x + y + f) % 3 ? "#265c42" : "#63c74d"); }   // (design pass 27: the Green Hand's fire)
       else if (kind === "frost") { if (dith(x, y, 0.45 * a)) sp.set(x, y, (x * 3 + y) % 5 ? "#b8f4ff" : "#ffffff"); }
       else if (kind === "ice") { if (dith(x, y, 0.5 * a)) sp.set(x, y, (x + y) % 3 ? "#c0cbdc" : "#8b9bb4"); if (hash(x, y, 54 + f) > 0.965) sp.set(x, y, "#ffffff"); }
       else if (kind === "puddle") { if (dith(x, y, 0.85 * a)) sp.set(x, y, dith(x + 1, y + 2, 0.3) ? R.water[0] : R.water[1]); if (hash(x, y, 55 + f) > 0.985 && level > 0) sp.set(x, y, R.water[3]); }
       else if (kind === "ember") { const k = hash(Math.floor(x / 3), Math.floor(y / 2), 56); sp.set(x, y, k < 0.25 ? R.stone[0] : k < 0.7 ? R.stone[1] : R.stone[2]); if ((x * 7 + y * 3) % 11 === 0 && hash(x, y, 57) < (3 - level) / 3) sp.set(x, y, level < 2 ? "#fee761" : "#f77622"); }
     }
     if (kind === "fire" && level > 0) for (let i = 0; i < 4; i++) { const x = 1 + ((i * 5 + f * 3) % (w - 2)), hh = (f + i) % 3; sp.set(x, cy - 1 - hh - 2, "#feae34"); sp.set(x, cy - hh - 2, "#f77622"); if (hh) sp.set(x, cy - hh - 1, "#f77622"); }
+    if (kind === "hexfire" && level > 0) for (let i = 0; i < 4; i++) { const x = 1 + ((i * 5 + f * 3) % (w - 2)), hh = (f + i) % 3; sp.set(x, cy - 1 - hh - 2, "#b4e67a"); sp.set(x, cy - hh - 2, "#63c74d"); if (hh) sp.set(x, cy - hh - 1, "#3e8948"); }
     return gridSprite(sp, c, cy); }); };
   // the telegraphs: #ff0044 cores with a 1 px soot edge. A ring r on four dither steps (the stone's fills over its last 0.5 s); a dotted aim
   // line of len px in one of 16 directions; a charge's strip, arrow-shaped, w wide; the wind-up's glint (0 dim, 1 bright)
@@ -959,7 +968,7 @@
     const x0 = Math.round(x) - s.ox, x1 = x0 + s.w;
     for (let c = clamp(Math.floor(x0 / TW), 0, this.cols - 1); c <= clamp(Math.floor((x1 - 1) / TW), 0, this.cols - 1); c++) {
       let d = this.decals[c];
-      if (!d) { const cv = root.document.createElement("canvas"); cv.width = TW; cv.height = TH; d = this.decals[c] = { canvas: cv, ctx: cv.getContext("2d"), n: 0 }; }
+      if (!d) { const cv = root.document.createElement("canvas"); cv.width = TW; cv.height = this.tiles.TH; d = this.decals[c] = { canvas: cv, ctx: cv.getContext("2d"), n: 0 }; }   // (as tall as the tiles, design pass 27)
       d.ctx.drawImage(s.canvas(), x0 - c * TW, Math.round(y) - s.oy); d.n++;
     }
   };
@@ -1198,20 +1207,25 @@
   function trollAnim(f, t, at) {
     const A = f.act;
     if (f.reel > 0 || (at && f.reelUntil !== undefined && at.ft < f.reelUntil - 1e-9) || (at && f.reelUntil === undefined && at.brokeAt !== undefined && at.ft - at.brokeAt < 1.2)) return { anim: "reel", i: 0 };
-    if (A && A.phase) { const k = A.kind || "";
-      if (A.phase === "wind") return { anim: k === "charge" ? "charge" : k === "stab" || k === "jab" ? "jab" : k === "heave" ? "heave" : k === "roar" ? "roar" : k === "bash" ? "bash" : "wind", i: 0 };
+    if (A && A.phase) { const k = A.kind || "", q = A.T > 0 ? clamp((A.t || 0) / A.T, 0, 0.999) : 0;
+      // (design pass 27) the burster's fuse swells over its four frames; the wizard's cast, point, nova and blink; the bat's swoop
+      if (k === "fuse" && A.phase === "wind") return { anim: "fuse", i: Math.floor(q * 4) };
+      if (k === "blink") return { anim: "blink", i: A.phase === "wind" ? Math.min(1, Math.floor(q * 2)) : 2 };
+      if (A.phase === "wind") return { anim: k === "charge" ? "charge" : k === "stab" || k === "jab" ? "jab" : k === "heave" ? "heave" : k === "roar" ? "roar" : k === "bash" ? "bash" : k === "hexbolt" ? "cast" : k === "hexring" ? "point" : k === "nova" ? "nova" : "wind", i: 0 };
       if (k === "leap" && A.phase !== "recover") return { anim: "leap", i: 0 };
-      if (A.phase === "run") return { anim: "walk", i: Math.floor(t * 10) & 3 };
-      if (A.phase === "strike" || A.phase === "loose" || A.phase === "slam") return { anim: k === "stab" || k === "jab" ? "jab" : k === "heave" ? "heave" : k === "bash" ? "bash" : "strike", i: 1 };
+      if (A.phase === "run") return f.fly ? { anim: "strike", i: 0 } : { anim: f.kind === "burster" ? "run" : "walk", i: Math.floor(t * 10) & 3 };
+      if (A.phase === "strike" || A.phase === "loose" || A.phase === "slam") return { anim: k === "stab" || k === "jab" ? "jab" : k === "heave" ? "heave" : k === "bash" ? "bash" : k === "nova" ? "nova" : "strike", i: 1 };
       // the rock slam's recover ends with the lift (A.lift s): the brute stoops to its rock in the crater, then stands with it overhead
       if (A.phase === "recover") return { anim: A.lift && (A.t || 0) >= (A.T || 0) - A.lift / 2 ? "idle" : "recover", i: 0 }; }
     if (at) { const g = f.guard && typeof f.guard.last === "number" ? f.guard.last : -1e9, b = at.blockAt === undefined ? -1e9 : at.blockAt, last = Math.max(g, b); if (at.ft >= last - 1e-9 && at.ft - last < 0.25) return { anim: "block", i: 0 }; }
-    if (f.stagger > 0 || f.staggered) return { anim: BRUTES[f.kind] ? "sit" : "hit", i: 0 };
+    if (f.ward) return { anim: "ward", i: Math.floor(t * 2) & 1 };   // (design pass 27) kneeling behind his ward
+    if (f.stagger > 0 || f.staggered) return { anim: BRUTES[f.kind] ? "sit" : f.kind === "wizard" ? "kneel" : "hit", i: 0 };
     if (f.flash > 0) return { anim: "hit", i: 0 };
     if (f.climbing) return { anim: "climb", i: Math.floor((f.z || 0) / 6) & 1 };
     if (f.air) return { anim: f.kind === "wolf" ? "leap" : "fall", i: 0 };
+    if (f.fly) return { anim: "fly", i: Math.floor(t * 12 + (f.id || 0)) & 3 };   // (design pass 27) a bat beats its wings whether it moves or hovers
     const w = f.intent && f.intent.wish, moving = f.moving || (w && Math.hypot(w[0], w[1]) > 1) || Math.hypot(f.vx || 0, f.vy || 0) > 2 || (f.pushV && Math.hypot(f.pushV[0], f.pushV[1]) > 8);
-    if (moving && f.kind === "wolf" && Math.hypot(f.vx || 0, f.vy || 0) > 70) return { anim: "run", i: Math.floor(t * 12 + (f.id || 0)) & 3 };
+    if (moving && (f.kind === "wolf" || f.kind === "burster") && Math.hypot(f.vx || 0, f.vy || 0) > 50) return { anim: "run", i: Math.floor(t * 12 + (f.id || 0)) & 3 };   // (a burster runs at 58, design pass 27)
     if (moving) return { anim: "walk", i: Math.floor(t * 8 + (f.id || 0)) & 3 };
     return { anim: "idle", i: Math.floor(t * 2 + (f.id || 0)) & 1 };
   }
@@ -1233,23 +1247,27 @@
     const dent = dentOf(f, F.t || 0);   // (design pass 21) the troll knight's shield dents as its guard meter fills
     const fr = T.frame(kind, facing, an.anim, an.i, glow, dent);
     this.last.set(f.id, { facing, anim: an.anim, i: an.i, dent });
+    const FX = this.art && this.art.fx ? this.art.fx : null;
     this.drawBody(ctx, F, o, f, (c, b, z) => {
-      const x0 = Math.round(b.x) - N / 2, y0 = Math.round(b.y - z) - (N - 1);
-      if (b.spawn > 0) c.globalAlpha = 0.5;
+      const bob = b.fly && !o.still ? (Math.floor(o.t * 4 + (b.id || 0)) & 1) : 0;   // (design pass 27) a flier bobs a pixel
+      const x0 = Math.round(b.x) - N / 2, y0 = Math.round(b.y - z) - (N - 1) - bob;
+      if (b.spawn > 0 || b.gone) c.globalAlpha = b.gone ? 0.7 : 0.5;
       c.drawImage(b.flash > 0 ? fr.white() : fr.canvas(), x0, y0);
       c.globalAlpha = 1;
       const A = b.act, tel = A && A.tel ? A.tel.kind : null;
-      if (A && A.phase === "wind" && fr.tip && (tel === "glint" || !tel || (tel === "draw" && A.kind === "bolt"))) { const atk = A.atk || {}, bright = A.T ? A.t >= A.T - (atk.glintBright || 0.15) : false; drawAt(c, TG.glint(bright ? 1 : 0), x0 + fr.tip[0], y0 + fr.tip[1]); }
+      if (A && A.phase === "wind" && fr.tip && (tel === "glint" || !tel || (tel === "draw" && (A.kind === "bolt" || A.kind === "hexbolt")) || tel === "rings")) { const atk = A.atk || {}, bright = A.T ? A.t >= A.T - (atk.glintBright || 0.15) : false; drawAt(c, TG.glint(bright ? 1 : 0), x0 + fr.tip[0], y0 + fr.tip[1]); }
+      if (b.ward && FX && FX.ward) drawAt(c, FX.ward(o.still ? 0 : Math.floor(o.t * 6) & 3), b.x, b.y - z);   // (design pass 27) the egg of light over a warded caster
       if (o.statuses) o.statuses(b, c);
     });
   };
   // the dying: the stone death (four steps of ramp swap over 0.4 s, then a crumble of pebbles), a drowning's splash and bubbles; each is
   // stepped once a frame and drawn among the actors at its own depth
   Scene.prototype.stepDying = function (dt) { for (const d of this.dying) d.t += dt; this.dying = this.dying.filter(d => d.t < (d.why === "DROWNED" ? 1.6 : 0.9)); };
+  const kind0 = d => d.kind;
   Scene.prototype.drawDyingOne = function (ctx, o, d) {
     const T = root.Trolls;
     if (d.why === "DROWNED") { if (d.t < 0.6) drawAt(ctx, T.splash(Math.floor(d.t / 0.15)), d.x, d.y); else drawAt(ctx, MK.bubbles(Math.floor(d.t * 6)), d.x, d.y - 2); return; }
-    const kind = T.KIND[d.kind] ? d.kind : "footman", N = T.KIND[kind].N, fr = T.frame(kind, d.facing, d.anim === "walk" || d.anim === "run" ? "idle" : d.anim, d.i, 0, d.dent | 0), x0 = Math.round(d.x) - N / 2, y0 = Math.round(d.y - d.z) - (N - 1);
+    const kind = T.KIND[kind0(d)] ? kind0(d) : "footman", N = T.KIND[kind].N, dz = kind === "bat" ? Math.max(0, (d.z || 0) - 40 * d.t) : d.z, fr = T.frame(kind, d.facing, d.anim === "walk" || d.anim === "run" || d.anim === "fly" ? (kind === "bat" ? "stone" : "idle") : d.anim, d.i, 0, d.dent | 0), x0 = Math.round(d.x) - N / 2, y0 = Math.round(d.y - dz) - (N - 1);   // (a bat drops 10 px as stone, design pass 27)
     if (o.still) { if (d.t < 0.3) ctx.drawImage(fr.stone(4), x0, y0); return; }
     if (d.t < 0.4) { ctx.drawImage(fr.stone(1 + Math.min(3, Math.floor(d.t * 10))), x0, y0); return; }
     const q = (d.t - 0.4) / 0.5, n = o.few ? 4 : 6 + (d.id % 5); for (let i = 0; i < n; i++) { const a = i / n * TAU + d.id, r = 6 + (i % 3) * 4; drawAt(ctx, MK.pebble(i), d.x + Math.cos(a) * r * q * 1.5, d.y - d.z - 8 + Math.sin(a) * r * q * 0.6 + q * q * 14); }
@@ -1297,7 +1315,7 @@
     const fade = o.patchFade || 0.5, art = this.art && this.art.liveLook ? this.art : null, A0 = this.A;
     const live = (kind, r, f, level, x, y) => (art && art.liveLook(kind, r, f, level, x, y, A0)) || MK.live(kind, r, f, level);
     for (const p of F.patches || []) if (inV(p.x, p.y, p.r)) { const left = p.life - p.t, level = left < fade ? Math.floor(left / fade * 4) : 3; place(live(p.kind === "fire" ? "fire" : "frost", p.r, still ? 0 : Math.floor(t * 8 + (p.id || 0)) & 3, level, p.x, p.y), p.x, p.y, p.z || 0, p.on); }
-    for (const m of M.fire || []) if (inV(m.x, m.y, m.r)) { const left = m.life - m.t, level = left < 1 ? Math.floor(left * 4) : 3; place(live("fire", m.r, still ? 0 : Math.floor(t * 8 + m.id) & 3, level, m.x, m.y), m.x, m.y, m.z || 0, m.on); }
+    for (const m of M.fire || []) if (inV(m.x, m.y, m.r)) { const left = m.life - m.t, level = left < 1 ? Math.floor(left * 4) : 3; place(live(m.look === "hex" ? "hexfire" : "fire", m.r, still ? 0 : Math.floor(t * 8 + m.id) & 3, level, m.x, m.y), m.x, m.y, m.z || 0, m.on); }   // (the Green Hand's fire green, design pass 27)
     for (const m of M.ice || []) if (inV(m.x, m.y, m.r)) { const left = m.life - m.t, r = left < 2 ? Math.max(2, m.r * left / 2) : m.r; place(live("ice", r, still ? 0 : Math.floor(t * 6 + m.id) & 3, 3, m.x, m.y), m.x, m.y, m.z || 0, m.on); }
     for (const m of M.puddle || []) if (inV(m.x, m.y, m.r)) { const left = m.life - m.t, level = left < 4 ? Math.floor(left) : 3; place(live("puddle", m.r, still ? 0 : Math.floor(t * 2 + m.id) & 1, level, m.x, m.y), m.x, m.y, m.z || 0, m.on); }
     for (const m of M.ember || []) if (inV(m.x, m.y, 8)) place(live("ember", 6, 0, Math.min(3, Math.floor((m.t || 0) / 1.5)), m.x, m.y), m.x, m.y, m.z || 0, m.on);
@@ -1313,10 +1331,20 @@
     // a ring grows over its wind (tel.grow s: the rock slam's to r 30, the roar's pulse to r 56) and fills as the wind goes; the slam's solid
     // inner ring (tel.inner, its core) marks where the ground will open; the aim line runs from the troll's chest to the aim (the target's
     // chest, as the rules set it) exactly; the charge's strip along its path, from the brute's feet
-    for (const f of F.foes || []) { const A = f.act; if (!A || A.phase !== "wind") continue;
+    const FX = this.art && this.art.fx ? this.art.fx : null;
+    for (const f of F.foes || []) { const A = f.act; if (!A) continue;
+      // (design pass 27) the blink's glyph draws itself over the wind and stands while he is gone (green: a promise, not a blow)
+      if (A.tel && A.tel.kind === "glyph" && (A.phase === "wind" || A.phase === "strike") && FX && FX.glyph && inV(A.tel.x, A.tel.y, 14)) { const qg = A.phase === "wind" ? clamp((A.t || 0) / Math.max(0.1, A.T || 0.5), 0, 1) : 1; const s = this.platAt(A.tel.x, A.tel.y, 0); place(FX.glyph(qg), A.tel.x, A.tel.y, 0, s); }
+      if (A.phase !== "wind") continue;
       const tel = A.tel || {}, q = tel.grow ? clamp((A.t || 0) / tel.grow, 0, 1) : 1, fill = Math.min(3, Math.floor((A.t || 0) / Math.max(0.1, A.T || 0.9) * 4));
       if (A.ring && inV(A.ring.x, A.ring.y, A.ring.r)) { place(TG.ring(Math.max(3, A.ring.r * q), tel.pulse ? (still ? 0 : Math.floor(t * 6) & 1) : fill), A.ring.x, A.ring.y, A.ring.z || 0, f.on); if (tel.inner) place(TG.ring(tel.inner, 0, true), A.ring.x, A.ring.y, A.ring.z || 0, f.on); }   // (the roar's ring pulses between its first two steps)
-      if (tel.kind === "draw" && A.locked && A.aim) { const x0 = f.x, y0 = f.y - (f.z || 0) - (f.chest || 0), x1 = A.aim.x, y1 = A.aim.y - (A.aim.z || 0); if (inV(x0, y0, Math.hypot(x1 - x0, y1 - y0))) { drawAt(ctx, TG.lineTo(x1 - x0, y1 - y0), x0, y0); n++; } }
+      // (design pass 27) the burster's fuse: its blast ring at full size at once, a solid ring growing inside it as the fuse burns, blinking
+      // in the last 0.5 s (filling steadily under less motion); the wizard's rune rings growing across the knight's path, his runes inside
+      if (tel.kind === "fuse" && inV(f.x, f.y, tel.r || 44)) { const qf = clamp((A.t || 0) / Math.max(0.1, A.T || 2), 0, 1), blink = !still && (A.T || 2) - (A.t || 0) < 0.5 && (Math.floor(t * 10) & 1); place(TG.ring(tel.r || 44, 0), f.x, f.y, f.z || 0, f.on); if (!blink) place(TG.ring(Math.max(3, Math.round((tel.r || 44) * qf)), 3, true), f.x, f.y, f.z || 0, f.on); }
+      if (tel.kind === "rings" && tel.list) for (const Rg of tel.list) { if (!inV(Rg.x, Rg.y, tel.r || 18)) continue; place(TG.ring(Math.max(3, (tel.r || 18) * q), fill), Rg.x, Rg.y, Rg.z || 0, Rg.on); if (q > 0.5 && FX && FX.glyph) place(FX.glyph(1), Rg.x, Rg.y, Rg.z || 0, Rg.on); }
+      if (tel.kind === "draw" && A.locked && A.aim) { const x0 = f.x, y0 = f.y - (f.z || 0) - (f.chest || 0), x1 = A.aim.x, y1 = A.aim.y - (A.aim.z || 0); if (inV(x0, y0, Math.hypot(x1 - x0, y1 - y0))) {
+        if (A.fan && A.fan.n > 1) { const dx = x1 - x0, dy = y1 - y0; for (let i = 0; i < A.fan.n; i++) { const a = (i - (A.fan.n - 1) / 2) * (A.fan.spread || 16) * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a); drawAt(ctx, TG.lineTo(dx * ca - dy * sa, dx * sa + dy * ca), x0, y0); n++; } }   // (design pass 27: the fan's lines)
+        else { drawAt(ctx, TG.lineTo(x1 - x0, y1 - y0), x0, y0); n++; } } }
       if (tel.kind === "strip") { const len = Math.hypot(tel.x1 - tel.x0, tel.y1 - tel.y0); if (inV(tel.x0, tel.y0, len)) { drawAt(ctx, TG.stripTo(tel.x1 - tel.x0, tel.y1 - tel.y0, tel.w), tel.x0, tel.y0 - (f.z || 0)); n++; } }
     }
     // the Emberback's death flare: its ring grows and fills over its 0.5 s from the windUp event (no troll stands behind it), then the fire
@@ -1346,6 +1374,7 @@
       if (s.kind === "hutRuin") push(s.y, 0, c => drawAt(c, SPR.hutRuin(), s.x, s.y));
       else if (s.kind === "clod") push(s.y, 0, c => drawAt(c, chip("clod", s.id | 0, s.x, s.y) || SPR.clod(), s.x, s.y));
       else if (s.kind === "bruteStone") push(s.y, 0, c => { drawAt(c, longShadow(10), s.x, s.y); drawAt(c, SPR.bruteStone(s.id), s.x, s.y); });
+      else if (s.kind === "wizardStone" && art && art.fx && art.fx.wizardStone) push(s.y, 0, c => { drawAt(c, longShadow(9), s.x, s.y); art.fx.wizardStone(c, s.x, s.y); });   // (design pass 27)
       else if (s.kind === "boulder" && s.r <= 10 && !(this.A.rocks || []).some(r => r.x === s.x && r.y === s.y)) push(s.y, 0, c => drawAt(c, SPR.rock(10), s.x, s.y));   // (a level with no rocks of its own: the Great Hall's rock brute's boulder)
       else if (s.kind === "droppedRock" || (s.kind === "rockLying" && !lifted.has(s))) push(s.y, 0, c => drawAt(c, root.Trolls.rock(), s.x, s.y));
     }
@@ -1372,6 +1401,13 @@
     for (const p of F.foeShots || []) { if (p.done || !inV(p.fx, p.fy, 8)) continue; const pr = T.projectile(p.kind, p.a, Math.floor(o.t * 8)); push(p.fy, p.fz || 0, c => { if (pr.shadow && p.fz > 2) drawAt(c, pr.shadow, p.fx, p.fy); drawAt(c, pr, p.fx, p.fy - (p.fz || 0)); }); }
     acts.sort((a, b) => a.y - b.y || b.z - a.z);
     for (const a of acts) a.draw(ctx, F, o);
+    // (design pass 27) a level's blasts and fizzles, over everything: a burster's ring of green fire thrown out over 0.4 s (one frame under
+    // less motion), a puff of green smoke where one died unburst
+    if (art && art.fx && art.stateOf) { const st = art.stateOf(this), ft = F.t || 0;
+      for (const b of st.blasts || []) { const age = ft - b.t0; if (age < 0 || !inV(b.x, b.y, 60)) continue;
+        if (b.fizzle) { if (age < 0.5 && art.fx.fizzle) drawAt(ctx, art.fx.fizzle(o.still ? 1 : Math.floor(age * 8)), b.x, b.y - b.z); }
+        else if (age < 0.4 && art.fx.blast) drawAt(ctx, art.fx.blast(b.r, o.still ? 0.5 : age / 0.4), b.x, b.y - b.z); }
+      st.blasts = (st.blasts || []).filter(b => ft - b.t0 < 0.5); }
     // a level's weather (design pass 21: the yard's snow), after the actors, in view coordinates
     if (art && art.weather) { ctx.save(); ctx.translate(v.x0, v.y0); art.weather(ctx, v.x0, v.y0, o.t, o.still, this, F); ctx.restore(); }
     return acts.length;
@@ -1390,9 +1426,10 @@
     let n = 0;
     const bar = (x, y, w, q, kind, tip) => { const f = q > 0 ? Math.max(1, Math.round((w - 2) * Math.min(1, q))) : 0; drawAt(ctx, SPR.bar(w, f, kind, tip), x, y); n++; };
     for (const f of F.foes || []) {
-      if (f.dead || f.spawn > 0 || !(f.hp < f.hpMax - 1e-9)) continue;
+      if (f.dead || f.spawn > 0 || f.gone || !(f.hp < f.hpMax - 1e-9)) continue;
+      if (F.level && F.level.boss === f) continue;   // (design pass 27) the boss's bar is the page's plate
       const big = !!BRUTES[f.kind], y = Math.round(f.y - (f.z || 0) - (f.h || 24) - (big ? 6 : 5));
-      if (inV(f.x, y)) bar(Math.round(f.x), y, big ? 18 : f.kind === "wolf" ? 8 : 12, f.hp / f.hpMax, "red", root.Combat && root.Combat.foeRegrowing ? root.Combat.foeRegrowing(F, f) : f.regrowT > 1e-9);   // (a wolf's bar 8 px, design pass 21)
+      if (inV(f.x, y)) bar(Math.round(f.x), y, big ? 18 : f.kind === "wolf" ? 8 : f.kind === "bat" ? 6 : 12, f.hp / f.hpMax, "red", root.Combat && root.Combat.foeRegrowing ? root.Combat.foeRegrowing(F, f) : f.regrowT > 1e-9);   // (a wolf's bar 8 px, design pass 21; a bat's 6, design pass 27)
     }
     for (const p of F.pieces || []) {
       if (p.broken || p.gone || !(p.hp < p.hpMax - 1e-9) || !PIECE_BARS[p.kind]) continue;
@@ -1414,7 +1451,7 @@
   Scene.prototype.drawGuideView = function (ctx, g, o) {
     if (!g) return 0; let n = 0;
     for (const m of g.edges) { drawAt(ctx, guideMark(m.dir), m.x, m.y); n++; }
-    if (g.go && (o.still || (o.t % 0.85) < 0.6)) { drawAt(ctx, SPR.go(), this.vw - 5, g.go.y); n++; }
+    if (g.go && (o.still || (o.t % 0.85) < 0.6)) { if (g.go.up) drawAt(ctx, SPR.goUp(), g.go.x, g.go.y); else drawAt(ctx, SPR.go(), this.vw - 5, g.go.y); n++; }   // (GO up over the player in a climbing room, design pass 27)
     return n;
   };
   // a find on the ground (Isaac, 7 Oct 2026: every drop lit up, so it shows from across the field): an orb of light in its rarity's colours
