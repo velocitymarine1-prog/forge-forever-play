@@ -387,8 +387,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 @keyframes walk{0%{opacity:1}100%{opacity:0}}
 /* the Courtyard (design pass 24, build 17): a room of its own in the Armory's pattern. The pane fills the app under the sign on
    stone; the canvas is the view in world pixels at the cellar's scale (the script sizes it, a whole number of device pixels to a
-   world pixel), centred when the pane is bigger than the yard; the prompt floats over the knight; the stick floats to where the
-   thumb lands in the left half (the right with Left-handed); the lessons' ring, arrow and chevron are drawn on the canvas */
+   world pixel), centred when the pane is bigger than the yard; the prompt floats over the knight on the cellar's iron plate (the
+   .prompt rule word for word, the f-iron frame in the markup: design pass 35, build 25; build 17 had left the frame off, so the
+   browser's own button border showed round the words); the stick floats to where the thumb lands in the left half (the right with
+   Left-handed); the lessons' ring, arrow and chevron are drawn on the canvas */
 .yardpane{grid-area:room;grid-column:1/-1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0;overflow:hidden;background:var(--stone)}
 .app:not(.in-yard) .yardpane,.app.in-yard .roompane,.app.in-yard .wallspane,.app.in-yard .armpane{display:none}
 #yard{display:block;background:var(--soot)}
@@ -566,7 +568,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="0f6b09a" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="8f5e76c" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div id="probe"></div><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -643,7 +645,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     </div>
     <div class="yardpane" id="yardpane">
       <canvas id="yard" width="384" height="216" role="img" aria-label="The Courtyard at dusk: the gate into the wild and the Forge on the top wall, the Armory on the left, the Training Cellar's stairs on the right, the well in the middle, the market along the bottom"></canvas>
-      <button class="yprompt" id="yardPrompt" hidden></button>
+      <button class="yprompt f-iron" id="yardPrompt" hidden></button>
       <div id="yardZone" aria-hidden="true"></div>
       <div class="ystick rest" id="yardStick" aria-hidden="true"><i id="yardKnob"></i></div>
     </div>
