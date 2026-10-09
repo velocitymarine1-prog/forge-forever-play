@@ -43,6 +43,8 @@
 // Since build 21 (design pass 32, card t90) the confirm plank paints over Vorn's plank (it was hidden under it, so a tap on a class
 // seemed to do nothing), a class held reads Owned ✓ at his stall, and a class taken there (or the first weapon chosen) raises the
 // drill (openDrill, proto/drill.js): the knight using the weapon against a straw dummy, with its damage and strengths under it.
+// Since build 23 (design pass 33, card t92) the drill's stage is as big as the plaque holds (a whole number of device pixels a world
+// pixel: 480 x 192 CSS px on an iPhone, from 320 x 128) and Vorn's line and face are off its head.
 (function () {
   "use strict";
   const G = window.FORGE_GRAMMAR, F = window.Forge, PF = window.PixelForge, SHOP = window.FORGE_SHOP, TERMS = window.FORGE_TERMS, FILTER = window.FORGE_NAME_FILTER;
@@ -1681,11 +1683,12 @@
   }
   // ------------------------------------------------------------------ the drill (design pass 32, card t90; build 21): a new class is a big deal
   // When a class is taken at Vorn's (confirmClass) or the first weapon is chosen (confirmFirst), #drillPlaque rises over everything:
-  // the eyebrow (the group and what it cost, or YOUR FIRST WEAPON), the class weapon's name, Vorn's face and his drill line (the
-  // first weapon, with no Vorn in the smithy, says where the rack goes), the stage (proto/drill.js: the knight using the weapon
-  // against a straw dummy, looping; one still under less motion, scaled by a whole number to the room left), the Damage and
-  // Strengths lines (Drill.words) and Done. Esc closes it too; Settings closes it; the yard pauses and Grycus is quiet under it.
-  // Without drill.js on the page (an old cached page) nothing opens and the flow is as it was
+  // the eyebrow (the group and what it cost, or YOUR FIRST WEAPON), the class weapon's name, the stage (proto/drill.js: the knight
+  // using the weapon against a straw dummy, looping; one still under less motion; shown at a whole number of device pixels a world
+  // pixel in the room left, fitDrill), then one row: the Damage and Strengths lines (Drill.words) at the left and Done at the right.
+  // Esc closes it too; Settings closes it; the yard pauses and Grycus is quiet under it. Vorn's face and his drill line stood under
+  // the name until build 23 (design pass 33, card t92: clutter, Isaac's word; their room and the foot's went to the stage, 320 x 128
+  // to 480 x 192 CSS px on an iPhone). Without drill.js on the page (an old cached page) nothing opens and the flow is as it was
   const drill = { run: null, cls: null, toast: null };   // (toast: the rack's line, shown when the drill closes, so it never sits on Done)
   const drillOpen = () => !$("drillPlaque").hidden;
   function openDrill(c, o) {
@@ -1697,11 +1700,8 @@
     const eyebrow = o.first ? "Your first weapon" : "A new class" + (group ? " · " + group.name : "") + (o.free ? " · on the house" : o.cost ? " · " + o.cost + " coins" : "");
     let words = { damage: "", strengths: "" };
     try { words = DR.words(t); } catch (e) { (window.__errors || []).push("drill words " + c + ": " + (e && e.message || e)); }
-    el.innerHTML = '<div class="dhead"><div class="eyebrow"></div><h3></h3><div class="dsays" id="drillSays"></div></div><div class="dstage" id="drillStage"><canvas id="drillCanvas" width="160" height="64" role="img"></canvas></div><div class="dfoot"><div class="dline" id="drillDamage"></div><div class="dline" id="drillStrengths"></div><div class="pbtns"><button class="f-ember primary" id="drillDone">Done</button></div></div>';
+    el.innerHTML = '<div class="dhead"><div class="eyebrow"></div><h3></h3></div><div class="dstage" id="drillStage"><canvas id="drillCanvas" width="' + (DR.W || 160) + '" height="' + (DR.H || 64) + '" role="img"></canvas></div><div class="dfoot"><div class="dlines"><div class="dline" id="drillDamage"></div><div class="dline" id="drillStrengths"></div></div><div class="pbtns"><button class="f-ember primary" id="drillDone">Done</button></div></div>';
     el.querySelector(".eyebrow").textContent = eyebrow; el.querySelector("h3").textContent = t.name;
-    const says = $("drillSays"), line = o.first ? "" : folkSay("vorn", "drill"), s = document.createElement("span");
-    if (line) { says.appendChild(faceCanvas("vorn")); s.textContent = line; } else s.textContent = "Its rack goes up in the Armory.";
-    says.appendChild(s);
     const dmg = $("drillDamage"), str = $("drillStrengths");
     dmg.innerHTML = "<b>Damage:</b> "; dmg.appendChild(document.createTextNode(words.damage || ""));
     str.innerHTML = "<b>Strengths:</b> "; str.appendChild(document.createTextNode(words.strengths || "")); str.hidden = !words.strengths;
@@ -1714,11 +1714,15 @@
     syncYardPrompt();
     return true;
   }
-  // the stage at a whole number of screen pixels a world pixel, as big as the room between the head and the foot allows (1 at least)
+  // the stage at a whole number of device pixels a world pixel (the yard's and the levels' rule, design pass 24 section 4.2; pass 33
+  // section 3.3), as big as the room between the head and the foot allows: 9 on an iPhone 15 Pro (480 x 192 CSS px), 1 at least. On a
+  // 1x screen it is a whole number of CSS pixels, as before. The 8 is the canvas's ring (a 2 px border and a 2 px shadow a side); the
+  // picture's size is the canvas's own (160 x 64)
   function fitDrill() {
     const st = $("drillStage"), cv = $("drillCanvas"); if (!st || !cv || !drillOpen()) return;
-    const k = Math.max(1, Math.floor(Math.min((st.clientWidth - 8) / 160, (st.clientHeight - 8) / 64)));
-    cv.style.width = (160 * k) + "px"; cv.style.height = (64 * k) + "px";
+    const dpr = window.devicePixelRatio || 1, W = cv.width || 160, H = cv.height || 64;
+    const kd = Math.max(1, Math.floor(Math.min((st.clientWidth - 8) / W, (st.clientHeight - 8) / H) * dpr + 1e-6)), per = kd / dpr;
+    cv.style.width = (W * per) + "px"; cv.style.height = (H * per) + "px";
   }
   function drillKey(e) { if (e.key === "Escape" && drillOpen()) { e.preventDefault(); closeDrill(); } }
   function closeDrill() {
