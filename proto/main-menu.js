@@ -52,6 +52,7 @@
     game.classList.toggle("short", gh <= 500);
     game.classList.toggle("tiny", gh <= 340);
     game.style.setProperty("--gw", gw + "px"); game.style.setProperty("--gh", gh + "px");
+    sizeFace();
     // a phone held upright gets the turn plate; a fine pointer never does
     turn.plate = portrait && coarse && !turn.forced;
     $("turnPlate").hidden = !turn.plate;
@@ -127,14 +128,22 @@
       if (M.words) $("whoWords").textContent = M.words;
       if (M.field) { field.placeholder = M.field; field.setAttribute("aria-label", M.field); }
       if (M.button) $("whoGo").textContent = M.button;
-      // his face, the crop of his idle frame (sized by the page's CSS); without grycus.js the label and the words stand alone
+      // his face, the crop of his idle frame; without grycus.js the label and the words stand alone
       const old = $("whoSpeech").querySelector("canvas"); if (old) old.remove();
       const f = Ls && Ls.face ? Ls.face(3) : null;
-      if (f) { f.style.width = f.style.height = ""; f.id = "whoFace"; $("whoSpeech").prepend(f); }
+      if (f) { f.id = "whoFace"; $("whoSpeech").prepend(f); sizeFace(); }
     }
     who.shown = show;
     if (show) checkName();
     liftWho();
+  }
+  // (design pass 34 revision 1, build 26) his face at a whole number of device pixels a face pixel, a lesson plank's (about 58 px; the
+  // tiny game the plaque's, about 43): sized again when the game is fitted, as the tiny class comes and goes; the page's CSS holds it
+  // without lessons.js's faceSize (an older cached file)
+  function sizeFace() {
+    const f = $("whoFace"); if (!f) return;
+    if (!(Ls && Ls.faceSize && Ls.FACE)) { f.style.width = f.style.height = ""; return; }
+    f.style.width = f.style.height = Ls.faceSize(game.classList.contains("tiny") ? Ls.FACE.tiny : Ls.FACE.plank) + "px";
   }
   // the line under the field says what is wrong once something is typed; the button lights (and glows) only for a good name
   function checkName() {

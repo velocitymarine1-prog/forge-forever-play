@@ -80,4 +80,4 @@ This is a **world of one**: the pairs the seed ledger knows reveal the Forge Ora
 every other pair is the offline Combiner's provisional draft. Your game is saved in this browser and online, on the forge's server,
 so it can go to another phone (Settings: Play on another phone, then Bring a game here on the other). The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `8f5e76c`.
+`tools/deploy.sh` from commit `8a735a4`.

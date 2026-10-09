@@ -2266,9 +2266,12 @@
   // outside, or the knight walking. The folk's memory (what each has said: Folk.memory) is saved beside Grycus's
   const folk = { who: null, cls: null, mem: FK ? FK.memory(null) : null, bulk: false, said: null };
   const folkOpen = () => !$("folkPlank").hidden;
+  // (design pass 34 revision 1, build 26) a folk's face a little bigger than the 48 px of the bay's weapon and the crests beside it:
+  // a lesson plank's, about 58 px, at a whole number of device pixels a face pixel (Lessons.faceSize; the CSS's 58 px without it)
   function faceCanvas(who) {
-    const cv = document.createElement("canvas"); cv.width = 16; cv.height = 16; cv.setAttribute("aria-hidden", "true");
+    const cv = document.createElement("canvas"); cv.width = 16; cv.height = 16; cv.className = "fface"; cv.setAttribute("aria-hidden", "true");
     try { const f = FK.face(who), g = cv.getContext("2d"); f.px.forEach((c, i) => { if (c) { g.fillStyle = c; g.fillRect(i % 16, Math.floor(i / 16), 1, 1); } }); } catch (e) { /* a blank face */ }
+    try { if (window.Lessons && Lessons.faceSize) cv.style.width = cv.style.height = Lessons.faceSize(Lessons.FACE.plank) + "px"; } catch (e) { /* the CSS's size */ }
     return cv;
   }
   function folkSay(who, pool, o) { if (!FK || !folk.mem) return ""; const r = FK.say(folk.mem, who, pool, o); folk.mem = r.mem; save(); return r.text || ""; }

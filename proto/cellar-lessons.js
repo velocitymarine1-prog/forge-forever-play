@@ -3,8 +3,9 @@
 // so the ribbon and the glow turn with a forced landscape), told what glows at each step, and moved on by the rules' own events. Loaded
 // after spec/lessons.js, grycus.js (his face), smith.js and lessons.js and before battlegrounds.js, which calls the hooks below through
 // lessonOn(name, ...); this file reaches the page through window.TheBattlegrounds. Plain script, defines window.CellarLessons. His words
-// are spec/lessons.json's; every line is GRYCUS · FROM THE STAIRS, the ribbon kind of plank, centred over the back wall under the HUD's
-// top row, with no veil: the stick, the buttons and the room stay live.
+// are spec/lessons.json's; every line is GRYCUS · FROM THE STAIRS, the ribbon kind of plank, over the back wall under the HUD's top
+// row (since build 26, design pass 34: from right of the stairs to the room's right wall; C1, a line tapped through, is a talk box),
+// with no veil: the stick, the buttons and the room stay live.
 //
 //   C1 Arrive: his line once the knight has walked off the bottom step; a tap continues.
 //   C2 Walk: the ghost thumb slides in the stick's corner (on the right with Left-handed) and a floor ring burns round the straw dummies;
@@ -61,15 +62,19 @@
   const allowed = () => ["menuBtn", "menuVeil", "rackVeil", "gateVeil", "askVeil", "firstVeil", "tallyVeil", "turnPlate"].map($).filter(Boolean);
   // dimmed and inert until C7: ↑ Forge and the house, and the menu's two ways out
   const blockedEls = id => id === "c.up" ? [] : ["upBtn", "homeBtn", "mForge", "mHome"].map($).filter(Boolean);
-  // the ribbon's place: centred over the back wall, under the HUD's top row (the stage's top 17 world pixels), as wide as a plank may be;
-  // while his beat glances at the rack it steps right of the rack, so the glance shows
+  // the ribbon's place (design pass 34, build 26): over the back wall under the HUD's top row (the stage's top 17 world pixels), from
+  // 12 px right of the stairs (where the knight comes down and goes up), of the rack while his beat glances at it, and of anything that
+  // glows on the room's left half (C7's ↑ Courtyard), to 6 px short of the room's right wall. (Until build 26 it was centred and as
+  // wide as a plank may be, stepping right of the rack in its beat.)
   function ribbonBox() {
-    const T = TB(), Lo = T.state.layout, W = $("game").clientWidth, roomW = (T.VIEW ? T.VIEW.w : 384) * Lo.s;   // (design pass 30: the canvas covers the glass; the ribbon keeps to the room)
-    const w = Math.floor(Math.min(Ls.widest("ribbon", W), roomW - 12));
-    let x = Math.round((W - w) / 2);
-    const prev = L && L.state.beat ? Ls.steps()[Ls.index(L.step) - 1] : null;   // (a beat is the step before's: its glance is in its data)
-    if (prev && prev.beat && prev.beat.glance === "rack") x = Math.min(Math.max(x, Math.round(Lo.x + (BOXES.rack.x + BOXES.rack.w) * Lo.s) + 10), Math.round(Lo.x + roomW - 6 - w));
-    return { x, y: Math.round(Lo.y + 17 * Lo.s), w };
+    const T = TB(), Lo = T.state.layout, roomW = (T.VIEW ? T.VIEW.w : 384) * Lo.s;   // (design pass 30: the canvas covers the glass; the ribbon keeps to the room)
+    const roomR = Math.round(Lo.x + roomW - 6);
+    const beat = !!(L && L.state.beat), prev = beat ? Ls.steps()[Ls.index(L.step) - 1] : null;   // (a beat is the step before's: its glance is in its data)
+    const after = prev && prev.beat && prev.beat.glance === "rack" ? BOXES.rack : BOXES.stairs;
+    let x = Math.round(Lo.x + (after.x + after.w) * Lo.s) + 12;
+    const st = L && L.step ? Ls.step(L.step) : null, mid = Lo.x + roomW / 2;
+    if (st && !beat) for (const n of [].concat(st.target || [])) { const el = resolve(n), b = el && L.boxOf(el); if (b && b.x + b.w / 2 < mid) x = Math.max(x, Math.round(b.x + b.w) + 12); }
+    return { x, y: Math.round(Lo.y + 17 * Lo.s), w: Math.max(240, roomR - x) };
   }
   function view(id, ctl) {
     if (!L && ctl) L = ctl;   // (mount's own first render comes before mount returns the controller)

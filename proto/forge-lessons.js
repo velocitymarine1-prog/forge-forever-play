@@ -8,7 +8,9 @@
 //   y.gate the new knight walks in through the courtyard's gate; Nell's ribbon (her face) across the top of the view, no soot over the
 //      yard (pass 26 section 3.2 row 5): the page draws an ember ring at her cart, a yellow arrow over it and a chevron at the view's
 //      edge while it is off screen; every other place is inert and the house dim. Ends when the knight stands in the ring.
-//   y.fire her plank open with Fire alone lit under the veil (pass 16's veil for a tap step); Fire bought ends it.
+//   y.fire her plank open with Fire alone lit under the veil (pass 16's veil for a tap step); Fire bought ends it. Since build 26
+//      (design pass 34) the lessons' layer rises over her plank for the step (z 8 over the planks' 7: her words, the ring and the
+//      pointer had lain under it since build 17) and her words lie across her plank's head.
 //   y.forge her ribbon again, the ring and the arrow at the Forge's door; walking into the Forge ends it.
 //   f.welcome, f.deal his big plank over his head; f.add the ADD slot glows (the walls open on Materials); f.pick the Fire on its shelf
 //      (the Elements cabinet) glows and goes onto the anvil; f.strike Strike; f.forging plays with no veil; f.plaque Emberbane's plaque
@@ -38,7 +40,7 @@
   const ELEMENTS = { kind: "store", key: "Elements" };
   const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
   let L = null;   // lessons.js's controller on #app, from the boot
-  const live = { leaving: false, pinned: false, counting: 0, nellFace: null };
+  const live = { leaving: false, pinned: false, counting: 0, nellFace: null, ring: null };
   const rows = { skip: null };
   const still = () => { const F = TF(); return !!(F && F.reduce) || !!(window.Settings && Settings.reduce()); };
   const stepOf = id => (Ls ? Ls.step(id) : null);
@@ -105,14 +107,25 @@
       live.nellFace = cv; return cv;
     } catch (e) { return undefined; }
   }
+  // the stick's resting ring in the yard: its box while it rests, kept for when a thumb holds it (so the ribbon never moves with it)
+  function restRing() { const s = $("yardStick"); if (s && L && s.classList.contains("rest")) { const b = L.boxOf(s); if (b && b.w) live.ring = b; } return live.ring; }
   // the ribbon in the yard (pass 26 section 3.2 row 6): across the top of the view under the sign, as the cellar's; at the bottom while
-  // the glowing place is in the top two fifths of the view, so it never covers its own target
+  // the glowing place is in the top two fifths of the view, so it never covers its own target. Since build 26 (design pass 34) the
+  // top one as wide as a ribbon may be (63 % and 540 px); the bottom one an ordinary plank's width, centred and never nearer than 12 px
+  // to the stick's resting ring (on the left, or the right with Left-handed)
   function yardBox(place) {
     const F = TF(), app = $("app"), B = bounds(), W = app.clientWidth, w = Math.floor(Math.min(Ls.widest("ribbon", W), W - 24)), x = Math.round((W - w) / 2);
     const Y = F.yard, cv = $("yard");
     if (place && Y && Y.L && Y.Y && cv) {
       const t = Y.Y.targetOf(place);
-      if (t) { const ty = (t.y - Y.cam.y) * Y.L.per; if (ty < 0.4 * Y.L.vh * Y.L.per) return { x, bottom: B.y + B.h, w }; }
+      if (t) {
+        const ty = (t.y - Y.cam.y) * Y.L.per;
+        if (ty < 0.4 * Y.L.vh * Y.L.per) {
+          const r = restRing(), side = r ? (r.x + r.w / 2 < W / 2 ? r.x + r.w : W - r.x) : 0;
+          const wb = Math.floor(Math.min(Ls.widest("plank", W), W - 24, r ? W - 2 * (side + 12) : W));
+          return { x: Math.round((W - wb) / 2), bottom: B.y + B.h, w: wb };
+        }
+      }
     }
     return { x, y: B.y, w };
   }
@@ -129,7 +142,7 @@
     if (!p || p.hidden || !tr || !p.contains(tr)) return null;
     const pb = L.boxOf(p), main = p.querySelector(".main"), mb = main ? L.boxOf(main) : null;
     if (!pb || !mb) return { target: tr, manual: true, bounds: B };
-    const w = Math.min(380, mb.w + 12);
+    const w = Math.min(Ls.widest("plank", 1e9), mb.w + 12);   // (design pass 34: up to a plank's widest, 414 px)
     return { target: tr, manual: true, box: { x: mb.x - 12, y: pb.y - 2, w }, bounds: { x: pb.x + 4, y: Math.max(B.y - 8, pb.y - 4), w: pb.w - 8, h: pb.h }, pointer: "above" };
   }
   // F6's card makes room for his words when it must (see build 8): the middle column starts under the plank on a short phone
@@ -170,7 +183,11 @@
       if (room !== "yard") return null;
       const nell = st.who === "nell", whoLabel = nell ? (WORDS().nell || "Nell") : (WORDS().forge || "Grycus · from the Forge"), face = nell ? nellFace() : undefined;
       if (id === "y.fire") {
-        if (F.folkOpen() && F.folk.who === "nell") return { target: fireRow() || [], veil: true, bounds: B, who: whoLabel, face, manual: true, pointer: "left", block: dimmed(id) };
+        // (design pass 34) her plank open: the layer over it (z 8, over the planks' 7), her words inside it, across its head away from Fire
+        if (F.folkOpen() && F.folk.who === "nell") {
+          const fb = L.boxOf($("folkPlank")), nb = fb ? { x: fb.x + 6, y: fb.y + 6, w: fb.w - 12, h: fb.h - 12 } : B;
+          return { target: fireRow() || [], veil: true, z: 8, bounds: nb, maxW: nb.w, who: whoLabel, face, manual: true, pointer: "left", block: dimmed(id) };
+        }
         return { target: [], kind: "ribbon", veil: false, box: yardBox("nell"), who: whoLabel, face, manual: true, block: dimmed(id) };   // (her plank closed: back to her cart)
       }
       return { target: [], kind: "ribbon", veil: false, box: yardBox(typeof st.target === "string" ? st.target : null), who: whoLabel, face, manual: true, block: dimmed(id) };
@@ -300,8 +317,10 @@
       F.map.fit();   // (the names and the plate drawn again with this step's gate: the others dim, Go alone alone lit)
       return;
     }
-    // the Forge's steps
-    if (F.roomName !== "forge") F.enter("forge");
+    // the Forge's steps. (build 26) At boot the page's room still reads "forge" before the room it opens in is entered, so a reload at
+    // F1 to F6 or the farewell enters the Forge here all the same: else the boot then entered the room in the address or the save (the
+    // yard) and the step's plank stayed hidden there
+    if (F.roomName !== "forge" || !(F.session && F.session.roomSet)) F.enter("forge");
     if (id === "f.farewell") {
       if (firstForge()) F.save();
       unpin(); F.closePlaque(); F.closeWalls(); F.closeFolk();

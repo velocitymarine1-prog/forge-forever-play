@@ -8,8 +8,12 @@
 //   where his plank goes (section 3.3), pure;
 //   his plank: his face (a 16 x 16 crop of Grycus.frame("idle", 0), x 13 to 28 and y 6 to 21; since build 17 a page may give another
 //     face, Nell's in the courtyard: view.face), GRYCUS (or Grycus · from the stairs, or whoever view.who names),
-//     his words with {name} filled and <em> in red, TAP TO CONTINUE, the pips, Skip the lessons, a button, a counter (0 / 3), a tail
-//     down to his head, four kinds (plank, big, tiny, ribbon), the rise in three steps (0.27 s), a nudge;
+//     his words with {name} filled and <em> in red, TAP TO CONTINUE, the pips, Skip the lessons, a button, a counter (0 / 3; in a
+//     ribbon on the name row), a tail down to his head, four kinds by place (plank, big, tiny, ribbon), the rise in three steps
+//     (0.27 s), a nudge. Since build 26 (design pass 34 with its revision 1) in two voices: a talk box for a line the player taps
+//     through or the plank's own button (18 px words, the face about 72 px), a lesson plank for every line that points at something
+//     (15.3 px, about 58 px; the tiny plank on the plaque 14.4 px, about 43 px); a face is a whole number of device pixels a face
+//     pixel (faceSize), and a step's view may lift the layer (view.z: y.fire, over Nell's plank);
 //   the glow: the ember ring (3 px gold, breathing every 1.1 s) on each glowing thing, the bobbing pixel pointer (Smithy's pointer
 //     glyph), the veil (soot 55 %, cut open over the glowing things and the allowed ones) and its gate (a tap anywhere else does
 //     nothing but nudge his words, flare the ring and count; the glowing thing's own handlers still run), glances (a still gold
@@ -36,6 +40,8 @@
 //       box: { x, y | bottom, w },          the plank at this box (the cellar's back wall, the plaque's top edge)
 //       bounds: { x, y, w, h },             where the plank may sit (default the root less 8 px: pass the room below the sign)
 //       kind, words, who, face (an Element for the plank's head in place of his; null for none), foot, button,
+//       talk: bool,                         the talk box or not (default: a step of this page that ends on a tap or has a button)
+//       z: number,                          the layer's z-index for this step (default the mount's z: y.fire lifts it over Nell's plank)
 //       pointer: "auto" | "side" | "above" | "below" | "left" | "right" | "none",
 //       manual: bool,                       a tap on the target does not end the step: the page sends L.event(name) itself when its
 //                                            action is done (the bought Fire's flight; anything that leaves the page should too)
@@ -166,10 +172,11 @@
 
   // ------------------------------------------------------------------ where his plank goes (section 3.3), pure
   const PAD = 8, CLEAR = 12, TAIL_IN = 22, TAIL_H = 14, RING_OUT = 4;
-  // the widest he may be: an ordinary plank (and the tiny one on the plaque) 46 % of the screen and 380 px; the big one 56 % and 440 px;
-  // the one in the middle (the farewell, his largest, with nothing left to point at) 88 % and 600 px, so it keeps to three lines too
-  function widest(kind, W, middle) { return middle ? Math.min(0.88 * W, 600) : kind === "big" ? Math.min(0.56 * W, 440) : Math.min(0.46 * W, 380); }
-  const narrowest = kind => kind === "big" ? 240 : kind === "tiny" ? 180 : 200;
+  // the widest he may be (design pass 34 revision 1, build 26: the pass's widths a tenth smaller with the type): an ordinary plank (and
+  // the tiny one on the plaque) 47 % of the screen and 414 px; the big one (a talk box over his head) 67.5 % and 540 px; a ribbon 63 %
+  // and 540 px; the one in the middle (the farewell, his largest, with nothing left to point at) 83 % and 648 px
+  function widest(kind, W, middle) { return middle ? Math.min(0.83 * W, 648) : kind === "big" ? Math.min(0.675 * W, 540) : kind === "ribbon" ? Math.min(0.63 * W, 540) : Math.min(0.47 * W, 414); }
+  const narrowest = kind => kind === "big" ? 270 : kind === "tiny" ? 200 : 216;
   const meets = (a, b) => !!a && !!b && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const grow = (b, d) => ({ x: b.x - d, y: b.y - d, w: b.w + 2 * d, h: b.h + 2 * d });
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -190,12 +197,14 @@
     }
     if (o.middle) { const w = maxW, h = size(w); return at(B.x + (B.w - w) / 2, B.y + clamp((B.h - h) / 2, 0, 16), w, h, "middle"); }
     if (o.anchor) {
-      // over his head: the tail at his head, the plank running right from it as his bubble does; narrower if it would meet the target
+      // over his head: the tail at his head, the plank running right from it as his bubble does. When that would meet the target it
+      // slides left first, the tail moving along its foot (never nearer its right end than 20 px), and only then narrows (design pass
+      // 34: F3's plank keeps its width beside ADD instead of squeezing to five lines)
       for (let w = maxW; w >= minW; w -= 20) {
-        const h = size(w), x = clamp(o.anchor.x - TAIL_IN, B.x, B.x + B.w - w), y = o.anchor.y - TAIL_H - h;
+        const h = size(w), x0 = clamp(o.anchor.x - TAIL_IN, B.x, B.x + B.w - w), y = o.anchor.y - TAIL_H - h;
         if (y < B.y) break;   // no room over him: away from the target instead
-        const b = { x, y, w, h };
-        if (!hits(b)) return at(x, y, w, h, "anchor", Math.round(clamp(o.anchor.x - x, 14, w - 20)));
+        const x1 = clamp(o.anchor.x - w + 20, B.x, x0);
+        for (const x of x1 < x0 ? [x0, x1] : [x0]) { const b = { x, y, w, h }; if (!hits(b)) return at(x, y, w, h, "anchor", Math.round(clamp(o.anchor.x - x, 14, w - 20))); }
       }
     }
     // nothing glows: centred at the top
@@ -242,6 +251,12 @@
   function facePixels() {
     try { const px = root.Grycus.frame("idle", 0).px, out = []; for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) out.push(px[(6 + y) * 32 + 13 + x] || null); return out; } catch (e) { return null; }
   }
+  // (design pass 34 revision 1, build 26) a face's size in CSS px: the whole number of device pixels a face pixel nearest to the
+  // target, so the crop stays crisp on any screen (a talk box's 72: 14 device px a face pixel on a 3x phone, 74.67 CSS px; 9 on a 2x,
+  // 72). The targets: a talk box 72, a lesson plank 57.6, the tiny plank on the plaque 43.2 (the pass's 80, 64 and 48, a tenth
+  // smaller); the menu's plank and the folk's planks use the lesson plank's
+  const FACE = { talk: 72, plank: 57.6, tiny: 43.2 };
+  function faceSize(target, dpr) { const d = dpr > 0 ? dpr : (root.devicePixelRatio > 0 ? root.devicePixelRatio : 1); return 16 * Math.max(1, Math.round(target * d / 16)) / d; }
   // face(scale, doc): the crop on a 16 x 16 canvas shown at 16 x scale CSS px, or null without Grycus
   function face(scale, doc) {
     const px = facePixels(); doc = doc || root.document; if (!px || !doc) return null;
@@ -293,30 +308,36 @@
 @keyframes lsn-bobright{to{translate:4px 0}}
 @keyframes lsn-bobleft{to{translate:-4px 0}}
 .lsn-plank{position:absolute;left:0;top:0;color:var(--ink,#3e2731);pointer-events:auto;cursor:default;-webkit-tap-highlight-color:transparent}
-.lsn-body{position:relative;background:var(--parch,#ead4aa);border:3px solid var(--soot,#181425);box-shadow:0 0 0 3px var(--oak,#733e39);padding:7px 10px 6px 8px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:9px;row-gap:2px;align-items:start}
+.lsn-body{position:relative;background:var(--parch,#ead4aa);border:3px solid var(--soot,#181425);box-shadow:0 0 0 3px var(--oak,#733e39);padding:7px 11px 6px 8px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;row-gap:3px;align-items:start}
 .lsn-body.noface{grid-template-columns:minmax(0,1fr)}
-.lsn-face{grid-row:1/span 3;display:block;width:48px;height:48px;background:var(--stone-2,#2c2540);border:2px solid #3a4466;box-shadow:0 0 0 2px var(--soot,#181425);image-rendering:pixelated;image-rendering:crisp-edges}
-.lsn-who{display:block;font-family:var(--data,"Pixelify Sans","Courier New",monospace);font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--oak,#733e39);line-height:1.1}
-.lsn-words{margin:0;font-family:var(--text,Alegreya,Georgia,serif);font-size:14px;line-height:1.3;color:var(--ink,#3e2731);text-wrap:pretty}
+.lsn-face{grid-row:1/span 3;display:block;width:58px;height:58px;background:var(--stone-2,#2c2540);border:2px solid #3a4466;box-shadow:0 0 0 2px var(--soot,#181425);image-rendering:pixelated;image-rendering:crisp-edges}
+.lsn-who{display:block;font-family:var(--data,"Pixelify Sans","Courier New",monospace);font-weight:600;font-size:10.8px;letter-spacing:.14em;text-transform:uppercase;color:var(--oak,#733e39);line-height:1.1}
+.lsn-words{margin:0;font-family:var(--text,Alegreya,Georgia,serif);font-size:15.3px;line-height:1.28;color:var(--ink,#3e2731);text-wrap:pretty}
 .lsn-words b{font-weight:700}
 .lsn-words em{font-style:normal;font-weight:700;color:var(--ink3,#a22633)}
 .lsn-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:3px 10px;margin-top:1px;min-height:12px}
 .lsn-body.noface .lsn-foot{grid-column:1}
-.lsn-tap{font-family:var(--data,"Pixelify Sans",monospace);font-weight:600;font-size:11px;letter-spacing:.2em;color:var(--ink3,#a22633);white-space:nowrap}
+.lsn-tap{font-family:var(--data,"Pixelify Sans",monospace);font-weight:600;font-size:11.25px;letter-spacing:.2em;color:var(--ink3,#a22633);white-space:nowrap}
 .lsn-pips{display:flex;gap:3px}
 .lsn-pips i{display:block;width:5px;height:5px;background:rgba(62,39,49,.25)}
 .lsn-pips i.on{background:var(--ember,#f77622)}
 .lsn-pips i.was{background:var(--oak,#733e39)}
-.lsn-skip{border:0;background:none;padding:2px 0;margin:0;font-family:var(--data,"Pixelify Sans",monospace);font-size:11px;letter-spacing:.06em;color:var(--oak,#733e39);text-decoration:underline;cursor:pointer;touch-action:manipulation}
-.lsn-count{font-family:var(--data,"Pixelify Sans",monospace);font-weight:600;font-size:13px;letter-spacing:.06em;color:var(--ink3,#a22633);white-space:nowrap}
+.lsn-skip{border:0;background:none;padding:2px 0;margin:0;font-family:var(--data,"Pixelify Sans",monospace);font-size:11.25px;letter-spacing:.06em;color:var(--oak,#733e39);text-decoration:underline;cursor:pointer;touch-action:manipulation}
+.lsn-count{font-family:var(--data,"Pixelify Sans",monospace);font-weight:600;font-size:13.5px;letter-spacing:.06em;color:var(--ink3,#a22633);white-space:nowrap}
 .lsn-btn{grid-column:1/-1;justify-self:center;margin-top:6px;min-height:44px;min-width:170px;padding:0 20px;background-color:transparent;font-family:var(--display,"Grenze Gotisch",Georgia,serif);font-weight:800;font-size:20px;line-height:1;color:var(--soot,#181425);cursor:pointer;touch-action:manipulation}
 .lsn-plank.tail .lsn-body::after{content:"";position:absolute;left:var(--tail,24px);bottom:-10px;width:13px;height:13px;margin-left:-8px;background:var(--parch,#ead4aa);border-right:3px solid var(--soot,#181425);border-bottom:3px solid var(--soot,#181425);transform:rotate(45deg)}
-.lsn-plank.big .lsn-words{font-size:15px}
-.lsn-plank.tiny .lsn-body{padding:4px 8px 4px 6px;column-gap:7px}
-.lsn-plank.tiny .lsn-face{grid-row:1/span 2}
-.lsn-plank.tiny .lsn-words{font-size:13px;line-height:1.25}
-.lsn-plank.ribbon .lsn-body{padding:5px 9px 5px 6px;column-gap:8px}
-.lsn-plank.ribbon .lsn-words{font-size:13.5px;line-height:1.28}
+.lsn-plank.tiny .lsn-body{padding:5px 9px 5px 6px;column-gap:8px}
+.lsn-plank.tiny .lsn-face{grid-row:1/span 2;width:43px;height:43px}
+.lsn-plank.tiny .lsn-words{font-size:14.4px;line-height:1.25}
+.lsn-plank.ribbon .lsn-body{padding:5px 10px 5px 6px;column-gap:9px}
+.lsn-plank.ribbon .lsn-words{font-size:15.3px;line-height:1.26}
+.lsn-plank.ribbon .lsn-who{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.lsn-plank.ribbon .lsn-who .lsn-count{letter-spacing:.06em;text-transform:none}
+.lsn-plank.talk .lsn-body{padding:9px 13px 8px 9px;column-gap:12px}
+.lsn-plank.talk .lsn-face{width:72px;height:72px}
+.lsn-plank.talk .lsn-who{font-size:11.7px}
+.lsn-plank.talk .lsn-words{font-size:18px;line-height:1.3}
+.lsn-plank.talk .lsn-tap{font-size:11.7px}
 .lsn-plank.rise .lsn-body{animation:lsn-rise .27s steps(3,end)}
 @keyframes lsn-rise{from{translate:0 6px;opacity:.2}to{translate:0 0;opacity:1}}
 .lsn-plank.nudge{animation:lsn-nudge .2s linear 1}
@@ -479,21 +500,28 @@
       const foot = beat || v.foot === false || (v.foot === undefined && st.foot === false) ? null : (() => {
         const bits = [], e = st.ends || {}, pp = pips(st.id);
         if (kind !== "ribbon" && pp.n > 1) bits.push(`<span class="lsn-pips" aria-hidden="true">${Array.from({ length: pp.n }, (_, i) => `<i class="${i === pp.at ? "on" : i < pp.at ? "was" : ""}"></i>`).join("")}</span>`);
-        if ((e.count || 1) > 1) bits.push(`<span class="lsn-count">${live.count} / ${e.count}</span>`);
+        if ((e.count || 1) > 1 && kind !== "ribbon") bits.push(`<span class="lsn-count">${live.count} / ${e.count}</span>`);   // (a ribbon's rides on its name row)
         if (e.on === "tap") bits.push(`<span class="lsn-tap">${esc((W.continue || {})[d ? "desktop" : "touch"] || "TAP TO CONTINUE")}</span>`);
         if (st.skip) bits.push(`<button type="button" class="lsn-skip" data-lsn-skip>${esc((W.skip || {}).link || "Skip the lessons")}</button>`);
         return bits.length ? `<div class="lsn-foot">${bits.join("")}</div>` : null;
       })();
       const btn = !beat && (v.button !== undefined ? v.button : st.button);
-      const fsc = kind === "tiny" ? 2 : kind === "ribbon" ? ((rt.clientHeight || 0) >= 420 ? 3 : 2) : 3;
-      const key = [kind, text, label, foot, btn, fsc, !!(root.Grycus), who ? who.name : "", v.face === null ? "noface" : v.face && v.face.nodeType === 1 ? "face:" + (v.face.dataset.face || "x") : ""].join("|");   // (the name too: a rename refills it)
+      // (design pass 34) the talk box: a line the player taps through (a step of this page that ends on a tap) or the plank's own
+      // button (the farewell); never a beat, the bonk or another page's step shown here (the yard's resume line); a view may say so
+      const mine = !o.page || st.page === o.page, ends = st.ends || {};
+      const talk = v.talk !== undefined ? !!v.talk : !beat && !(live.bonk && st.bonk) && mine && (ends.on === "tap" || !!btn);
+      // (design pass 34 revision 1) the face at a whole number of device pixels a face pixel: about 72 px in a talk box, 58 on a
+      // lesson plank, 43 on the plaque's tiny one; the count of a ribbon on its name row
+      const dpr = win.devicePixelRatio > 0 ? win.devicePixelRatio : 1, fpx = faceSize(talk ? FACE.talk : kind === "tiny" ? FACE.tiny : FACE.plank, dpr);
+      const count = kind === "ribbon" && !beat && (ends.count || 1) > 1 ? `<span class="lsn-count">${live.count} / ${ends.count}</span>` : "";
+      const key = [kind, talk, text, label, foot, count, btn, fpx, !!(root.Grycus), who ? who.name : "", v.face === null ? "noface" : v.face && v.face.nodeType === 1 ? "face:" + (v.face.dataset.face || "x") : ""].join("|");   // (the name too: a rename refills it)
       if (plank.dataset.key === key) return kind;
       plank.dataset.key = key;
-      plank.className = "lsn-plank " + kind;
-      plank.innerHTML = `<div class="lsn-body"><span class="lsn-who">${esc(label)}</span><p class="lsn-words${beat ? " beat" : ""}">${fill(text, who ? who.name : "")}</p>${foot || ""}${btn ? `<button type="button" class="lsn-btn f-ember" data-lsn-btn>${esc(btn)}</button>` : ""}</div>`;
-      // (build 17) the face: the page's own when it gives one (Nell's, in the courtyard), his by default, none when asked
-      const body = plank.firstChild, f = v.face === null ? null : v.face && v.face.nodeType === 1 ? v.face : face(fsc, doc);
-      if (f) { if (f.classList && !f.classList.contains("lsn-face")) f.classList.add("lsn-face"); body.prepend(f); } else body.classList.add("noface");
+      plank.className = "lsn-plank " + kind + (talk ? " talk" : "");
+      plank.innerHTML = `<div class="lsn-body"><span class="lsn-who">${esc(label)}${count}</span><p class="lsn-words${beat ? " beat" : ""}">${fill(text, who ? who.name : "")}</p>${foot || ""}${btn ? `<button type="button" class="lsn-btn f-ember" data-lsn-btn>${esc(btn)}</button>` : ""}</div>`;
+      // (build 17) the face: the page's own when it gives one (Nell's, in the courtyard), his by default, none when asked; sized here
+      const body = plank.firstChild, f = v.face === null ? null : v.face && v.face.nodeType === 1 ? v.face : face(4, doc);
+      if (f) { if (f.classList && !f.classList.contains("lsn-face")) f.classList.add("lsn-face"); f.style.width = f.style.height = fpx + "px"; body.prepend(f); } else body.classList.add("noface");
       const sk = plank.querySelector("[data-lsn-skip]"); if (sk) sk.addEventListener("click", e => { e.stopPropagation(); openAsk(); });
       const b = plank.querySelector("[data-lsn-btn]"); if (b) b.addEventListener("click", () => {
         if (typeof o.onButton === "function") { try { o.onButton(st.id, L); } catch (e) { report(e); } }
@@ -505,6 +533,7 @@
       const W = rt.clientWidth, H = rt.clientHeight;
       if (!W || !H) return;
       layer.hidden = false;
+      layer.style.zIndex = String(v.z !== undefined ? v.z : o.z === undefined ? 6 : o.z);   // (design pass 34: y.fire lifts it over Nell's plank)
       const veilOn = !beat && (v.veil !== undefined ? !!v.veil : !!st.veil);
       layer.classList.toggle("still", still());
       // the boxes of what glows, what is allowed and what is glanced at
@@ -655,7 +684,7 @@
       state: { get: () => {
         const st = s(), lay = live.laid || {}, e = (st && st.ends) || {};
         return { step: rec && !rec.done ? rec.step : null, active: !!rec && !rec.done, count: live.count, need: e.count || 1, beat: !!live.beat, bonk: !!live.bonk, asking: live.asking, paused: live.paused,
-          showing: !!live.shown && !layer.hidden, kind: lay.kind || null, words: plank.hidden ? "" : plain(plank.querySelector(".lsn-words") ? plank.querySelector(".lsn-words").innerHTML : "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"'),
+          showing: !!live.shown && !layer.hidden, kind: lay.kind || null, talk: !plank.hidden && plank.classList.contains("talk"), z: +layer.style.zIndex || 0, words: plank.hidden ? "" : plain(plank.querySelector(".lsn-words") ? plank.querySelector(".lsn-words").innerHTML : "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"'),
           who: plank.hidden || !plank.querySelector(".lsn-who") ? "" : plank.querySelector(".lsn-who").textContent, face: !plank.hidden && !!plank.querySelector(".lsn-face"),
           veil: !!lay.veil, plank: lay.plank || null, how: lay.how || null, overlaps: !!lay.overlaps, tail: lay.tail || null, targets: lay.targets || [], rings: lay.rings || [], pointer: lay.pointer || null,
           glances: lay.glances || [], holes: lay.holes || [], allow: lay.allow || [], root: { w: rt.clientWidth, h: rt.clientHeight },
@@ -667,7 +696,7 @@
   }
 
   const api = { KEY_PREFIX, get FIRST() { return FIRST(); }, RING_OUT, CLEAR, TAIL_H, TAIL_IN, get data() { return D(); }, steps, step, next, index, pageOf, words, record, begin, moveTo, advance, finish, offTap, giveGift, where,
-    load, save, start, forgetAll, times, notes, span, fill, wordsFor, pips, place, pointerAt, widest, facePixels, face, boxIn, mount, version: 1 };
+    load, save, start, forgetAll, times, notes, span, fill, wordsFor, pips, place, pointerAt, widest, narrowest, facePixels, face, FACE, faceSize, boxIn, mount, version: 1 };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Lessons = api;
 })(typeof window !== "undefined" ? window : globalThis);
