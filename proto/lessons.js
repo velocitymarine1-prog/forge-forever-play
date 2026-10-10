@@ -18,7 +18,11 @@
 //     glyph), the veil (soot 55 %, cut open over the glowing things and the allowed ones) and its gate (a tap anywhere else does
 //     nothing but nudge his words, flare the ring and count; the glowing thing's own handlers still run), glances (a still gold
 //     outline), dimmed things that do nothing (the cellar's exits, which have no veil to sit under);
-//   less motion (Settings.reduce() or the phone's prefers-reduced-motion): no breathing (a steady double line), no bob, no rise.
+//   less motion (Settings.reduce() or the phone's prefers-reduced-motion): no breathing (a steady double line), no bob, no rise;
+//   since build 29 (design pass 37, the opening) the opening's record, forge-forever:intro:<player id> (Lessons.opening: pure functions
+//     and the store's, kept here beside the lessons' record so the castle page's playtest notes and Erase know the opening without the
+//     menu's proto/intro.js, which writes it), the notes' seventh line when asked (o.intro), and Lessons.addCSS, which writes the planks'
+//     look into a page for the opening's talk box.
 // Everything is placed in the game root's own coordinates, measured through offsets (not getBoundingClientRect), so a root turned a
 // quarter by "My screen won't turn" measures the same and turns its glow with it; measured again on resize, turn and fit, and every
 // 400 ms while a step shows (only redrawn when something moved). Without window.Grycus the plank has the label and the words, no face.
@@ -121,7 +125,57 @@
   // start(id, { now, named }): a new record at the welcome, saved (Into the forge; the bench's Start the lessons over)
   function start(id, o) { o = o || {}; const r = begin(o.now, o.named); save(id, r, o.store); return r; }
   // forgetAll: every forge-forever:lessons:* goes (Erase my smithy)
-  function forgetAll(s) { const st = storeOf(s), ks = st.keys ? st.keys(KEY_PREFIX) : []; for (const k of ks) st.del(k); return ks; }
+  function forgetAll(s) { const st = storeOf(s), ks = st.keys ? st.keys(KEY_PREFIX) : []; for (const k of ks) st.del(k); return ks.concat(openingForgetAll(s)); }   // (build 29: the opening's record goes with the lessons')
+
+  // ------------------------------------------------------------------ the opening's record (design pass 37, build 29): forge-forever:intro:<player id>
+  // = { v: 1, at: { picture: when it first showed }, started, named, done, skipped: the picture Skip the story was tapped on (or null),
+  // skipLabel: its label for the notes }. Written by proto/intro.js first at the picture after the name (nothing before a player exists),
+  // then at each picture, done at the end; never sent online (the opening is a one-time thing). Pure functions, and the store's
+  const INTRO_PREFIX = "forge-forever:intro:";
+  function openingRecord(saved) {
+    const s = saved && typeof saved === "object" ? saved : {}, at = {};
+    for (const [k, v] of Object.entries(s.at && typeof s.at === "object" ? s.at : {})) if (k && ms(v) !== null) at[k] = v;
+    return { v: 1, at, started: ms(s.started) !== null ? s.started : null, named: ms(s.named) !== null ? s.named : null, done: ms(s.done) !== null ? s.done : null,
+      skipped: typeof s.skipped === "string" && s.skipped ? s.skipped : null, skipLabel: typeof s.skipLabel === "string" && s.skipLabel ? s.skipLabel : null };
+  }
+  function openingLoad(id, s) { if (!id) return null; let r = null; try { r = JSON.parse(storeOf(s).get(INTRO_PREFIX + id) || "null"); } catch (e) { r = null; } return r && typeof r === "object" && r.v === 1 ? openingRecord(r) : null; }
+  function openingSave(id, rec, s) { if (!id || !rec) return false; return storeOf(s).set(INTRO_PREFIX + id, JSON.stringify(openingRecord(rec))); }
+  function openingForgetAll(s) { const st = storeOf(s), ks = st.keys ? st.keys(INTRO_PREFIX) : []; for (const k of ks) st.del(k); return ks; }
+  // resumeAt(rec): the picture that showed last (the one a reload comes back to), or null
+  function openingResumeAt(rec) { const r = openingRecord(rec); let best = null, bt = -1; for (const [k, v] of Object.entries(r.at)) { const t = ms(v); if (t !== null && t >= bt) { bt = t; best = k; } } return best; }
+  // mark(id, pictureId, o, s): the record at a picture, made if there is none: started and named from o when it has none (else now), a
+  // picture keeps the time it first showed, the skip when o says; finish(id, o, s): done. o = { now, started, named, skipped, skipLabel }
+  function openingStamp(r, o) {
+    if (!r.started) r.started = isoOf(o.started === undefined || o.started === null ? o.now : o.started);
+    if (!r.named && o.named) r.named = isoOf(o.named);
+    if (o.skipped && !r.skipped) { r.skipped = String(o.skipped); r.skipLabel = o.skipLabel ? String(o.skipLabel) : null; }
+    return r;
+  }
+  function openingMark(id, pictureId, o, s) {
+    if (!id) return null; o = o || {};
+    const r = openingStamp(openingLoad(id, s) || openingRecord(null), o);
+    if (pictureId && !r.at[pictureId]) r.at[pictureId] = isoOf(o.now);
+    openingSave(id, r, s); return r;
+  }
+  function openingFinish(id, o, s) {
+    if (!id) return null; o = o || {};
+    const r = openingStamp(openingLoad(id, s) || openingRecord(null), o);
+    if (!r.done) r.done = isoOf(o.now);
+    openingSave(id, r, s); return r;
+  }
+  // the playtest notes' line (a picture is named by its label when spec/intro.js is on the page, else by its id)
+  const pictureLabel = id => { const D = root.FORGE_INTRO, p = D && Array.isArray(D.panels) ? D.panels.find(q => q.id === id) : null; return p && p.label ? p.label : id; };
+  function openingLine(rec, o) {
+    o = o || {};
+    if (!rec) return "Opening: not seen (a save from before build 29)";
+    const r = openingRecord(rec), start = ms(r.started), now = o.now === undefined ? Date.now() : ms(isoOf(o.now)), end = ms(r.done) !== null ? ms(r.done) : now;
+    const since = start === null ? 0 : Math.max(0, end - start);
+    if (r.skipped) return "Opening: skipped at " + (r.skipLabel || pictureLabel(r.skipped)) + " (after " + span(since) + ")";
+    if (r.done) return "Opening: done in " + span(since) + " (not skipped)";
+    const last = openingResumeAt(r);
+    return "Opening: not done yet" + (last ? ", at " + pictureLabel(last) : "") + " (after " + span(start === null ? 0 : Math.max(0, now - start)) + ")";
+  }
+  const opening = { KEY_PREFIX: INTRO_PREFIX, record: openingRecord, load: openingLoad, save: openingSave, forgetAll: openingForgetAll, resumeAt: openingResumeAt, mark: openingMark, finish: openingFinish, line: openingLine };
 
   // ------------------------------------------------------------------ the playtest notes (section 3.8), pure
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -150,14 +204,16 @@
     const longest = Object.entries(sp).filter(([, t]) => t > 0).sort((a, b) => b[1] - a[1] || index(a[0]) - index(b[0])).slice(0, 3).map(([id, t]) => labelOf(id) + " " + span(t));
     const offs = Object.entries(r.off).sort((a, b) => b[1] - a[1] || index(a[0]) - index(b[0])), total = offs.reduce((n, [, k]) => n + k, 0);
     const sc = o.screen || {};
-    return [
+    const lines = [
       "Forge Forever playtest · build " + (o.build || "dev") + " · " + day.getDate() + " " + MONTHS[day.getMonth()] + " " + day.getFullYear(),
       "Player: " + (p.name || "nobody yet") + (p.id ? " (" + code(p.id) + ")" : ""),
       "Lessons: " + lessons,
       "Longest: " + (longest.join(" · ") || "none yet"),
       "Taps off the glow: " + total + (offs.length ? " (" + offs.slice(0, 3).map(([id, k]) => labelOf(id) + " " + k).join(", ") + ")" : ""),
       "Screen: " + Math.round(sc.w || 0) + " × " + Math.round(sc.h || 0) + ", " + (o.touch === false ? "mouse" : "touch") + ", left-handed " + (o.lefty ? "on" : "off")
-    ].join("\n");
+    ];
+    if (o.intro !== undefined) lines.push(openingLine(o.intro, o));   // (build 29, design pass 37: the opening, when the caller gives its record or null)
+    return lines.join("\n");
   }
 
   // ------------------------------------------------------------------ his words
@@ -696,7 +752,7 @@
   }
 
   const api = { KEY_PREFIX, get FIRST() { return FIRST(); }, RING_OUT, CLEAR, TAIL_H, TAIL_IN, get data() { return D(); }, steps, step, next, index, pageOf, words, record, begin, moveTo, advance, finish, offTap, giveGift, where,
-    load, save, start, forgetAll, times, notes, span, fill, wordsFor, pips, place, pointerAt, widest, narrowest, facePixels, face, FACE, faceSize, boxIn, mount, version: 1 };
+    load, save, start, forgetAll, times, notes, span, fill, wordsFor, pips, place, pointerAt, widest, narrowest, facePixels, face, FACE, faceSize, boxIn, addCSS, opening, mount, version: 1 };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Lessons = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -23,7 +23,11 @@
    same screen, and its first tap raises "Who's at the forge?" (design pass 16, build 8) in the room under the sign. Landscape only: a
    phone held upright sees the turn plate, or, with My screen won't turn, the game laid out at height x width and turned a quarter
    (the cellar's rule; the script sizes the root and sets --gw and --gh, the game's own width and height, which the CSS uses in place
-   of vw and vh). One dark look on purpose. */
+   of vw and vh). One dark look on purpose.
+   Since build 29 (design pass 37, the opening): a phone with no player opens on the storybook instead (proto/intro.js on spec/intro.js:
+   fourteen pictures painted at the hearth's pixel size in a layer the module builds between the scene and this page's grid, the words
+   tapped through, the name asked inside the story), and the sign drops in on its chains when the story reaches the title card
+   (.sign.rise); the plank below is the name beat's fallback (?intro=skip, the harnesses). */
 :root{color-scheme:dark;--soot:#181425;--stone:#231c2e;--stone-2:#2c2540;--oak:#733e39;--oak-l:#b86f50;--oak-d:#3e2731;
   --parch:#ead4aa;--parch-2:#e4a672;--mute:#b3a48c;--dim:#8a7d6e;--ember:#f77622;--brass:#feae34;--hot:#fee761;--blood:#e43b44;--ice:#2ce8f5;
   --ink:#3e2731;--ink2:#733e39;--ink3:#a22633;
@@ -58,6 +62,8 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 /* the sign: the title on an oak board hung from two chains */
 .sign{grid-area:sign;justify-self:center;position:relative;padding:2px 22px 8px;text-align:center;max-width:100%}
 .sign h1{margin:0;font-family:var(--display);font-weight:800;font-size:clamp(38px,min(calc(var(--gw) * .124),calc(var(--gh) * .115)),64px);line-height:1.02;color:var(--parch);text-shadow:0 3px 0 var(--soot);white-space:nowrap;letter-spacing:0}
+.sign.rise{animation:signdrop .3s steps(3,end)}
+@keyframes signdrop{from{transform:translateY(-40px);opacity:0}to{transform:none;opacity:1}}
 .sign::before,.sign::after{content:"";position:absolute;bottom:calc(100% + 12px);width:4px;height:var(--gh);
   background:repeating-linear-gradient(to bottom,#8b9bb4 0 2px,#5a6988 2px 4px,#262b44 4px 6px,#181425 6px 7px);box-shadow:-1px 0 0 #181425,1px 0 0 #181425}
 .sign::before{left:10px}
@@ -121,7 +127,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .still *{animation:none!important;transition:none!important}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
-<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="1df82cf" data-booted="0" data-errors="0">
+<body data-forge="forge.html" data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="63c393d" data-booted="0" data-errors="0">
 <div class="game" id="game">
   <canvas class="scene" id="scene" role="img" aria-label="The forge: the hearth's stone mouth with the fire burning in it, the anvil on its stump in front, lit by the fire alone"></canvas>
   <main class="menu" id="menu">
@@ -151,12 +157,15 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
   window.addEventListener("unhandledrejection", function (e) { note("unhandled: " + String(e.reason)); }); })();</script>
 <script src="spec/name-filter.js"></script>
 <script src="spec/lessons.js"></script>
+<script src="spec/intro.js"></script>
 <script src="proto/smithy.js"></script>
 <script src="proto/hearth.js"></script>
 <script src="proto/grycus.js"></script>
+<script src="proto/knight.js"></script>
 <script src="proto/naming.js"></script>
 <script src="proto/smith.js"></script>
 <script src="proto/lessons.js"></script>
+<script src="proto/intro.js"></script>
 <script src="proto/settings.js"></script>
 <script src="proto/cloud.js"></script>
 <script src="proto/nav.js"></script>

@@ -10,11 +10,14 @@
 // Since build 9 (design pass 13), where the cloud is on (window.Cloud.on, proto/cloud.js; since build 11 the GitHub Pages copy too):
 // Play on another phone (a key), Bring a game here (the key typed) and Delete my game, each with its sub-plank; Erase my smithy is sent online too; the foot says where the game is saved. And on every
 // copy, mount() returns addRow(el) and addSection(el), so a page adds the bench once the server says the player may have it.
+// Since build 29 (design pass 37, the opening): the row The story so far (Watch the opening again) after Your name while there is a
+// player, which replays the opening on the menu page (o.onStory, or the menu with ?intro=1 through nav.js); the playtest notes carry
+// the opening's line; Erase my smithy forgets the opening's record with the lessons'.
 (function (root) {
   "use strict";
   const KEYS = { lefty: "forge-forever:left-handed", forced: "forge-forever:forced-landscape", motion: "forge-forever:less-motion", pour: "forge-forever:tap-to-pour",
     erased: "forge-forever:erased", to: "forge-forever:to-cellar", from: "forge-forever:from-cellar", seen: "forge-forever:cellar-seen",
-    smith: "forge-forever:smith", lessons: "forge-forever:lessons:" };   // (build 8: the player record, and the prefix of each player's lessons)
+    smith: "forge-forever:smith", lessons: "forge-forever:lessons:", intro: "forge-forever:intro:" };   // (build 8: the player record, and the prefix of each player's lessons; build 29: the opening's record)
   // ?nostore=1 (the checks) makes storage act as if the browser blocked it
   let blockedStore = false; try { blockedStore = new URLSearchParams(root.location.search).get("nostore") === "1"; } catch (e) { blockedStore = false; }
   const store = {
@@ -44,7 +47,7 @@
   // player's lessons, the visit's copies too; the four switches stay; the time is kept
   function eraseLocal() {
     const removed = [];
-    try { for (let i = root.localStorage.length - 1; i >= 0; i--) { const k = root.localStorage.key(i); if (k && (k.indexOf("forge-forever:local:") === 0 || k.indexOf(KEYS.lessons) === 0)) removed.push(k); } } catch (e) { /* no storage */ }
+    try { for (let i = root.localStorage.length - 1; i >= 0; i--) { const k = root.localStorage.key(i); if (k && (k.indexOf("forge-forever:local:") === 0 || k.indexOf(KEYS.lessons) === 0 || k.indexOf(KEYS.intro) === 0)) removed.push(k); } } catch (e) { /* no storage */ }
     for (const k of removed.concat([KEYS.to, KEYS.from, KEYS.seen, KEYS.smith])) store.del(k);
     try { if (root.Smith) root.Smith.clear(); if (root.Lessons) root.Lessons.forgetAll(); } catch (e) { /* the keys above are gone anyway */ }
     const kept = store.set(KEYS.erased, new Date().toISOString());
@@ -77,11 +80,13 @@
     const say = m => { if (typeof o.toast === "function") o.toast(m); };
     if (Sm()) addCSS(doc);
     const you = Sm() ? `<button type="button" class="set-row f-iron" data-you="1" hidden><b>Your name</b><i></i><span>Rename</span></button>` : "";
+    // (build 29, design pass 37) the opening again, from the menu page
+    const story = Sm() ? `<button type="button" class="set-row f-iron" data-story="1" hidden><b>The story so far</b><i>Watch the opening again</i><span>Play</span></button>` : "";
     const copy = Sm() && Ls() ? `<button type="button" class="set-row f-iron" data-notes="1" hidden><b>Copy my playtest notes</b><i>Your lessons, to paste in a message</i><span>Copy</span></button>` : "";
     // (build 9) the Cloudflare copy's three rows: a key for another phone, a key typed here, and the game deleted for good
     const cloud = Cl() ? `<button type="button" class="set-row f-iron" data-key="1"><b>Play on another phone</b><i>A key to type there</i><span>Key</span></button><button type="button" class="set-row f-iron" data-claim="1"><b>Bring a game here</b><i>The key from your other phone</i><span>Enter</span></button>` : "";
     const gone = Cl() ? `<button type="button" class="set-row f-iron set-danger" data-delete="1"><b>Delete my game</b><i>Your name, game and key, online and here</i><span></span></button>` : "";
-    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}${you}${cloud}${copy}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your name, weapons, level and coins here</i><span></span></button>${gone}</div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Your name and your lessons, everything you own, your level, coins and embers, and all you forged in this browser${Cl() ? ", and your place on the Roll of First Forges" : ""}. Grycus will ask who you are again. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>` +
+    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}${you}${story}${cloud}${copy}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your name, weapons, level and coins here</i><span></span></button>${gone}</div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Your name and your lessons, everything you own, your level, coins and embers, and all you forged in this browser${Cl() ? ", and your place on the Roll of First Forges" : ""}. Grycus will ask who you are again. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>` +
       (you ? `<form class="set-ask set-you f-parch" hidden role="dialog" aria-label="Your name" novalidate autocomplete="off"><h3>Your name</h3><input class="set-field" type="text" maxlength="16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="Your name" aria-label="Your name"><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="submit" class="f-ember set-rename" disabled>Rename</button><button type="button" class="f-iron set-unrename">Keep it</button></div></form>` : "") +
       (copy ? `<div class="set-ask set-notes f-parch" hidden role="dialog" aria-label="Your playtest notes"><h3>Your playtest notes</h3><textarea class="set-notes-text" readonly rows="6" aria-label="Your playtest notes"></textarea><div class="set-btns"><button type="button" class="f-ember set-copy">Copy</button><button type="button" class="f-iron set-notes-done">Done</button></div></div>` : "") +
       (cloud ? `<div class="set-ask set-keyask f-parch" hidden role="dialog" aria-label="Your key"><h3>Your key</h3><p>On your other phone, open Settings, then Bring a game here, and type it. A new key replaces the last one.</p><output class="set-key" aria-live="polite"></output><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="button" class="f-ember set-keycopy" disabled>Copy</button><button type="button" class="f-iron set-keydone">Done</button></div></div>` +
@@ -108,6 +113,7 @@
       const p = Sm() ? Sm().read() : null, yr = rows.querySelector("[data-you]"), nr = rows.querySelector("[data-notes]");
       if (yr) { yr.hidden = !p; if (p) { yr.querySelector("b").textContent = "Your name: " + p.name; yr.querySelector("i").textContent = "Your code " + Sm().code(p.id); } }
       if (nr) nr.hidden = !(p && Ls().load(p.id));
+      const sr = rows.querySelector("[data-story]"); if (sr) sr.hidden = !p || !(typeof o.onStory === "function" || root.Nav);   // (build 29)
       foot.textContent = (Cl() && Cl().foot(o.build)) || "Saved in this browser · build " + (o.build || "dev");
     }
     let asking = false;
@@ -136,10 +142,16 @@
       });
       youAsk.querySelector(".set-unrename").addEventListener("click", closeErase);
     }
+    // (build 29, design pass 37) The story so far: the opening again on the menu page, by the page's own way out (o.onStory) or nav.js's
+    function openStory() {
+      if (typeof o.onStory === "function") { o.onStory(); return; }
+      const url = ((doc.body && doc.body.getAttribute("data-menu")) || "main-menu.html") + "?intro=1";
+      if (root.Nav && root.Nav.go) root.Nav.go("menu", url); else root.location.href = url;
+    }
     // Copy my playtest notes: the lines go to the clipboard and show, selected where a browser will not copy them for a page
     function notesText() {
       const p = Sm().read(), rec = p ? Ls().load(p.id) : null;
-      return Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty") });
+      return Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty"), intro: Ls().opening && p ? Ls().opening.load(p.id) : undefined });
     }
     function copyNotes() {
       const ta = notesAsk.querySelector(".set-notes-text"), text = ta.value;
@@ -204,6 +216,7 @@
       if (b.hasAttribute("data-claim")) { cf.value = ""; cb.disabled = true; cw.textContent = ""; openAsk(claimAsk); if (!media("(pointer: coarse)")) cf.focus(); return; }
       if (b.hasAttribute("data-delete")) { goneAsk.querySelector(".set-why").textContent = ""; openAsk(goneAsk); return; }
       if (b.hasAttribute("data-you")) { openRename(); return; }
+      if (b.hasAttribute("data-story")) { openStory(); return; }
       if (b.hasAttribute("data-notes")) { notesAsk.querySelector(".set-notes-text").value = notesText(); openAsk(notesAsk); copyNotes(); return; }
       const name = b.getAttribute("data-switch"); if (!name) return;
       if (name === "motion" && phoneStill()) { say("Your phone's settings ask for less motion"); return; }

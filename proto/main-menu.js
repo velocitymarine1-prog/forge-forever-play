@@ -13,8 +13,14 @@
 // keyboard leaves of the screen (visualViewport).
 // Settings is the cog on the castle page (settings.js, with every row the menu's plank had and the bench under Developer); the menu
 // reads its switches: My screen won't turn for the quarter turn, Less motion for the still page.
+// Since build 29 (design pass 37, the opening): a phone with no player opens on the storybook, not the menu (proto/intro.js on
+// spec/intro.js: fourteen pictures at the hearth's pixel size, the words tapped through, the name asked inside the story), and the page
+// hands it the tap, the sign, the tap line, the fade and its own fire; the name beat does what the plank's submit did (the record, the
+// lessons, the adoption started), Into the castle awaits the adoption and goes; a player whose record is unfinished resumes the book;
+// Settings' The story so far (?intro=1) replays it without the name and ends on Back to the menu. The plank below stays as the fallback
+// (?intro=skip, the harnesses; an old cached page without intro.js).
 // For the checks: ?stay=1 records where a tap would go and stays; ?motion=reduce stills the page (?motion=full plays it); ?nostore=1
-// makes storage act blocked; ?pointer=coarse|fine overrides the pointer.
+// makes storage act blocked; ?pointer=coarse|fine overrides the pointer; ?intro=skip|1|at:<picture> for the opening.
 (function () {
   "use strict";
   const $ = id => document.getElementById(id);
@@ -39,6 +45,9 @@
   const who = { shown: false, asked: false, at: null, lifted: false, fake: null, made: null, busy: false };
   const field = $("whoField"), whoOn = !!(Sm && field && $("who"));   // (an older cached page without the plank: the menu without it)
   let booted = false;
+  // (build 29, design pass 37) the opening: its controller when its scripts are here, the book while it runs, the adoption it started
+  const IN = window.Intro && window.FORGE_INTRO && Sm && Ls ? window.Intro : null;
+  let book = null, adopting = null;
 
   // ------------------------------------------------------------------ the game root: sideways, or turned a quarter (landscape only)
   const viewport = () => { const vv = window.visualViewport; return { w: Math.max(1, Math.round(vv ? vv.width : window.innerWidth)), h: Math.max(1, Math.round(vv ? vv.height : window.innerHeight)) }; };
@@ -75,7 +84,7 @@
     try { scene = Hearth.mount($("scene"), { still: quiet, size: gameSize }); } catch (e) { scene = null; window.__errors.push("scene: " + e.message); }
     return scene;
   }
-  function fit() { fitTurn(); if (scene) { try { scene.refit(); } catch (e) { /* kept as it was */ } } liftWho(); return scene ? scene.layout : null; }
+  function fit() { fitTurn(); if (scene) { try { scene.refit(); } catch (e) { /* kept as it was */ } } if (book) { try { book.refit(); book.pause(turn.plate); } catch (e) { /* kept */ } } liftWho(); return scene ? scene.layout : null; }
 
   // ------------------------------------------------------------------ the way on
   const url = name => document.body.getAttribute("data-" + name) || ({ forge: "the-forge.html", battlegrounds: "the-battlegrounds.html" })[name];
@@ -96,6 +105,7 @@
   // player, where Play went; without one, the plank
   function tap() {
     if (leaving || !booted || turn.plate || who.shown) return null;
+    if (book) return book.tap();   // (build 29) the book's tap: the next line, the next picture
     if (whoOn && !player()) { showWho(); return "who"; }
     return go(lessonPage() || "forge");
   }
@@ -104,7 +114,7 @@
     const t = e.target, tag = t && t.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON") return;   // the field's own keys; a focused button's Enter is its click
     if (e.key === "Escape") { if (who.shown) { e.preventDefault(); hideWho(); } return; }
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tap(); }
+    if (e.key === "Enter" || e.key === " " || (book && e.key === "ArrowRight")) { e.preventDefault(); tap(); }
   });
 
   // ------------------------------------------------------------------ who is at the forge (design pass 16, build 8; on a tap since build 18)
@@ -116,6 +126,7 @@
   }
   function hideWho() { who.asked = false; try { field.blur(); } catch (e) { /* gone */ } renderWho(); }
   function renderWho() {
+    if (book) { who.asked = false; $("who").hidden = true; return; }   // (build 29) the book drives the tap line while it runs
     if (!whoOn) { $("tap").hidden = !booted; return; }
     const need = !player(), show = need && who.asked;
     if (!need) who.asked = false;
@@ -201,11 +212,49 @@
     if (window.visualViewport) { window.visualViewport.addEventListener("resize", liftSoon); window.visualViewport.addEventListener("scroll", liftSoon); }
   }
 
+  // ------------------------------------------------------------------ the opening (design pass 37, build 29)
+  // wantBook(): whether this phone sees the book and from where (Intro.wanted's table: no player, the book; an unfinished record, the
+  // book resumed; ?intro=1 the replay; ?intro=skip, ?stay=1, a done record or an old save, the menu). startBook mounts it over the scene
+  // and under the sign with the page's own fire, sign, tap line, fade and keyboard measure; the name beat makes the player as the plank
+  // did (the adoption started, not awaited); Into the castle awaits the adoption (4 s at most) and goes; Back to the menu (a replay) ends
+  // the book and shows the menu as it is. Without the scripts, or with the book failing to mount, the plank is the way (an old page)
+  function wantBook() {
+    if (!IN || !whoOn) return { play: false, why: IN ? "no plank" : "no intro" };
+    try { return IN.wanted({ player: player(), params, store: Sm.store }); } catch (e) { window.__errors.push("intro: " + (e && e.message)); return { play: false, why: "threw" }; }
+  }
+  function startBook(w) {
+    if (book || !IN) return book;
+    game.classList.add("book"); document.body.setAttribute("data-book", "1");
+    try {
+      book = IN.mount(game, { still: () => still, size: gameSize, desktop: !coarse, player: player(), at: w.at || null, replay: !!w.replay, named: !!w.named,
+        scene: () => (scene ? scene.scene : null), sign: $("sign"), tapLine: $("tap"), fade: $("fade"), band, store: Sm.store,
+        onName(name) {
+          const rec = Sm.make(name);
+          Ls.start(rec.id, { named: Date.now() });
+          who.made = rec;
+          // (build 9) online, the new player goes online while the story goes on; the castle button waits for it (4 s at most)
+          adopting = CL ? Promise.race([CL.adopt(rec), new Promise(r => window.setTimeout(r, 4000))]).catch(() => null) : null;
+          return rec;
+        },
+        onDone() { (async () => { if (adopting) { try { await adopting; } catch (e) { /* offline: it goes later */ } } go("forge"); if (stay) { endBook(); renderWho(); } })(); },
+        onBack() { endBook(); renderWho(); },
+        onSkip(id) { who.skipped = id; } });
+    } catch (e) { window.__errors.push("intro: " + (e && e.message)); book = null; }
+    if (!book) { game.classList.remove("book"); document.body.removeAttribute("data-book"); }
+    return book;
+  }
+  function endBook() {
+    if (book) { try { book.destroy(); } catch (e) { /* gone */ } book = null; }
+    game.classList.remove("book"); document.body.removeAttribute("data-book"); $("sign").hidden = false;
+  }
+
   // ------------------------------------------------------------------ boot
   window.MainMenu = { get layout() { return scene ? scene.layout : null; }, get went() { return went; }, toasts, go, tap, showWho, hideWho, fit, fitTurn, setForced, get scene() { return scene; }, get still() { return still; }, get booted() { return booted; },
     get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; }, get turn() { return turn.layout; },
     // (build 8) who is at the forge: the plank's state; fakeBand(b) stands in for a keyboard the checks cannot open (null: the real one)
-    get who() { return { shown: who.shown, asked: who.asked, lifted: who.lifted, made: who.made, player: player(), lesson: lessonPage(), band: band() }; }, renderWho, liftWho, fakeBand(b) { who.fake = b || null; liftWho(); return band(); } };
+    get who() { return { shown: who.shown, asked: who.asked, lifted: who.lifted, made: who.made, skipped: who.skipped || null, player: player(), lesson: lessonPage(), band: band() }; }, renderWho, liftWho, fakeBand(b) { who.fake = b || null; liftWho(); if (book) book.refit(); return band(); },
+    // (build 29) the opening: the book while it runs, its state, and the way to start and end it (the checks)
+    get book() { return book; }, get intro() { return book ? book.state : null; }, wantBook, startBook, endBook };
   if (window.Nav) Nav.arrive("menu");
   lockLandscape();
   fitTurn();
@@ -226,7 +275,9 @@
   // booted: the scene is up and the tap line showing (online, once the server has answered: it may bring this phone's game back, or
   // say the game was erased; 4.5 s at most)
   function bootDone() {
-    booted = true; renderWho();
+    booted = true;
+    const w = wantBook();   // (build 29) the opening for a phone with no player, or a book left unfinished; else the menu as it is
+    if (!(w.play && startBook(w))) renderWho();
     document.body.setAttribute("data-booted", "1");
     document.body.setAttribute("data-errors", String((window.__errors || []).length));
   }
