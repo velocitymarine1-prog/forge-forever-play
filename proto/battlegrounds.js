@@ -1227,8 +1227,8 @@
       const win = state.win = windowAt(0, 0);
       if (L && L.full) { L.x = -win.x0 * L.s; L.y = -win.y0 * L.s; }
       ctx.save(); ctx.fillStyle = "#0d0a14"; ctx.fillRect(0, 0, win.w, win.h);
-      ctx.translate(Math.round((win.w - W) / 2), Math.round((win.h - H) / 2));
-      try { if (window.Arena && Arena.lobby) Arena.lobby(ctx, W, H, t, { still }); else { ctx.fillStyle = "#231c2e"; ctx.fillRect(0, 0, W, H); } } catch (e) { ctx.fillStyle = "#231c2e"; ctx.fillRect(0, 0, W, H); }
+      // (design pass 39) the hall painted at the window's size, to the glass's edges, its gate at the middle (no 384 x 216 picture centred in night)
+      try { if (window.Arena && Arena.lobby) Arena.lobby(ctx, win.w, win.h, t, { still }); else { ctx.fillStyle = "#231c2e"; ctx.fillRect(0, 0, win.w, win.h); } } catch (e) { ctx.fillStyle = "#231c2e"; ctx.fillRect(0, 0, win.w, win.h); }
       ctx.restore(); syncLive(); return;
     }
     const [camX, camY] = cam(), fx = AP.frameFx(t);
@@ -1245,6 +1245,7 @@
     const o = { t, still, dt: STEP, marks: null, patchFade: SPEC.patch.fade, few: state.fx.length > 64, knight: (k, c) => drawKnight(fxf, k, c), minion: (m, c) => drawMinion(m, c), statuses: (f, c) => drawStatuses(f, t, c) };
     scene.drawTufts(ctx, t, still, fight);
     scene.drawFloor(ctx, fight, o);
+    try { AP.drawFallen(ctx, t); } catch (e) { /* the sand keeps no weapon */ }   // (design pass 39) the beaten knights' weapons, on the sand under the actors
     for (const tr of fight.traps) drawTrap(tr, t);
     for (const k of fight.knights) if (!k.out) for (const h of k.hands) if (h.aura) drawAura(h.aura, k, t);
     scene.draw(ctx, fight, o);
@@ -1316,7 +1317,9 @@
   // a knight's animation in a level (design pass 12, section 3.12): the frames a real fight needs, from its state, else the cellar's
   function levelAnim(k) {
     // (design pass 36) a knight on the sand: on the ground after a knockdown, reeling in a stagger, the weapon up in a guard
-    if (ARENA) { if (k.down || k.lie > 0) return { anim: "down", i: 0 }; if (k.staggered > 0) return { anim: "hurt", i: 0 }; if (k.guard && !k.strike && !k.dodge) return { anim: "wind", i: 0 }; return Combat.animOf(fight, k); }
+    if (ARENA) {   // (design pass 39) a beaten knight falls by its clock; the stagger reels and the guard guards in pass 38's frames
+      if (k.beaten && k.ko) { const bf = window.ArenaPage.fallFrame(k); return { anim: bf.anim, i: bf.i }; }
+      if (k.down || k.lie > 0) return { anim: "down", i: 0 }; if (k.staggered > 0) return { anim: "reel", i: 0 }; if (k.guard && !k.strike && !k.dodge) return { anim: "guard", i: 0 }; return Combat.animOf(fight, k); }
     if (k.knock) return { anim: k.knock.phase === "lie" ? "down" : "hurt", i: 0 };   // (design pass 38) knocked down: flat, then up on one knee
     if (k.reelT > 0) return { anim: "reel", i: 0 };   // (design pass 38) its poise broken
     if (k.air) return { anim: "fall", i: 0 };
@@ -1339,7 +1342,9 @@
     if (!LEVEL && !(ARENA && scene.tiles)) C.shadow(c, k.x, k.y, 7);   // (in a level the painter draws the shadow on the surface under the knight)
     // the dodge draws the walk frame with three fading afterimages; so does a lunge
     if (!reduce && k === fight.k) for (let g = 1; g <= 3; g++) { const p = state.trail[g * 3 - 1]; if (!p) break; c.globalAlpha = 0.3 / g; c.drawImage(kf.canvas(), Math.round(p[0]) - 16, Math.round(p[1]) - 31); c.globalAlpha = 1; }
-    const sheathed = k.swapT > SPEC.knight.swap / 2, noWeapon = (LEVEL && (k.down || k.climbing || k.air || k.carry)) || (ARENA && (k.down || k.lie > 0));
+    const BF = ARENA && k.beaten && k.ko ? window.ArenaPage.fallFrame(k) : null;   // (design pass 39) the fall: its overlay, its shards, its jolt, its bounce
+    if (BF && BF.gone) return;   // (a shattered knight: nothing is left but the damp on the sand)
+    const sheathed = k.swapT > SPEC.knight.swap / 2, noWeapon = (LEVEL && (k.down || k.climbing || k.air || k.carry)) || (ARENA && (k.down || k.lie > 0 || BF));
     // (design pass 20) in a combo blow: the move's pose, moved by its step, the weapon turned on the pose's hand; else the hold
     let x0 = h.x0, y0 = h.y0, behind = h.behind, wc, wx, wy;
     if (SW) {
@@ -1373,7 +1378,12 @@
     }
     if (Combos) paintSwings(k, c, "back");
     if (behind) drawW();   // facing away the weapon is further from the camera, so it is drawn behind the knight
-    c.drawImage(k.bonk > SPEC.dummies.quintain.stagger - 0.15 || (ARENA && k.flash > 0) ? kf.white() : kf.canvas(), x0, y0);   // (design pass 36: the hit's white frames on the sand)
+    if (BF) {   // (design pass 39) the beaten body: the shards alone once it shatters; else the frame (white in a shock's jolt), bounced a pixel as it lands, its overlay over it
+      y0 += BF.dy;
+      if (BF.shards) { const o = kf.over("shards", 0); if (o) c.drawImage(o.canvas(), x0, y0); }
+      else { c.drawImage(BF.white || k.flash > 0 ? kf.white() : kf.canvas(), x0, y0); if (BF.overlay) { const o = kf.over(BF.overlay, BF.overlayI); if (o) c.drawImage(o.canvas(), x0, y0); } }
+      if (BF.bubbles && !reduce) { const f8 = Math.floor(state.t * 8); for (let i = 0; i < 3; i++) { c.fillStyle = "#63c74d"; c.fillRect(x0 + 12 + i * 5, y0 + 18 - ((f8 + i * 3) % 9), 1, 1); } }
+    } else c.drawImage(k.bonk > SPEC.dummies.quintain.stagger - 0.15 || (ARENA && k.flash > 0) ? kf.white() : kf.canvas(), x0, y0);   // (design pass 36: the hit's white frames on the sand)
     if (!behind) drawW();
     if (Combos) paintSwings(k, c, "front");
     // (card t84) the whip circling over the head in Thunder Crack's wind-up: the ring of motion over the helm, in the weapon's ramp, from
@@ -1449,6 +1459,10 @@
       const r = C.rng(f.seed); for (let i = 0; i < 6; i++) { const a = r() * TAU, v = 6 + r() * 10; px(f.x + Math.cos(a) * v * q * 1.4, f.y + Math.sin(a) * v * q + q * q * 10, i % 2 ? "#feae34" : "#e4a672"); }
     } else if (f.kind === "sparks") {
       const r = C.rng(f.seed); for (let i = 0; i < (f.n || 6); i++) { const a = r() * TAU, v = 8 + r() * 12; if (q < 0.8) px(f.x + Math.cos(a) * v * q, f.y + Math.sin(a) * v * q, i % 3 === 2 && f.ramp ? f.ramp[3] : i % 2 ? "#ffffff" : "#fee761"); }
+    } else if (f.kind === "smoke") {   // (design pass 39) grey motes rising off a burnt body, dithering out
+      for (let i = 0; i < (f.n || 3); i++) { const sx = f.x + i * 4 + Math.round(Math.sin((q + i * 0.3) * 7) * 2), sy = f.y - q * 14 - i * 2; if (dith(sx, sy, 1 - q)) { px(sx, sy, i % 2 ? "#6e6a70" : "#9a948c"); px(sx + 1, sy, "#4a4450"); } }
+    } else if (f.kind === "shards") {   // (design pass 39) a frozen body's ice flung out and falling
+      const r = C.rng(f.seed), age = f.t; for (let i = 0; i < (f.n || 10); i++) { const vx = (r() * 2 - 1) * 60, vy = -40 - r() * 60, x = f.x + vx * age, y = Math.min(f.y + 6, f.y + vy * age + 240 * age * age); if (q < 0.9) { px(x, y, i % 3 ? "#c0cbdc" : "#ffffff"); if (i % 2) px(x + 1, y, "#2ce8f5"); } }
     // (design pass 20) what a finisher throws off: a white ring of light growing from the hit; stones thrown up from the ground and
     // falling; drops of blood along the blow; speed lines behind a charging knight; dark wisps curling up; the Rising Moon's pale crescent
     } else if (f.kind === "flash") {
@@ -2118,6 +2132,8 @@
       gather, take, say, addFx, hold: s => { if (!reduce) state.hold = Math.max(state.hold, s || 0); }, shake: (amp, time) => { if (!reduce) state.shake = { t: time, amp }; },
       toast, openPlank, closePlank, closePlankForce, leave, askLeave, fit: refit, clearFx, syncHud, banner: arenaBanner, runHome: run => sendRun(run), setView: (x, y) => Combat.setView(fight, x, y),
       text: (c, s2, x, y, col) => C.outlined(c, s2, x, y, col), textWidth: s2 => C.textWidth(s2), drawStatuses: (b, t, c) => drawStatuses(b, t, c), icon,
+      weaponCanvas: (thing, facing, fxf) => weaponCanvas(thing, facing, fxf), stamp: e => { try { return scene && scene.stamp ? scene.stamp(e) : false; } catch (err) { return false; } },   // (design pass 39) the fallen weapons and the sand's marks
+      longShadow: (c, x, y, r) => { try { c.drawImage(Gate.longShadow(r).canvas(), Math.round(x) - Gate.longShadow(r).ox, Math.round(y) - Gate.longShadow(r).oy); } catch (err) { /* no shadow */ } },
       sceneTake: e => { try { return scene && scene.take ? scene.take(e, fight) : false; } catch (err) { return false; } },
       Scene: Gate.Scene, Combat, Duel: window.Duel, Arena: window.Arena || null, Wire: window.Wire || null, DMath: window.DMath || null, Knight, PF, C, rnd });
   }

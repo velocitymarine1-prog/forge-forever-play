@@ -80,7 +80,9 @@
       awning: art.awning || { h: 6, poles: 48 }, sun: art.sun || { x: 50, y: 8 }, crowd: art.crowd || { rows: 2, step: 6, gap: 0.08, banners: 0.12 }, vom: art.vomitoria || 64,
       hudDim: art.hudDim === undefined ? 0.35 : art.hudDim, petals: art.petals || { n: 40, time: 2.5 },
       gates: [{ x: Math.round(gx((wall.gates || {}).west === undefined ? 36 : wall.gates.west) - gw / 2), w: gw, side: "red" }, { x: Math.round(gx((wall.gates || {}).east === undefined ? -36 : wall.gates.east) - gw / 2), w: gw, side: "blue" }],
-      box: { x: Math.round(W / 2 - ((wall.box || {}).w || 52) / 2), w: (wall.box || {}).w || 52 } };
+      box: { x: Math.round(W / 2 - ((wall.box || {}).w || 52) / 2), w: (wall.box || {}).w || 52 },
+      wings: { l: (A.wings || {}).l | 0, r: (A.wings || {}).r | 0, t: (A.wings || {}).t | 0, b: (A.wings || {}).b | 0 }, floorX: [floor.x0, floor.x1],   // (design pass 39) the ground beyond the sand's box
+      below: (art.below || { parapet: 4, course: 7, joint: 22 }) };
     PREP.set(A, P);
     return P;
   }
@@ -136,15 +138,30 @@
     if (dy === 0) return R.sand[2];
     if (dy < 3) return R.sand[1];
     if (y === P.lip) return R.sand[3];
-    if (y > P.lip) return NIGHT;
+    if (y > P.lip) return belowAt(P, x, y);
+    // (design pass 39) the kerb: two dark rows of sand at each end of the floor, where the WALL rule bites (the sand goes on past them)
+    if (x === P.floorX[0] - 3 || x === P.floorX[0] - 2 || x === P.floorX[1] + 2 || x === P.floorX[1] + 3) return R.sand[3];
     const r = hash(x, y, P.seed + 2);
     if (r < 0.06) return R.sand[1];
     if (r < 0.075) return R.sand[2];
     if (dy >= 6 && (dy - 6) % 9 === ((hash(x >> 1, 0, P.seed + 5) * 2) | 0) && hash(x >> 1, dy, P.seed + 4) < 0.6) return R.sand[1];
     return R.sand[0];
   }
+  // (design pass 39) below the sand's lip: the near parapet (lit stone, three rows and a dark foot: the wall under the camera), then the
+  // near stand in its own shadow, dark courses with joints (the lobby's flagstone ramp): the eye reads a bowl whose far side the camera
+  // looks across. No crowd is drawn here: it would compete with the HUD's buttons and the stick
+  function belowAt(P, x, y) {
+    const B = P.below, dy = y - P.lip;
+    if (dy === 1) return R.stone[0];
+    if (dy <= B.parapet - 1) return R.stone[1];
+    if (dy === B.parapet) return R.stone[2];
+    const course = Math.floor((dy - B.parapet - 1) / B.course), cy = (dy - B.parapet - 1) % B.course, jx = ((x + (course & 1 ? Math.floor(B.joint / 2) : 0)) % B.joint + B.joint) % B.joint;
+    if (cy === B.course - 1 || jx === B.joint - 1) return R.flag[0];
+    return hash(x, y, P.seed + 9) < 0.04 ? R.flag[2] : R.flag[1];
+  }
+  // the colosseum at any world pixel (design pass 39: beyond the sand's box too, so a window bigger than the sand shows colosseum, never
+  // night: the awning's stripes carry on above row 0, the tiers, the wall and the sand sideways, the near parapet and stand below the lip)
   function pixel(P, x, y) {
-    if (x >= P.W || y >= P.H) return NIGHT;
     if (y >= P.sandY) return sandAt(P, x, y);
     if (y >= P.wallY) return wallAt(P, x, y);
     // the box's ledge and pennant pole rise above the wall into the top tier
@@ -155,11 +172,13 @@
     return skyAt(P, x, y);
   }
   function paintRows(A, col, y0, y1, px) {
-    const P = prep(A), X0 = col * TW;
-    for (let y = y0; y < y1; y++) { const o = y * TW; for (let x = 0; x < TW; x++) px[o + x] = pixel(P, X0 + x, y); }
+    const P = prep(A), X0 = col * TW - P.wings.l, Y0 = -P.wings.t;   // (design pass 39: a tile begins at the wings)
+    for (let y = y0; y < y1; y++) { const o = y * TW; for (let x = 0; x < TW; x++) px[o + x] = pixel(P, X0 + x, Y0 + y); }
     return px;
   }
-  function paint(A, col) { const px = new Array(TW * TH).fill(null); paintRows(A, col, 0, TH, px); return { px, W: TW, H: TH, col }; }
+  // a whole tile: as tall as Gate.Tiles makes it for this area (432, or the sand with its wings)
+  function tileH(A) { const P = prep(A); return Math.max(TH, (A.h | 0) + P.wings.t + P.wings.b); }
+  function paint(A, col) { const H = tileH(A), px = new Array(TW * H).fill(null); paintRows(A, col, 0, H, px); return { px, W: TW, H, col }; }
 
   // ------------------------------------------------------------------ the sprites the live things are made of
   const SPR = {};
@@ -167,11 +186,12 @@
   // 1 a third, 2 two thirds, 3 everyone, up on their feet), their banners held still or waving (frame f); the strip is TW x (h + 6) with
   // its top 4 px above the tier (the arms and the banners reach up)
   function crowdStrip(P, tier, col, level, f) {
-    const T = P.tiers[tier], X0 = col * TW, key = "crowd|" + P.W + "|" + tier + "|" + col + "|" + level + "|" + (f & 1);
+    const T = P.tiers[tier], X0 = col * TW - P.wings.l, key = "crowd|" + P.W + "|" + P.wings.l + "|" + tier + "|" + col + "|" + level + "|" + (f & 1);   // (design pass 39: a column begins at the wings)
     return once(key, () => {
       const C = P.crowd, H = T.h + 4, sp = new Grid(TW, H), set = (x, y, c) => sp.set(x - X0, y - T.y + 4, c);
       const stand = level >= 3, share = [0, 0.35, 0.7, 1][clamp(level | 0, 0, 3)];
-      for (let r = 0; r < (C.rows || 2); r++) for (let x = 2 + r * 3; x < P.W - 4; x += (C.step || 6)) {
+      const step = C.step || 6;   // (the seats stand at x 2 + r * 3 + k * step as before, k negative over the left wing, so the crowd on the sand is unchanged)
+      for (let r = 0; r < (C.rows || 2); r++) for (let x = 2 + r * 3 + step * Math.ceil((-P.wings.l + 2 - (2 + r * 3)) / step); x < P.W + P.wings.r - 4; x += step) {
         if (x + 6 < X0 || x - 2 >= X0 + TW) continue;
         const h = hash(x, T.y + r, 7);
         if (h < (C.gap === undefined ? 0.08 : C.gap)) continue;
@@ -256,9 +276,10 @@
     if (v.y0 > P.sandY) return 0;
     const level = still ? Math.min(levelOf(LIVE.heat), 2) : levelOf(LIVE.heat), f = still ? 0 : (tick & 1);
     let n = 0;
-    // the crowd on its three tiers, a baked strip a column
-    const c0 = clamp(Math.floor(v.x0 / TW), 0, 9), c1 = clamp(Math.floor((v.x0 + VW - 1) / TW), 0, 9);
-    for (let c = c0; c <= c1; c++) { if (c * TW >= P.W) break; for (let i = 0; i < P.tiers.length; i++) { const s = crowdStrip(P, i, c, level, f + i); blit(ctx, s, c * TW, P.tiers[i].y - 4); n++; } }
+    // the crowd on its three tiers, a baked strip a column (design pass 39: the columns begin at the wings, and run over them)
+    const wl = P.wings.l, ncol = Math.ceil((P.W + wl + P.wings.r) / TW);
+    const c0 = clamp(Math.floor((v.x0 + wl - 8) / TW), 0, ncol - 1), c1 = clamp(Math.floor((v.x0 + wl + VW + 7) / TW), 0, ncol - 1);
+    for (let c = c0; c <= c1; c++) { for (let i = 0; i < P.tiers.length; i++) { const s = crowdStrip(P, i, c, level, f + i); blit(ctx, s, c * TW - wl, P.tiers[i].y - 4); n++; } }
     // the box: its figures (the editor leaning when the fight is hot), the pennants waving with the crowd
     const C = ((spec() || {}).feel || {}).crowd || {}, lean = LIVE.heat >= (C.editorLeans === undefined ? 0.6 : C.editorLeans);
     const bx = P.box.x, by = P.wallY;
@@ -343,11 +364,14 @@
   // the vault of ashlar in the dark over the smithy's flagstones (proto/smithy.js when it is there), the iron gate in the middle with the
   // sand bright beyond it, a torch bracket each side; still, as pixels, baked once a size; the page draws the flames over it by t
   function lobbyPixels(w, h) {
-    const SP = spec() || {}, L = (SP.art || {}).lobby || { gateX: 150, gateW: 84, torches: [120, 264] };
+    const SP = spec() || {}, L = (SP.art || {}).lobby || { gateW: 84, torches: [-30, 30], gateTop: 0.139, torchY: 0.213 };
     const key = "lobby|" + w + "|" + h;
     return once(key, () => {
       const px = new Array(w * h).fill(null), set = (x, y, c) => { if (x >= 0 && y >= 0 && x < w && y < h && c) px[y * w + x] = c; };
-      const FL = Math.round(h * 0.815), gx = L.gateX, gw = L.gateW, gy = 30;
+      // (design pass 39) the hall at any size from its centre: the gate in the middle, the torches either side of it, the gate's top and
+      // the torches' bracket by the height (384 x 216 paints as it did: the gate at 150, the torches at 120 and 264, the arch's top at 30)
+      const FL = Math.round(h * 0.815), gw = L.gateW || 84, gx = Math.round(w / 2 - gw / 2), gy = Math.round(h * (L.gateTop || 0.139)), ty = Math.round(h * (L.torchY || 0.213));
+      const torches = (L.torches || [-30, 30]).map(d => d < 0 ? gx + d : gx + gw + d);
       for (let y = 0; y < FL; y++) for (let x = 0; x < w; x++) {
         const course = Math.floor(y / 8), jx = ((x + (course & 1 ? 10 : 0)) % 20 + 20) % 20, cy = y % 8;
         set(x, y, cy === 7 || jx === 19 ? R.vault[0] : hash(x, y, 40) < 0.06 ? R.vault[1] : R.vault[2]);
@@ -365,8 +389,8 @@
       for (let y = gy + 6; y < FL; y += 7) for (let x = gx; x < gx + gw; x++) set(x, y, R.iron[2]);
       for (let x = gx + 8; x < gx + gw; x += 10) for (let y = gy; y < FL; y++) set(x, y, R.iron[2]);
       // the torch brackets
-      for (const tx of L.torches || []) { const s = SPR.torch(); for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) if (s.px[y * s.w + x]) set(tx - s.ox + x, 46 + y, s.px[y * s.w + x]); }
-      return { px, w, h, torches: (L.torches || []).slice(), flameY: 46 };
+      for (const tx of torches) { const s = SPR.torch(); for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) if (s.px[y * s.w + x]) set(tx - s.ox + x, ty + y, s.px[y * s.w + x]); }
+      return { px, w, h, torches, flameY: ty };
     });
   }
   function lobby(ctx, w, h, t, o) {
@@ -382,6 +406,6 @@
 
   const art = { id: "Arena", tufts: false, paintRows, paint, pieces, wall, weather, prints, markKind, markLook, liveLook, chipLook, take, stateOf,
     heat(h) { LIVE.heat = clamp(+h || 0, 0, 1); }, banner(text) { LIVE.banner = typeof text === "string" ? text : ""; }, gates(q) { LIVE.gates = q === null || q === undefined ? null : clamp(+q || 0, 0, 1); }, reset, live: LIVE };
-  root.Arena = { art, R, prep, pixel, paint, paintRows, crowdStrip, sprites: SPR, marks: MK, lobby, lobbyPixels, sizes, levelOf, LIVE };
+  root.Arena = { art, R, prep, pixel, paint, paintRows, tileH, crowdStrip, sprites: SPR, marks: MK, lobby, lobbyPixels, sizes, levelOf, LIVE };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Arena;
 })(typeof window !== "undefined" ? window : globalThis);

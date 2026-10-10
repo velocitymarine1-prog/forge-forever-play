@@ -8,7 +8,7 @@
 //   Duel.seatsFor(o)                  the seats a bout needs: o = { mode, players: [{ team, name, level, loadout: [id|thing, id|thing], kind }], local, skill }:
 //                                     the local player's team first (seat 0 is always the knight on this phone), the empty seats filled
 //                                     with the house's knights (spec house.knights, kind "house")
-//   Duel.newFight(o)                  the fight: o = { mode, seed, seats, local, skill }; Combat.newFight on the mode's sand, every knight on
+//   Duel.newFight(o)                  the fight: o = { mode, seed, seats, local, skill, drill }; Combat.newFight on the mode's sand, every knight on
 //                                     its side's mark, fight.arena the bout's state and the rules' hooks; no director, no waves, no marks
 //   Duel.step(fight, dt, inputs)      one step: inputs keyed by seat (an array or an object); a house seat with no input is driven by the
 //                                     duelist brain (proto/bots.js, from fight.rng.bots, so every phone simulates it alike); returns the
@@ -29,7 +29,9 @@
 // first 12 ticks are a parry window (a parried foe takes 50 poise, the parrier's next blow is a riposte); Rally gives back half of a
 // landed blow from the HP the last blow took, for 2 s; Last Stand at 25 HP regrows poise faster; a whiff costs recovery; a push into the
 // wall adds a quarter; shots land x 0.7 beyond 48 px; every status has a PvP time, bleed bursts at five stacks; every class has its
-// signature (spec classes); hitlag holds the two bodies of a blow still. Pure: no DOM, no clock, no Math.random (fight.rand and
+// signature (spec classes); hitlag holds the two bodies of a blow still. Since build 30 (design pass 39, card t99) a knight at 0 HP is
+// beaten for the round in every mode (k.ko, k.beaten = { t, with, by }: the clock of its fall and the status it died with, for the page's
+// death animation; the lift of build 27's team modes stays behind bout.down.lift.on, off). Pure: no DOM, no clock, no Math.random (fight.rand and
 // fight.rng.bots). Plain script, defines window.Duel (module.exports in node). Needs proto/combat.js, physics.js, bots.js, spec/arena.js,
 // spec/combat.js, spec/things.js.
 (function (root) {
@@ -94,14 +96,15 @@
       spec: S, rules: S.rules, mode: o.mode, sand: sandKey, M, seats, teams: [[], []], local: o.local || 0, skill: o.skill || S.house.default, boardsOn: !!(S.boards && S.boards.on),
       phase: "walkIn", phaseT: 0, round: 1, score: [0, 0], clock: M.round, sudden: false, heat: S.feel.crowd.start, slow: 1, slowT: 0, banner: null, bannerT: 0, punch: 1, punchT: 0,
       rounds: [], result: null, forfeited: null, lastHit: null, stats: seats.map(() => ({ landed: 0, taken: 0, biggest: 0, parries: 0, crits: 0, staggers: 0, bursts: 0, kos: 0 })), botState: {},
-      striker: null, roundT: 0, staggerAllows: { walk: false, strike: false, swap: false, ability: false, dodge: false, dodgeEnds: false }
+      striker: null, roundT: 0, bursting: null, staggerAllows: { walk: false, strike: false, swap: false, ability: false, dodge: false, dodgeEnds: false },
+      drill: o.drill ? { on: true, takenX: S.drill && typeof S.drill.takenX === "number" ? S.drill.takenX : 0.25 } : null   // (design pass 39) the Drill: the clock stands, the kid takes little and is never beaten, Mara's KO ends it
     };
     Object.assign(A, HOOKS);
     for (const k of fight.knights) {
       const s = seats[k.seat];
       Object.assign(k, { i: k.seat, team: s.team, house: !!s.house, skill: s.skill || A.skill, level: s.level || 1, chest: CS.knight.chest, st: {}, weak: [], resist: [], immune: [], flash: 0, wv: 0, combo: null, puff: "sparks",
         poiseMax: S.rules.poise.max, poise: S.rules.poise.max, staggered: 0, poiseImmune: 0, poiseAt: -1e9, lie: 0, rising: 0, safeAct: false, guard: false, guardHeld: 0, guardRelease: 0, guardReleasedAt: -1e9, parryWin: 0,
-        riposteUntil: 0, rally: null, lastStand: false, chain: { n: 0, t: -1e9 }, lag: 0, frenzy: null, band: null, bandAt: -1e9, dodgeEnd: -1e9, ko: false, forfeited: false, landedAt: -1e9 });
+        riposteUntil: 0, rally: null, lastStand: false, chain: { n: 0, t: -1e9 }, lag: 0, frenzy: null, band: null, bandAt: -1e9, dodgeEnd: -1e9, ko: false, beaten: null, forfeited: false, landedAt: -1e9 });
       A.teams[k.team].push(k.seat);
       for (const h of k.hands) { const CL = S.classes[classOf(h.u)] || {}; if (CL.rateX) h.u.rate *= CL.rateX; }   // the crossbow's slower rate (the units are the hand's own)
     }
@@ -144,6 +147,7 @@
     }
     const before = fight.events;
     combat().step(fight, dtE, inp);
+    for (const k of fight.knights) if (k.beaten && k.ko) k.beaten.t += dtE;   // (design pass 39) the fall's clock, at the slow time's rate
     const heatOf = scanEvents(fight);
     A.phaseT += dtE; A.roundT += dtE;
     if (A.phase === "walkIn") { if (A.phaseT >= S.bout.walkIn - 1e-9) hold(fight); }
@@ -183,6 +187,7 @@
   function fightStep(fight, dt) {
     const A = fight.arena, S = A.spec;
     const up0 = sideUp(fight, 0), up1 = sideUp(fight, 1);
+    if (A.drill) { if (!up1) return roundWon(fight, 0, "ko"); return; }   // (design pass 39) the Drill: no clock; Mara's KO is the end
     if (!up0 || !up1) { if (up0 !== up1) return roundWon(fight, up0 ? 0 : 1, "ko"); return roundVoid(fight); }   // (a double KO on the same tick: the round is void)
     A.clock -= dt;
     if (A.clock > 1e-9) return;
@@ -195,7 +200,7 @@
     const A = fight.arena, S = A.spec;
     A.score[t]++;
     A.rounds.push({ winner: t, t: r3(A.roundT), why, round: A.round });
-    const last = A.score[t] >= S.bout.rounds, slow = last ? S.bout.slow.last : S.bout.slow.ko;
+    const last = !!A.drill || A.score[t] >= S.bout.rounds, slow = last ? S.bout.slow.last : S.bout.slow.ko;
     A.slow = slow[0]; A.slowT = slow[1];
     A.punch = S.camera.punch.ko[0]; A.punchT = S.camera.punch.ko[1];
     A.heat = clamp(A.heat + S.feel.crowd.ko, 0, 1);
@@ -219,7 +224,7 @@
     const A = fight.arena, S = A.spec;
     for (const k of fight.knights) {
       if (k.forfeited) continue;
-      Object.assign(k, { hp: k.hpMax, out: false, down: null, ko: false, rise: 0, hurt: 0, stagger: 0, safe: 0, bonk: 0, shove: null, dodge: 0, dodgeCd: 0, lunge: null, strike: null, twinQ: null, gout: null, charging: false, chargeT: 0, abQ: null,
+      Object.assign(k, { hp: k.hpMax, out: false, down: null, ko: false, beaten: null, rise: 0, hurt: 0, stagger: 0, safe: 0, bonk: 0, shove: null, dodge: 0, dodgeCd: 0, lunge: null, strike: null, twinQ: null, gout: null, charging: false, chargeT: 0, abQ: null,
         st: {}, poise: k.poiseMax, staggered: 0, poiseImmune: 0, poiseAt: -1e9, lie: 0, rising: 0, safeAct: false, guard: false, guardHeld: 0, guardRelease: 0, parryWin: 0, riposteUntil: 0, rally: null, lastStand: false, chain: { n: 0, t: -1e9 }, lag: 0, frenzy: null, band: null, flash: 0 });
       for (const h of k.hands) { h.combo = null; h.orbit = null; h.aura = null; h.recover = 0; h.cd = 0; }
       const m = markOf(fight, k); combat().place(fight, k, m[0], m[1]); k.face = faceOf(k);
@@ -272,17 +277,26 @@
       A.stats[d.seat].taken += dmg; if (k && k.seat !== undefined) A.stats[k.seat].landed += dmg;
       return emit(fight, { type: "hit", d: d.seat, knight: true, dummy: "knight", amount: dmg, tag: null, crit: false, form: null, element: what, kind: "dot", why: what, x: d.x, y: d.y - d.chest - (d.z || 0), melee: false, hold: 0, sum: false, by: k ? k.seat : null }, k);
     },
+    // a knight at 0 HP (design pass 39): beaten for the round in every mode, its fall timed by k.beaten and marked by the status it died
+    // with (the first of beaten.order it carried: a freeze, a burn, a shock, a poison, a bleed or its burst); the KO event for every beaten
+    // knight, final on the one that leaves its side with nobody standing. Build 27's down, crawl and lift stay behind bout.down.lift.on
     fall(fight, k) {
-      const A = fight.arena, S = A.spec;
+      const A = fight.arena, S = A.spec, BT = S.beaten || {};
+      if (A.drill && k.team === 0) { k.hp = k.hpMax; k.st = {}; k.rally = null; emit(fight, { type: "drillSpared", x: k.x, y: k.y }, k); return; }   // (design pass 39) the Drill never beats the kid: the bar refills
+      const order = BT.order || ["freeze", "burn", "shock", "poisoned", "bleed"];
+      let withKey = null;
+      for (const s of order) if ((s === "bleed" && A.bursting === k.seat) || (k.st[s] && !(s === "bleed" && A.bursting === k.seat))) { withKey = s; break; }
       k.hp = 0; k.hurt = 0; k.stagger = 0; k.staggered = 0; k.dodge = 0; k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.lunge = null; k.guard = false; k.parryWin = 0; k.lie = 0; k.rising = 0;
       for (const h of k.hands) { h.combo = null; h.orbit = null; h.aura = null; }
       k.st = {}; k.rally = null; k.frenzy = null;
       const by = A.lastHit && A.lastHit.seat !== k.seat ? A.lastHit.seat : null, R = A.rules;
-      if (A.M.seats === 1 || !A.teams[k.team].some(s => s !== k.seat && standsIn(fight.knights[s]))) {
+      const liftOn = !!(S.bout.down && S.bout.down.lift && S.bout.down.lift.on), lastOfSide = A.M.seats === 1 || !A.teams[k.team].some(s => s !== k.seat && standsIn(fight.knights[s]));
+      if (!liftOn || lastOfSide) {
         k.ko = true; k.down = { t: Infinity, lift: 0, by: null, ko: true };
+        k.beaten = { t: 0, with: withKey, by, face: k.face };
         if (by !== null) { const b = fight.knights[by]; b.lag = Math.max(b.lag, R.hitlag.ko); A.stats[by].kos++; }
         k.lag = Math.max(k.lag, R.hitlag.ko);
-        emit(fight, { type: "ko", seat: k.seat, by, x: k.x, y: k.y }, k);
+        emit(fight, { type: "ko", seat: k.seat, by, x: k.x, y: k.y, with: withKey, final: lastOfSide }, k);
         return;
       }
       k.down = { t: S.bout.down.bleed, lift: 0, by: null };
@@ -434,7 +448,9 @@
     // the burst: a share of the whole bar at once, the stacks cleared, a while of immunity
     delete st.bleed; st.bleedImm = { t: Z.immune };
     const amount = Z.burst * d.hpMax;
+    A.bursting = d.seat;   // (design pass 39: a knight the burst beats died of its bleed)
     const res = combat().hurt(fight, d, amount, { tick: true, src: "bleed" });
+    A.bursting = null;
     if (res !== "hit") return;
     A.stats[d.seat].taken += amount; if (by) { A.stats[by.seat].landed += amount; A.stats[by.seat].bursts++; }
     emit(fight, { type: "bleedOut", seat: d.seat, by: by ? by.seat : null, amount, x: d.x, y: d.y - d.chest }, d);
@@ -479,6 +495,7 @@
     if (direct && k.st.blind && fight.rand() < ST.blind.miss) { emit(fight, { type: "miss", seat: d.seat, by: k.seat, x: at[0], y: at[1] }, k); return event(0, "MISS", false, 0); }
     const gear = clamp(1 + R.gear.perTier * (tier - R.gear.atTier), R.gear.min, R.gear.max);
     let dmg = base * R.takenX * gear * (k.st.weaken ? 1 - ST.weaken.less : 1) * (d.st.mark ? ST.mark.more : 1) * (CL.K || 1);
+    if (A.drill && d.team === 0 && !A.drill.full) dmg *= A.drill.takenX;   // (design pass 39) the Drill: Mara's blows teach, they do not beat (a step may ask her full blow: Rally's)
     let tag = null, crit = false, knock = false, push = (direct || tick) ? (u.push || 0) * (o.share || 1) * (u.statuses.includes("knockback") ? ST.knockback.push : 1) : 0;
     const cd = dist(k.x, k.y, d.x, d.y);
     if (o.form === "shoot" || o.form === "lob") { if (cd > R.shots.within) dmg *= CL.farX !== undefined ? CL.farX : R.shots.farX; }
@@ -580,10 +597,11 @@
     if (me) { let best = null, bd = Infinity; for (const q of fight.knights) { if (q.team === me.team || !standsIn(q)) continue; const dd = dist(me.x, me.y, q.x, q.y); if (dd < bd) { bd = dd; best = q; } }
       if (best && bd <= S.camera.leanToFoe.within) { const a = Math.atan2(best.y - me.y, best.x - me.x), lean = Math.min(S.camera.leanToFoe.max, bd / 2); focus = [me.x + Math.cos(a) * lean, me.y + Math.sin(a) * lean]; } }
     return {
-      mode: A.mode, sand: A.sand, phase: A.phase, phaseT: r3(A.phaseT), round: A.round, clock: Math.max(0, A.clock), score: A.score.slice(), heat: A.heat, slow: A.slow, sudden: A.sudden, focus, punch: A.punch, punchT: A.punchT,
+      mode: A.mode, sand: A.sand, phase: A.phase, phaseT: r3(A.phaseT), round: A.round, clock: Math.max(0, A.clock), score: A.score.slice(), heat: A.heat, slow: A.slow, sudden: A.sudden, focus, punch: A.punch, punchT: A.punchT, drill: !!A.drill,
       banner: A.banner ? Object.assign({ t: A.bannerT }, A.banner) : null, local: A.local, boardsOn: A.boardsOn, house: A.teams[1].every(s => fight.knights[s].house),
       knights: fight.knights.map(k => ({ seat: k.seat, team: k.team, name: k.name, house: !!k.house, kind: k.kind, hands: k.hands.map(h => h.thing.id), active: k.active, hp: k.hp, hpMax: k.hpMax, poise: k.poise, poiseMax: k.poiseMax, staggered: k.staggered, down: k.down && !k.ko ? k.down.t : 0, ko: !!k.ko,
         lie: k.lie, rising: k.rising > 0, safe: k.safe > 0, safeAct: !!k.safeAct, guard: !!k.guard, parryWin: k.parryWin, rally: k.rally ? k.rally.pool : 0, lastStand: !!k.lastStand, statuses: Object.keys(k.st).filter(s => !/Imm$/.test(s)), out: !!k.out, forfeited: !!k.forfeited,
+        beaten: k.beaten ? { t: r3(k.beaten.t), with: k.beaten.with, by: k.beaten.by } : null,   // (design pass 39)
         x: k.x, y: k.y, z: k.z || 0, face: k.face, flash: k.flash || 0, lag: k.lag || 0, stagger: k.stagger, frenzy: k.frenzy ? k.frenzy.stacks : 0, band: !!k.band, riposte: k.riposteUntil > fight.t })),
       result: A.result
     };

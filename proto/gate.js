@@ -336,8 +336,11 @@
   // rows goes into the column's canvas as it is painted, so no frame pays for turning a whole tile into a canvas)
   // (art: a level's own art, design pass 21: its paintRows paints the columns in place of the gate's ground)
   function Tiles(A, art) {
-    this.A = A; this.n = Math.ceil((A.w || 3072) / TW); this.tiles = []; this.hitches = 0; this.rowsPer = 2;
-    this.TH = Math.max(TH, (A.h | 0) || 0);   // (design pass 27) a level taller than the gate's 432 (the Keep's great stair, 648) has tiles that tall
+    // (design pass 39) the wings: an area may ask for its ground painted l, r, t, b world pixels beyond its box (the Arena's sand on a
+    // phone's window, which is bigger than the sand), so its tiles begin at world x -l, y -t; every other area's begin at 0, 0 as ever
+    const Wg = A.wings || {}; this.wl = Wg.l | 0; this.wr = Wg.r | 0; this.wt = Wg.t | 0; this.wb = Wg.b | 0;
+    this.A = A; this.n = Math.ceil(((A.w || 3072) + this.wl + this.wr) / TW); this.tiles = []; this.hitches = 0; this.rowsPer = 2;
+    this.TH = Math.max(TH, ((A.h | 0) || 0) + this.wt + this.wb);   // (design pass 27) a level taller than the gate's 432 (the Keep's great stair, 648) has tiles that tall
     this.rows = art && art.paintRows ? art.paintRows : paintRows;
     for (let c = 0; c < this.n; c++) this.tiles.push({ px: new Array(TW * this.TH).fill(null), rows: 0, canvas: null, ctx: null, put: 0, done: false });
   }
@@ -928,19 +931,22 @@
   Scene.prototype.setWindow = function (w, h) { this.vw = w > 0 ? w : TW; this.vh = h > 0 ? h : 216; };
   // ---- the ground, before the camera's translate: the one or two tiles the view overlaps, each with its decal canvas over it
   Scene.prototype.drawGround = function (ctx, camX, camY) {
-    const c0 = clamp(Math.floor(camX / TW), 0, this.cols - 1), c1 = clamp(Math.floor((camX + this.vw - 1) / TW), 0, this.cols - 1);
+    // (design pass 39) the tiles begin at world (-l, -t) for an area with wings (0, 0 for the rest), and the columns are picked with 8 px
+    // to spare at each side, so the Arena's shake (4 px at most) never uncovers a seam
+    const l = this.tiles.wl, t = this.tiles.wt, m = l || t ? 8 : 0;
+    const c0 = clamp(Math.floor((camX + l - m) / TW), 0, this.cols - 1), c1 = clamp(Math.floor((camX + l + this.vw - 1 + m) / TW), 0, this.cols - 1);
     this.flush();
     let n = 0;
     if (this.art) {
       // a level's art (design pass 21): the tiles, then its flicker rings over the baked light in world coordinates (on the clock of the
       // frame before: the page hands the scene its clock in drawTufts), then the decals, so a ring never paints over a lasting mark
-      for (let c = c0; c <= c1; c++) { ctx.drawImage(this.tiles.canvas(c), c * TW - camX, -camY); n++; }
+      for (let c = c0; c <= c1; c++) { ctx.drawImage(this.tiles.canvas(c), c * TW - l - camX, -t - camY); n++; }
       this.view = { x0: camX, y0: camY };
       if (this.art.lights) { const k = this.clock || { t: 0, still: true }; ctx.save(); ctx.translate(-camX, -camY); this.art.lights(ctx, this.fight, k.t, k.still, this); ctx.restore(); }
-      for (let c = c0; c <= c1; c++) { const d = this.decals[c]; if (d) ctx.drawImage(d.canvas, c * TW - camX, -camY); }
+      for (let c = c0; c <= c1; c++) { const d = this.decals[c]; if (d) ctx.drawImage(d.canvas, c * TW - l - camX, -t - camY); }
       return n;
     }
-    for (let c = c0; c <= c1; c++) { ctx.drawImage(this.tiles.canvas(c), c * TW - camX, -camY); n++; const d = this.decals[c]; if (d) ctx.drawImage(d.canvas, c * TW - camX, -camY); }
+    for (let c = c0; c <= c1; c++) { ctx.drawImage(this.tiles.canvas(c), c * TW - l - camX, -t - camY); n++; const d = this.decals[c]; if (d) ctx.drawImage(d.canvas, c * TW - l - camX, -t - camY); }
     this.view = { x0: camX, y0: camY };
     return n;
   };
@@ -973,11 +979,11 @@
   };
   // a sprite drawn into the decal canvas of every column it touches, its anchor at (x, y); the column's canvas made on its first stamp
   Scene.prototype.stampAt = function (s, x, y) {
-    const x0 = Math.round(x) - s.ox, x1 = x0 + s.w;
+    const x0 = Math.round(x) - s.ox + this.tiles.wl, x1 = x0 + s.w, y0 = Math.round(y) - s.oy + this.tiles.wt;   // (design pass 39: in the tiles' own coordinates, which begin at the wings)
     for (let c = clamp(Math.floor(x0 / TW), 0, this.cols - 1); c <= clamp(Math.floor((x1 - 1) / TW), 0, this.cols - 1); c++) {
       let d = this.decals[c];
       if (!d) { const cv = root.document.createElement("canvas"); cv.width = TW; cv.height = this.tiles.TH; d = this.decals[c] = { canvas: cv, ctx: cv.getContext("2d"), n: 0 }; }   // (as tall as the tiles, design pass 27)
-      d.ctx.drawImage(s.canvas(), x0 - c * TW, Math.round(y) - s.oy); d.n++;
+      d.ctx.drawImage(s.canvas(), x0 - c * TW, y0); d.n++;
     }
   };
   // a level's footprints (design pass 21 section 3.8): the art says where the bodies' feet left a print in the snow this frame, at most

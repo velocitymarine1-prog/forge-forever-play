@@ -16,7 +16,11 @@
   let H = null;   // the page's hooks (mount)
   // the arena's own state on the page
   const P = { lobby: true, mode: "1v1", skill: null, online: false, queue: null, session: null, bout: null, seats: null, seed: 0, heat: 0, trauma: 0, punch: { z: 1, t: 0, dur: 0, from: 1 },
-    veil: 0, cam: null, ended: false, result: null, tallyAt: 0, lastView: null, lines: {}, banners: [], house: false, record: null, since: 0, forfeited: false, waiting: false, xpSent: null, loadoutIds: [] };
+    veil: 0, cam: null, ended: false, result: null, tallyAt: 0, lastView: null, lines: {}, banners: [], house: false, record: null, since: 0, forfeited: false, waiting: false, xpSent: null, loadoutIds: [],
+    fallen: [], beatenFx: {},   // (design pass 39) the weapons lying on the sand this round, and what each beaten knight's fall has already thrown (the dust, the pool, the shards, the scorch)
+    drill: false };   // (design pass 39) this bout is the Drill (proto/arena-drill.js over a local bout against Mara)
+  const DR = () => root.ArenaDrill || null;
+  const DW = () => ((A().drill || {}).words || {});
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const fill = (s, o) => String(s || "").replace(/\{(\w+)\}/g, (m, k) => (o && o[k] !== undefined ? o[k] : m));
   const mmss = s => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
@@ -48,26 +52,37 @@
     const chips = Object.keys(skills).map(s => '<button type="button" data-skill="' + s + '" aria-pressed="' + String(sk === s) + '">' + ((L.skills || {})[s] || s) + '</button>').join("");
     const hands = (H.getFight() && H.getFight().hands || []).map(h => h.thing), lo = hands.length > 1 ? fill(L.loadout || "You carry {a} and {b}", { a: hands[0].name || hands[0].id, b: hands[1].name || hands[1].id }) : hands.length ? fill(L.loadoutOne || "You carry {a}", { a: hands[0].name || hands[0].id }) : "";
     const online = !!(H.Wire && H.Wire.available && H.Wire.available());
+    // (design pass 39) the Drill's plate: Grycus teaches the sand; its line says when it was done
+    const Dd = A().drill || {}, drillRec = DR() && Dd.on ? DR().record() : null;
+    const drillPlate = Dd.on && DR() ? '<button type="button" class="lplate f-iron drill" id="lobbyDrill"><b>' + (DW().plate || "The Drill") + '</b><span class="ln">' + (DW().plateLine || "Grycus teaches the sand") + '</span><span class="rc">' + (drillRec && drillRec.done ? (DW().plateDone || "done") : "") + '</span></button>' : "";
     el.innerHTML = '<div class="lhead"><h2>' + (L.title || "The Gate of Champions") + '</h2><p class="small">' + (online ? "" : (L.offline || "Your phone is offline: the house's knights will fight you")) + '</p></div>'
-      + '<div class="lplates">' + plates + '</div>'
+      + '<div class="lplates">' + plates + drillPlate + '</div>'
       + '<div class="lside"><div class="ltablet plank f-parch"><h2>' + (L.tablet || "CHAMPIONS") + '</h2><p class="small">' + (L.boardsOff || "The boards are not open yet. Your record is this phone's own.") + '</p>'
       + '<p class="small lo">' + lo + '</p><p class="small">' + (L.skill || "The house's skill") + '</p><div class="chips lskill">' + chips + '</div>'
       + '<div class="pbtns"><button type="button" class="f-ember primary" id="lobbyFight">' + (L.fight || "FIGHT") + '</button><button type="button" class="f-iron" id="lobbySpar">' + (L.spar || "Spar") + '</button></div>'
       + '<p class="small">' + (L.sparLine || "the house's knights, any time") + '</p></div></div>';
     el.querySelectorAll(".lplate").forEach(b => b.addEventListener("click", () => { if (P.queue) return; P.mode = b.dataset.mode; renderLobby(); }));
     el.querySelectorAll(".lskill button").forEach(b => b.addEventListener("click", () => { P.skill = b.dataset.skill; renderLobby(); }));
-    const fb = $("lobbyFight"); if (fb) fb.addEventListener("click", () => { if (P.queue) leaveQueue(); else start(P.mode); });
-    const sb = $("lobbySpar"); if (sb) sb.addEventListener("click", () => { if (P.queue) leaveQueue(); startBout({ online: false, mode: P.mode }); });
+    const fb = $("lobbyFight"); if (fb) fb.addEventListener("click", () => { if (P.queue) leaveQueue(); else if (!drillFirst()) start(P.mode); });
+    const sb = $("lobbySpar"); if (sb) sb.addEventListener("click", () => { if (P.queue) leaveQueue(); if (!drillFirst()) startBout({ online: false, mode: P.mode }); });
+    const db = $("lobbyDrill"); if (db) db.addEventListener("click", () => { if (P.queue) leaveQueue(); startBout({ online: false, mode: (A().drill || {}).mode || "1v1", drill: true }); });
     if (P.queue && fb) fb.textContent = L.leaveQueue || "Stop looking";
     el.hidden = false;
   }
+  // (design pass 39) a phone with no drill done runs the Drill before its first bout (a toast says so; Skip is on the plank)
+  function drillFirst() {
+    const Dr = DR(); if (!Dr || !Dr.due || !Dr.due()) return false;
+    H.toast && H.toast(DW().first || "The Drill first.");
+    startBout({ online: false, mode: (A().drill || {}).mode || "1v1", drill: true });
+    return true;
+  }
   function showLobby() {
-    P.lobby = true; P.ended = false; P.result = null; P.bout = null;
-    const g = $("game"); if (g) g.classList.remove("bout");
+    P.lobby = true; P.ended = false; P.result = null; P.bout = null; P.drill = false;
+    const g = $("game"); if (g) { g.classList.remove("bout"); g.classList.add("lobbying"); }   // (design pass 39: the lobby hides the sand's buttons)
     for (const id of ["hpPlate", "poisePlate", "roundPlate", "foePlate", "guardBtn"]) { const e = $(id); if (e) e.hidden = true; }
     renderLobby();
   }
-  function hideLobby() { const el = $("lobby"); if (el) el.hidden = true; P.lobby = false; const g = $("game"); if (g) g.classList.add("bout"); }
+  function hideLobby() { const el = $("lobby"); if (el) el.hidden = true; P.lobby = false; const g = $("game"); if (g) { g.classList.add("bout"); g.classList.remove("lobbying"); } }
 
   // ------------------------------------------------------------------ the queue and the seats
   function playerSeat() {
@@ -107,12 +122,17 @@
       return o.seats.map(s => Object.assign({}, s, { kind: s.house ? "house" : s.seat === o.seat ? "player" : "remote", loadout: (Array.isArray(s.loadout) ? s.loadout : []).map(thingOf).filter(Boolean),
         name: s.seat === o.seat ? me.name : s.name })).map(s => s.seat === o.seat && !s.loadout.length ? Object.assign(s, { loadout: me.loadout }) : s);
     }
+    if (o.drill) {   // (design pass 39) the Drill: the kid against Mara of the house, at the drill's skill
+      const Dd = A().drill || {}, partner = Dd.partner || ["Mara", "sword", "bow"], hs = A().house || {};
+      return Duel.seatsFor({ mode: o.mode || Dd.mode || "1v1", players: [me, { team: 1, name: partner[0], level: hs.level || 8, loadout: partner.slice(1), kind: "house", house: true, skill: Dd.skill || "squire" }], skill: Dd.skill || "squire", local: 0 });
+    }
     return Duel.seatsFor({ mode: o.mode || P.mode, players: [me], skill: P.skill || skillDefault(), local: 0 });
   }
   // a bout: the fight, the scene, the session; the lobby goes, the HUD comes
   function startBout(o) {
     const Duel = H.Duel, mode = o.mode || P.mode, M = (A().modes || {})[mode] || {}, sandKey = M.sand || "pit", sand = (A().sands || {})[sandKey];
     P.mode = mode; P.online = !!o.online; P.ended = false; P.result = null; P.forfeited = false; P.waiting = false; P.xpSent = null; P.heat = (A().feel || {}).crowd ? (A().feel.crowd.start || 0) : 0; P.trauma = 0; P.veil = 0; P.punch = { z: 1, t: 0, dur: 0, from: 1 };
+    P.fallen = []; P.beatenFx = {}; P.drill = !!o.drill; if (!o.drill && DR() && DR().active) DR().end();
     const seed = o.seed !== undefined ? (o.seed >>> 0) : ((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0);
     P.seed = seed;
     let seats; try { seats = seatsFor(o); } catch (e) { (root.__errors || []).push("arena seats: " + (e && e.message)); return false; }
@@ -120,7 +140,7 @@
     let fight, scene;
     const local = P.online && typeof o.seat === "number" ? o.seat : 0;
     try {
-      fight = Duel.newFight({ mode, seed, seats, local, skill: P.skill || skillDefault(), online: P.online });
+      fight = Duel.newFight({ mode, seed, seats, local, skill: o.drill ? ((A().drill || {}).skill || "squire") : (P.skill || skillDefault()), online: P.online, drill: !!o.drill });
       // the page's knight is the one on this phone: online its seat is the Herald's, not 0
       if (local !== 0 && fight.knights[local]) { fight.k = fight.knights[local]; fight.hands = fight.k.hands; if (fight.arena) fight.arena.local = local; }
       // the page's area object follows the sand (the window reads its size; the floor and the walls are the fight's own)
@@ -131,9 +151,10 @@
     } catch (e) { (root.__errors || []).push("arena fight: " + (e && (e.stack || e.message))); return false; }
     H.setFight(fight, scene);
     P.house = fight.arena && Array.isArray(fight.arena.teams) ? (fight.arena.teams[1] || []).every(s => (fight.knights[s] || {}).house) : false;
-    // the session: the wire's (the found bout) or the local one
+    // the session: the wire's (the found bout) or the local one (the Drill's always local, Mara's input from the coach)
     try {
-      if (P.online && H.Wire && H.Wire.session) P.session = H.Wire.session({ bout: o.bout, ticket: o.ticket, seat: local, seats: o.seats, seed, fight, duel: Duel,
+      if (P.drill) { const Dr = DR(); P.session = localSession(fight, Duel, Dr ? f => Dr.coach(f) : null); if (Dr) Dr.start(fight); }
+      else if (P.online && H.Wire && H.Wire.session) P.session = H.Wire.session({ bout: o.bout, ticket: o.ticket, seat: local, seats: o.seats, seed, fight, duel: Duel,
         onStart: () => {}, onForfeit: (seat, tick) => onForfeit(seat, tick), onVoid: why => onVoid(why), onEnd: r => onWireEnd(r), onWaiting: w => { P.waiting = !!w; },
         onError: why => { H.toast((W().sand || {}).shifted || "The sand shifted. The bout is void."); onVoid(why); } });
       else P.session = H.Wire && H.Wire.local ? H.Wire.local({ fight, duel: Duel, seat: 0 }) : localSession(fight, Duel);
@@ -145,12 +166,13 @@
     const fp = $("foePlate"); if (fp) fp.hidden = (M.seats || 1) !== 1;
     P.cam = null; P.lastView = null; hud.key = ""; hud.foe = ""; hud.round = ""; hud.poise = -1; hud.guard = null; hud.parry = null;
     H.clearFx(); H.syncHud(); H.fit();
-    H.toast && (P.house ? H.toast((W().tally || {}).house || "Against the house's knights") : null);
+    H.toast && (P.house && !P.drill ? H.toast((W().tally || {}).house || "Against the house's knights") : null);
     return true;
   }
-  // a session with no wire at all (proto/wire.js missing): the sim steps straight, the house seats driven by the rules
-  function localSession(fight, Duel) {
-    return { local: true, frame(dt, inp) { const inputs = {}; inputs[0] = inp; const events = Duel.step(fight, dt, inputs); return { events }; }, result() {}, close() {}, forfeit() {} };
+  // a session with no wire at all (proto/wire.js missing, or the Drill): the sim steps straight, the house seats driven by the rules, or
+  // seat 1 by a coach while it gives an input (design pass 39)
+  function localSession(fight, Duel, coach) {
+    return { local: true, frame(dt, inp) { const inputs = {}; inputs[0] = inp; if (coach) { const c = coach(fight); if (c !== undefined) inputs[1] = c; } const events = Duel.step(fight, dt, inputs); return { events }; }, result() {}, close() {}, forfeit() {} };
   }
   function bannerNames(fight) {
     const T = fight.arena && fight.arena.teams || [[0], [1]];
@@ -174,6 +196,8 @@
     }
     const v = P.lastView = Duel.view(fight);
     if (v && typeof v.heat === "number") setHeat(v.heat);
+    beatenStep(fight);
+    if (P.drill && DR()) { try { DR().events(events, fight); DR().tick(fight); } catch (e) { (root.__errors || []).push("drill: " + (e && e.message)); } }
     camera(v);
     if (v && v.result && !P.ended) ended(v.result);
     return out;
@@ -198,7 +222,8 @@
       }
       case "sudden": banner(S.sudden || "SUDDEN DEATH", null, false); return true;
       case "boutEnd": return true;   // (the view's result ends the bout: ended())
-      case "ko": kick((F.shake && F.shake.trauma ? F.shake.trauma.ko : 0.5)); punch("ko"); haptic("ko"); veil(); painterTake(e); return true;
+      case "ko": { kick((F.shake && F.shake.trauma ? F.shake.trauma.ko : 0.5)); punch("ko"); haptic("ko"); veil(); painterTake(e); fling(e, fight); if (k && (fight.arena.M.seats || 1) > 1 && S.beaten) H.say(k.x, k.y - 44, fill(S.beaten, { name: String(k.name || "").toUpperCase() }), "#e43b44", true); return true; }   // (design pass 39: the weapon flies from the hand; in a team mode the name says who fell)
+      case "roundStart": P.fallen = []; P.beatenFx = {}; return true;   // (design pass 39: the round's sand cleared of the fallen weapons)
       case "stagger": { if (k) H.say(k.x, k.y - 44, "STAGGER", "#fee761", true); kick(F.shake && F.shake.trauma ? F.shake.trauma.big : 0.35); punch("stagger"); haptic("big"); H.addFx({ kind: "sparks", x: e.x, y: e.y - 20, seed: fight.steps, n: 8, ramp: ["#733e39", "#feae34", "#fee761", "#ffffff"] }); painterTake(e); return true; }
       case "crit": { kick(F.shake && F.shake.trauma ? F.shake.trauma.big : 0.35); haptic("big"); veil(); H.addFx({ kind: "star", x: e.x, y: e.y - 4, c: "#fee761", big: true, life: 0.25 }); painterTake(e); return true; }
       case "parry": { if (k) H.say(k.x, k.y - 44, "PARRY", "#fee761", true); H.addFx({ kind: "sparks", x: e.x, y: e.y, seed: fight.steps + 7, n: (F.sparks || {}).parry || 12 }); H.hold((A().rules || {}).hitlag ? A().rules.hitlag.parry || 0.12 : 0.12); kick(F.shake && F.shake.trauma ? F.shake.trauma.big : 0.35); haptic("big"); veil(); painterTake(e); return true; }
@@ -223,12 +248,70 @@
   function setHeat(h) { P.heat = clamp(h, 0, 1); try { if (H.Arena && H.Arena.art && H.Arena.art.heat) H.Arena.art.heat(P.heat); } catch (e) { /* no crowd */ } }
   // the feel: trauma for the shake (Eiserloh: added per event, shake = trauma squared), the camera's punch-in, the impact frame, the haptics
   function kick(n) { if (H.reduce) return; P.trauma = clamp(P.trauma + (n || 0), 0, 1); }
-  function punch(kind) { if (H.reduce) return; const C = (A().camera || {}).punch || {}, p = C[kind]; if (!p) return; P.punch = { from: 1, z: p[0], t: 0, dur: p[1], ease: C.ease || 0.4 }; }
+  // (design pass 39) the punch-in is off by its key (camera.punch.on false: a zoom changes the picture's size and scales the pixel grid by a
+  // non-whole number; the slow time and the trauma carry the KO); the numbers stay for Isaac's call
+  function punch(kind) { if (H.reduce) return; const C = (A().camera || {}).punch || {}, p = C[kind]; if (!p || C.on === false) return; P.punch = { from: 1, z: p[0], t: 0, dur: p[1], ease: C.ease || 0.4 }; }
   function veil() { if (H.reduce) return; const I = (A().feel || {}).impactFrame; if (I && I.on !== false) P.veil = I.frames || 2; }
   function haptic(kind) {
     const F = (A().feel || {}).haptics; if (!F || H.reduce) return;
     try { if (H.store.get("forge-forever:haptics-off") === "1") return; if (root.navigator && typeof root.navigator.vibrate === "function") root.navigator.vibrate(F[kind] || F.blow || 10); } catch (e) { /* no motor */ }
   }
+  // ------------------------------------------------------------------ the fall (design pass 39): a beaten knight's weapon on the sand, the frame of its fall,
+  // and what the fall throws as its clock (k.beaten.t, the sim's, at the slow time's rate) passes each mark of spec beaten
+  const BT = () => A().beaten || {};
+  // the KO: the knight's weapon flies from its hand along the blow (10 px, a hop) and lies where it lands till the round resets
+  function fling(e, fight) {
+    const k = fight.knights[e.seat]; if (!k || !k.hands || !k.hands[k.active]) return;
+    const h = k.hands[k.active], by = e.by !== null && e.by !== undefined ? fight.knights[e.by] : null, B = BT();
+    const dx = by ? k.x - by.x : (k.face !== undefined ? -Math.cos(k.face) : 1), dy = by ? k.y - by.y : 0, dd = Math.hypot(dx, dy) || 1, push = B.weaponPush || 10;
+    const lx = k.x + dx / dd * push * 1.6, ly = Math.min(fight.floor ? fight.floor.y1 - 1 : k.y + 3, k.y + 3 + dy / dd * 4);
+    P.fallen = P.fallen.filter(f => f.seat !== k.seat);
+    P.fallen.push({ seat: k.seat, thing: h.thing, x0: k.x, y0: k.y - 20, x: lx, y: ly, t0: fight.t, fly: B.weaponFly || 0.3, side: dx >= 0 ? "right" : "left" });
+  }
+  // the frame of the fall for a beaten knight: the pose by its clock (hurt, the knees, the topple, lying), the overlay by what killed it
+  // (frozen stiff then shards, burning then ash, poisoned green), a jolt of white for a shock, a pixel of bounce as it lands; still
+  // under less motion: lying at once
+  function fallFrame(k) {
+    const B = BT(), F = B.fall || [0.12, 0.30, 0.45], t = k.beaten.t, w = k.beaten.with, still = H.reduce, steps = (H.getFight() || {}).steps || 0;
+    const out = { anim: "lie", i: 0, overlay: null, overlayI: 0, shards: false, white: false, dy: 0, bubbles: false, gone: false, lying: still || t >= F[2] };
+    out.anim = still || t >= F[2] ? "lie" : t >= F[1] ? "topple" : t >= F[0] ? (w === "freeze" ? "hurt" : "down") : "hurt";
+    if (!still && out.lying && t < F[2] + (B.bounce || 0.12)) out.dy = -1;
+    if (w === "burn") { if (t >= (B.ash || 2.0)) out.overlay = "ash"; else { out.overlay = "burning"; out.overlayI = still ? 0 : (steps >> 3) & 1; } }
+    else if (w === "freeze") { if (t >= (B.shardsFade || 1.6)) out.gone = true; else if (t >= (B.shatter || 0.6)) out.shards = true; else out.overlay = "frozen"; }
+    else if (w === "shock") { if (!still && out.lying && t < F[2] + (B.jolt || 0.4)) out.white = ((steps >> 1) & 1) === 1; }
+    else if (w === "poisoned") { if (out.lying) { out.overlay = "sick"; out.bubbles = t < F[2] + (B.bubbles || 1.5); } }
+    return out;
+  }
+  // what the fall throws, once each as the clock passes the mark: the dust of the landing, the pool of a bled knight, the shards and the
+  // damp of a frozen one, the scorch and the smoke of a burnt one, the sparks of a shocked one
+  function beatenStep(fight) {
+    const B = BT(), F = B.fall || [0.12, 0.30, 0.45];
+    for (const k of fight.knights) {
+      if (!k.beaten || !k.ko) continue;
+      const t = k.beaten.t, w = k.beaten.with, d = P.beatenFx[k.seat] || (P.beatenFx[k.seat] = {}), seed = fight.steps + k.seat * 13;
+      if (!d.land && t >= F[2]) { d.land = true; H.addFx({ kind: "dust", x: k.x - 6, y: k.y, life: 0.4 }); H.addFx({ kind: "dust", x: k.x + 8, y: k.y + 1, life: 0.45 }); }
+      if (w === "bleed" && !d.pool && t >= (B.pool || 0.5)) { d.pool = true; H.stamp({ kind: "blood", x: k.x, y: k.y + 2, r: 10, id: k.seat }); }
+      if (w === "freeze" && !d.shatter && t >= (B.shatter || 0.6)) { d.shatter = true; H.addFx({ kind: "shards", x: k.x, y: k.y - 6, n: 12, seed, life: 0.6 }); H.stamp({ kind: "damp", x: k.x, y: k.y + 2, r: 9, id: k.seat }); }
+      if (w === "burn" && !d.scorch && t >= (B.ash || 2.0)) { d.scorch = true; H.stamp({ kind: "scorch", x: k.x, y: k.y + 2, r: 9, id: k.seat }); }
+      if (w === "burn" && t >= (B.ash || 2.0) && !H.reduce && fight.steps % 54 === 0) H.addFx({ kind: "smoke", x: k.x - 4 + (seed % 9), y: k.y - 4, n: 3, seed, life: B.smoke || 0.9 });
+      if (w === "shock" && !H.reduce && t >= F[2] && t < F[2] + (B.jolt || 0.4) && fight.steps % 6 === 0) H.addFx({ kind: "sparks", x: k.x + (seed % 7) - 3, y: k.y - 6, seed, n: 4 });
+    }
+  }
+  // the fallen weapons, under the actors: in flight for weaponFly s (a hop of 10 px, tumbling through the four facings), then lying
+  function drawFallen(ctx, t) {
+    const fight = H.getFight(); if (!fight || !P.fallen.length || !H.weaponCanvas) return;
+    const fxf = H.reduce ? 0 : Math.floor(t * 8) % 4, FAC = ["toward", "away"];
+    for (const f of P.fallen) {
+      const age = fight.t - f.t0, q = f.fly > 0 ? Math.min(1, age / f.fly) : 1, flying = q < 1 && !H.reduce;
+      const facing = flying ? FAC[Math.floor(q * 4) & 1] : f.side;
+      let wc; try { wc = H.weaponCanvas(f.thing, facing, fxf); } catch (e) { continue; }
+      if (!wc || !wc.c) continue;
+      const x = f.x0 + (f.x - f.x0) * q, y = f.y0 + (f.y - f.y0) * q - (flying ? 10 * Math.sin(Math.PI * q) : 0);
+      if (!flying) { try { if (H.longShadow) H.longShadow(ctx, f.x, f.y, 6); } catch (e) { /* no shadow */ } }
+      ctx.drawImage(wc.c, Math.round(x - wc.grip[0]), Math.round(y - wc.grip[1]));
+    }
+  }
+
   // the banner across the middle: the page's LEVEL CLEAR band with the arena's words (quick: FIGHT's second; else the band's 3.4 s)
   function banner(text, line, quick) { if (!text) return; try { H.banner(String(text), line || "", !!quick); } catch (e) { /* no band */ } }
   // the camera: the view's wish (the local knight leaned toward the nearest foe) followed at the sand's speed, clamped to the sand's range;
@@ -268,6 +351,8 @@
       const k = fight.knights[kv.seat]; if (!k || k === me || kv.out) continue;
       const x = Math.round(kv.x !== undefined ? kv.x : k.x), y = Math.round((kv.y !== undefined ? kv.y : k.y) - (k.z || 0));
       const ally = kv.team === own, col = ally ? "#f6757a" : "#2ce8f5";
+      // (design pass 39) a beaten knight: its name dimmed over the body it has become, no bars
+      if (kv.beaten || k.beaten) { const name = String(kv.name || "").toUpperCase(); if (name && !(k.beaten && fallFrame(k).gone)) H.text(ctx, name, x - Math.round(H.textWidth(name) / 2), y - 20, "#8b9bb4"); continue; }
       const name = String(kv.name || "").toUpperCase(); if (name) H.text(ctx, name, x - Math.round(H.textWidth(name) / 2), y - 46, col);
       const hpq = clamp((kv.hp || 0) / (kv.hpMax || 100), 0, 1), pq = kv.poiseMax ? clamp((kv.poise || 0) / kv.poiseMax, 0, 1) : 0;
       ctx.fillStyle = "#181425"; ctx.fillRect(x - 9, y - 39, 18, 5);
@@ -287,7 +372,7 @@
     // the round plate: ROUND n · m:ss · a–b, SUDDEN DEATH while it lasts, the walk-in's names before the first round
     const rp = $("roundPlate");
     if (rp) {
-      const text = v.phase === "walkIn" ? bannerNames(fight) : (v.sudden ? (S.sudden || "SUDDEN DEATH") : fill(S.round || "ROUND {n}", { n: v.round || 1 })) + " · " + mmss(v.clock || 0) + " · " + (v.score ? v.score[0] + "–" + v.score[1] : "0–0");
+      const text = P.drill && DR() ? (v.phase === "walkIn" ? bannerNames(fight) : DR().line()) : v.phase === "walkIn" ? bannerNames(fight) : (v.sudden ? (S.sudden || "SUDDEN DEATH") : fill(S.round || "ROUND {n}", { n: v.round || 1 })) + " · " + mmss(v.clock || 0) + " · " + (v.score ? v.score[0] + "–" + v.score[1] : "0–0");   // (design pass 39: the Drill's step on the plate)
       if (text !== hud.round) { hud.round = text; const b = rp.querySelector("b"); if (b) b.textContent = text; else rp.textContent = text; rp.setAttribute("aria-label", text); }
     }
     // the poise bar under the health plate: gold on a dark track, pale while it regrows, empty and blinking while staggered
@@ -315,7 +400,7 @@
           const g = $("foeBar") && $("foeBar").getContext("2d");
           if (g) { g.clearRect(0, 0, 56, 9); g.fillStyle = "#181425"; g.fillRect(0, 0, 56, 9); for (let x = 0; x < 54; x++) for (let y = 1; y <= 4; y++) { g.fillStyle = x < Math.round(54 * hq) ? (y === 1 ? "#f6757a" : y === 4 ? "#a22633" : "#e43b44") : "#3e2731"; g.fillRect(x + 1, y, 1, 1); }
             g.fillStyle = "#262b44"; g.fillRect(1, 6, 54, 2); if (stag) { if (Math.floor(H.state.t * 8) & 1) { g.fillStyle = "#fee761"; for (let i = 0; i < 6; i++) g.fillRect(2 + i * 9, 6 + (i % 2), 3, 1); } } else { g.fillStyle = "#feae34"; g.fillRect(1, 6, Math.round(54 * pq), 2); } }
-          const n = $("foeNum"); if (n) n.textContent = String(Math.max(0, Math.ceil((foe.hp || 0) - 1e-9)));
+          const n = $("foeNum"); if (n) n.textContent = foe.beaten ? (S.beatenPlate || "BEATEN") : String(Math.max(0, Math.ceil((foe.hp || 0) - 1e-9)));   // (design pass 39)
         }
       }
     }
@@ -331,6 +416,11 @@
   // ------------------------------------------------------------------ the end: the record, the XP home, the tally
   function ended(result) {
     P.ended = true; P.result = result;
+    if (P.drill) {   // (design pass 39) the Drill's end: nothing counted, nothing paid; the record says done (the KO's), the tally says what was learned
+      if (DR()) { try { DR().finish(); } catch (e) { /* done either way */ } }
+      const S = W().sand || {}; banner(DW().tally || S.yours || "THE SAND IS YOURS", null, false); kick(0.5);
+      const slow = ((A().bout || {}).slow || {}).last || [0.25, 1.0]; P.tallyAt = H.state.t + (slow[1] || 1.0) + 1.2; return;
+    }
     const fight = H.getFight(), win = result.winner === fight.k.team, rec = P.record || (P.record = readRecord());
     const r = rec.modes[P.mode] || (rec.modes[P.mode] = [0, 0]);
     if (result.winner === 0 || result.winner === 1) { if (win) r[0]++; else r[1]++; rec.streak = win ? (rec.streak || 0) + 1 : 0; }
@@ -354,6 +444,12 @@
   function renderTally() {
     const T = W().tally || {}, fight = H.getFight(), res = P.result || {}, win = res.winner === fight.k.team, mine = (res.byseat || []).find(b => b.seat === fight.k.seat) || {};
     const put = (id, text, hide) => { const e = $(id); if (!e) return; e.hidden = !!hide; if (!hide) e.textContent = text; };
+    if (P.drill) {   // (design pass 39) the Drill's tally
+      put("tallyTitle", DW().tally || "YOU KNOW THE SAND"); put("tallyTime", DW().tallyLine || ""); put("tallyFelled", fill(T.blows || "{landed} blows landed, {taken} taken", { landed: mine.landed | 0, taken: mine.taken | 0 }) + (mine.parries ? " · " + fill(T.parries || "{n} parries", { n: mine.parries }) : ""));
+      put("tallyWith", DW().against || "Mara of the house, the Drill"); put("tallyFindsLine", "", true); const f = $("tallyFinds"); if (f) { f.hidden = true; f.replaceChildren(); } put("tallyPay", "", true); put("tallyLevel", "", true);
+      const tf = $("tallyForge"); if (tf) tf.textContent = T.gate || "The Gate"; const tn = $("tallyNext"); if (tn) tn.hidden = true; const ta = $("tallyAgain"); if (ta) { ta.textContent = DW().again || "The Drill again"; ta.hidden = false; }
+      return;
+    }
     put("tallyTitle", P.forfeited ? (T.forfeited || "DEFEAT · forfeited") : res.winner === null || res.winner === undefined ? (T.void || "VOID") : win ? (T.win || "VICTORY") : (T.loss || "DEFEAT"));
     put("tallyTime", fill(T.rounds || "{a}–{b} in rounds", { a: res.score ? res.score[0] : 0, b: res.score ? res.score[1] : 0 }) + (P.mode ? " · " + P.mode : ""));
     put("tallyFelled", fill(T.blows || "{landed} blows landed, {taken} taken", { landed: mine.landed | 0, taken: mine.taken | 0 }) + (mine.biggest ? " · " + fill(T.biggest || "Biggest blow {n}", { n: Math.round(mine.biggest) }) : "") + (mine.parries ? " · " + fill(T.parries || "{n} parries", { n: mine.parries }) : ""));
@@ -369,13 +465,16 @@
   // Again: the same mode (online: the queue again; offline: the same seats with a new seed); The Gate: back to the lobby
   function again() {
     if (!P.ended) return;
-    const online = P.online;
+    const online = P.online, drill = P.drill;
     endSession();
     H.closePlankForce();
+    if (drill) { startBout({ online: false, mode: (A().drill || {}).mode || "1v1", drill: true }); return; }
     if (online) { showLobby(); start(P.mode); return; }
     startBout({ online: false, mode: P.mode });
   }
-  function gate() { endSession(); H.closePlankForce(); showLobby(); H.syncHud(); H.fit(); }
+  function gate() { if (DR() && DR().active) DR().end(); endSession(); H.closePlankForce(); showLobby(); H.syncHud(); H.fit(); }
+  // (design pass 39) the Drill ends: its KO (done) takes the tally's road; Skip goes straight back to the Gate
+  function onDrillEnd(why) { if (why === "skipped") { endSession(); H.closePlankForce(); showLobby(); H.syncHud(); H.fit(); } }
   function endSession() { try { if (P.session && P.session.close) P.session.close(); } catch (e) { /* closed */ } P.session = null; P.ended = true; }
   function onForfeit(seat) {
     const fight = H.getFight(); if (!fight) return;
@@ -388,12 +487,13 @@
   // leaving the page mid-bout is a forfeit (the ask plank says so); from the lobby it is a plain leave
   function onLeave() {
     if (P.lobby || !P.session) return;
+    if (P.drill) { if (DR()) DR().end(); endSession(); return; }   // (design pass 39) leaving the Drill forfeits nothing
     P.forfeited = !P.ended;
     try { if (P.session.forfeit) P.session.forfeit(); } catch (e) { /* the wire's forfeit by silence */ }
     if (!P.ended) { const rec = P.record || (P.record = readRecord()); const r = rec.modes[P.mode] || (rec.modes[P.mode] = [0, 0]); r[1]++; rec.streak = 0; writeRecord(rec); }
     endSession();
   }
-  function askText() { const S = W().sand || {}; return { title: S.leave || "Leave the sand? You forfeit the bout.", go: S.go || "Forfeit", stay: S.stay || "Stay" }; }
+  function askText() { const S = W().sand || {}; if (P.drill) return { title: DW().leave || "Leave the Drill?", go: DW().leaveGo || "Leave", stay: S.stay || "Stay" }; return { title: S.leave || "Leave the sand? You forfeit the bout.", go: S.go || "Forfeit", stay: S.stay || "Stay" }; }
 
   // ------------------------------------------------------------------ mount: the page hands its hooks; the lobby shows
   function mount(hooks) {
@@ -401,14 +501,15 @@
     P.record = readRecord();
     P.skill = skillDefault();
     try { if (H.DMath && H.DMath.install) H.DMath.install(); } catch (e) { /* the sim stays on Math: a duel offline needs no agreement */ }
+    if (DR() && DR().mount) { try { DR().mount({ $: H.$, root: H.$("game"), store: H.store, state: H.state, reduce: H.reduce, coarse: H.coarse, params: H.params, Combat: H.Combat, getFight: H.getFight, onEnd: onDrillEnd }); } catch (e) { (root.__errors || []).push("drill mount: " + (e && e.message)); } }   // (design pass 39)
     showLobby();
     // the harness and the pictures: ?bout=1v1 starts a bout against the house at boot (&skill=champion); with ?harness=1, &run=<ms> then moves
     // time on that far through the page's own step, so a picture of the sand can be taken by a headless browser
     const bout = H.params && H.params.get("bout");
-    if (bout && (A().modes || {})[bout]) { if (H.params.get("skill")) P.skill = H.params.get("skill"); startBout({ online: false, mode: bout }); const run = +(H.params.get("run") || 0); if (run > 0 && H.harness && root.TheBattlegrounds && root.TheBattlegrounds.step) root.setTimeout(() => { try { root.TheBattlegrounds.step(run); } catch (e) { /* the picture is of the start */ } }, 0); }
+    if (bout && (A().modes || {})[bout]) { if (H.params.get("skill")) P.skill = H.params.get("skill"); startBout({ online: false, mode: bout, drill: H.params.get("drill") === "1" }); const run = +(H.params.get("run") || 0); if (run > 0 && H.harness && root.TheBattlegrounds && root.TheBattlegrounds.step) root.setTimeout(() => { try { root.TheBattlegrounds.step(run); } catch (e) { /* the picture is of the start */ } }, 0); }
     return api;
   }
-  const api = { mount, step, drawOver, frameFx, syncLive, tallyDue, again, gate, onLeave, askText, renderTally, start, startBout, showLobby,
-    get lobby() { return P.lobby; }, get inBout() { return !P.lobby && !!P.session; }, get ended() { return P.ended; }, get state() { return P; }, get heat() { return P.heat; }, get mode() { return P.mode; } };
+  const api = { mount, step, drawOver, frameFx, syncLive, tallyDue, again, gate, onLeave, askText, renderTally, start, startBout, showLobby, fallFrame, drawFallen,
+    get lobby() { return P.lobby; }, get inBout() { return !P.lobby && !!P.session; }, get ended() { return P.ended; }, get state() { return P; }, get heat() { return P.heat; }, get mode() { return P.mode; }, get drill() { return P.drill; } };
   root.ArenaPage = api;
 })(typeof window !== "undefined" ? window : globalThis);

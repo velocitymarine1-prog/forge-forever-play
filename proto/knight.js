@@ -13,6 +13,10 @@
 // arguments, as the rules and the cellar ask, is the cellar's knight, pixel for pixel: alone, the player is the cellar's knight.
 // Pass 1's four heroes replace it later through the same interface. The pixels are made without a DOM, so node can check them;
 // canvases are made only when a page asks. Plain script, defines window.Knight. Needs no other file.
+// Since build 30 (card t99, design pass 39: the sand, polished) a beaten knight falls: topple (pitched over, an arm out, one knee down)
+// and lie (flat on the ground, drawn from the side whatever the facing, the head away from the feet, 11 rows tall), and three more
+// overlays for the body as its last status left it: ash (every colour to a four-grey ramp, the outline kept), sick (the cloth to greens)
+// and shards (the body thinned to a scatter of ice; drawn in place of the frame, not over it).
 // Since build 13 (card t74, design pass 20: the melee combos) it also has the ten poses of a combo's swing (COMBO): raise (the weapon
 // over the head), chop (driven down in front), cock (drawn back behind the body), sweep (swept out in front), crouch (low, for the
 // rising cut), rise (stretched up on the toes), draw (the thrust's draw), lunge (the thrust), leap (in the air, tucked) and land (the
@@ -29,7 +33,8 @@
   const DRAWING = { right: ["side", false], left: ["side", true], away: ["up", false], toward: ["down", false] };
   const ANIMS = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, bonk: 1, hurt: 1, down: 1, crawl: 2, climb: 2, fall: 1, teeter: 1,
     raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1,   // pass 20: the combo's poses
-    guard: 1, reel: 1 };   // pass 38: the Guard (the weapon raised before the body) and the poise reel (thrown back, the arms low)
+    guard: 1, reel: 1,   // pass 38: the Guard (the weapon raised before the body) and the poise reel (thrown back, the arms low)
+    topple: 1, lie: 1 };   // pass 39: the fall of a beaten knight (pitched over, then flat on the ground)
   // the seats' colours (design pass 12 section 3.12): none green, so no knight reads as a troll, none red, so none reads as a warning.
   // SEATS is the colour itself; SEAT_RAMP lights it for the plume (dark, the colour, lit, glint)
   const SEATS = ["#ffffff", "#2ce8f5", "#fee761", "#b55088"];
@@ -38,7 +43,10 @@
   const ARENA_BLUE = ["#0b2f55", "#124e89", "#0099db", "#2ce8f5"];   // the far side's blue (design pass 36 revision 1: seat 1's cyan is the brothers', pinned)
   const CARRY = ["ram"];
   // the overlays (design pass 12 section 3.12), each still under reduced motion: burning on two frames, chill and frozen on one
-  const OVERLAYS = { burning: 2, chill: 1, frozen: 1 };
+  const OVERLAYS = { burning: 2, chill: 1, frozen: 1, ash: 1, sick: 1, shards: 1 };   // (ash, sick, shards: pass 39, the beaten body)
+  const ASH = ["#181425", "#262b44", "#3a4466", "#5a6988"], SICK = ["#193c3e", "#265c42", "#3e8948", "#63c74d"], ICE = ["#c0cbdc", "#ffffff", "#2ce8f5"];
+  const lum = c => parseInt(c.slice(1, 3), 16) * 0.3 + parseInt(c.slice(3, 5), 16) * 0.59 + parseInt(c.slice(5, 7), 16) * 0.11;
+  const hash3 = (x, y, k) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul((k | 0) + 1, 2246822519)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
 
   // ------------------------------------------------------------------ a small painter (the renderer's way)
   function Grid() { this.N = N; this.px = new Array(N * N).fill(null); }
@@ -339,6 +347,14 @@
         arms: [{ x0: 8, y0: 15, x1: 10, y1: 22, fist: [8, 23, 10, 24], behind: true }], hand: [9, 23] };
       return { hip: 21, head: [0, 1], legs: stand(drawing), arms: [{ x0: 6, y0: 15, x1: 8, y1: 22, fist: [6, 23, 8, 24] }, { x0: 23, y0: 15, x1: 25, y1: 22, fist: [23, 23, 25, 24] }], back: drawing === "up", hand: drawing === "down" ? [24, 23] : [7, 23] };
     }
+    // (pass 39) the topple: a beaten knight pitched over hard, the far knee down, the near leg buckled back, the helm hanging, the near
+    // arm thrown out ahead and down (the hand that will break the fall); from the front or behind: sunk low, the arms out and down
+    if (anim === "topple") {
+      if (side) return { hip: 25, lean: 3, head: [3, 3], skirt: 3, legs: [{ x: 10, y0: 27, y1: 29, far: true, shin: [6, 29, 11, 30] }, { x: 20, y0: 28, y1: 29, boot: [19, 23], shin: [16, 26, 21, 28] }],
+        arms: [{ seg: [19, 19, 26, 24], fist: [26, 25, 28, 27] }, { x0: 9, y0: 18, x1: 11, y1: 23, fist: [8, 24, 10, 25], far: true, behind: true }], hand: [27, 26] };
+      return { hip: 26, head: [0, 3], skirt: 2, legs: [{ x: 10, y0: 28, y1: 29, boot: [9, 13] }, { x: 18, y0: 28, y1: 29, boot: [17, 21] }],
+        knees: [[11.5, 28, 2.4, 1.5], [19.5, 28, 2.4, 1.5]], arms: [{ seg: [9, 21, 5, 27], fist: [3, 27, 5, 29] }, { seg: [22, 21, 26, 27], fist: [26, 27, 28, 29] }], back: drawing === "up", hand: drawing === "down" ? [27, 28] : [4, 28] };
+    }
     if (anim === "hurt") {
       // the blink after a hit: thrown back, the arms flung up and out, the helm knocked back
       if (side) return { hip: 21, lean: -2, head: [-1, 0], legs: [{ x: 14, y0: 24, y1: 29, boot: [13, 17], far: true }, { x: 16, y0: 24, y1: 29, boot: [16, 20] }],
@@ -386,7 +402,31 @@
       arms: [{ x0: 3, y0: 13, x1: 8, y1: 15, fist: [1, 12, 2, 15] }, { x0: 23, y0: 16, x1: 28, y1: 18, fist: [29, 15, 30, 18] }],
       back: drawing === "up", hand: drawing === "down" ? [29, 16] : [2, 13] };
   }
-  const MORE = { hurt: 1, down: 1, crawl: 1, climb: 1, fall: 1, teeter: 1, raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1, guard: 1, reel: 1 };   // (pass 20: the combo's poses; pass 38: guard and reel)
+  const MORE = { hurt: 1, down: 1, crawl: 1, climb: 1, fall: 1, teeter: 1, raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1, guard: 1, reel: 1, topple: 1, lie: 1 };   // (pass 20: the combo's poses; pass 38: guard and reel; pass 39: topple and lie)
+  // (pass 39) the beaten knight flat on the ground, from the side (every facing: left mirrors it, so the head lies away from the blow):
+  // the helm at the left on its side, the plume along the ground past it, the torso and the skirt on their back, the legs out to the
+  // right with the boots at the end, the near arm lying along the torso with its hand on the skirt, 11 rows on the feet's line
+  function drawLying(L) {
+    const sp = new Grid(), STEEL = R.steel, DARK = R.iron, LEATHER = R.leather, CLOTH = L.tabard, PLUME = L.plume;
+    region(sp, rect(8, 21, 10, 29), DARK);                                                   // the far arm, under the body
+    region(sp, rect(22, 23, 27, 25), DARK); region(sp, rect(22, 27, 27, 29), DARK);           // the far leg's thigh and shin, behind
+    region(sp, rect(20, 24, 29, 26), STEEL); region(sp, rect(29, 23, 30, 27), LEATHER);        // the near leg along the ground, its boot
+    region(sp, rect(27, 27, 29, 29), STEEL); region(sp, rect(29, 28, 30, 30), LEATHER, { flat: 1 });
+    region(sp, rect(10, 21, 20, 29), STEEL);                                                  // the torso on its back
+    region(sp, rect(11, 23, 19, 28), CLOTH);
+    region(sp, rect(19, 22, 21, 29), CLOTH);                                                  // the skirt
+    if (L.band) region(sp, rect(20, 22, 21, 29), L.band, { flat: 1 });
+    region(sp, rect(18, 21, 19, 30), LEATHER, { flat: 2 });                                   // the belt
+    region(sp, ell(12, 23, 2.4, 1.8), STEEL, { spec: (x, y) => x === 11 && y === 22 });        // the near pauldron
+    region(sp, rect(13, 25, 20, 27), STEEL); region(sp, rect(20, 26, 22, 28), DARK);           // the near arm along the torso, its fist on the skirt
+    region(sp, or(rect(2, 21, 9, 29), ell(4, 25, 2.2, 4.5)), STEEL, { spec: (x, y) => x === 3 && y === 22 });   // the helm on its side
+    for (let y = 23; y <= 27; y++) sp.set(5, y, OUT);                                         // the visor, toward the sky
+    sp.set(7, 27, DARK[0]); sp.set(8, 28, DARK[0]);
+    region(sp, or(ell(2, 23, 1.6, 2.4), rect(1, 21, 2, 24)), PLUME, { spec: (x, y) => x === 1 && y === 21 });   // the plume along the ground (x 1 at the least: the outline needs x 0)
+    outline(sp);
+    sp.hand = [21, 27];
+    return sp;
+  }
 
   // ------------------------------------------------------------------ the overlays
   // made from a frame's own pixels, for any square grid of n (a troll's too): burning, 3 px tongues of flame, #f77622 over #feae34,
@@ -412,6 +452,13 @@
         if (at(x, y) || !(at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1))) continue;
         put(x, y, (x * 3 + y * 5) % 11 === 0 ? "#ffffff" : "#c0cbdc");
       }
+    } else if (kind === "ash") {   // (pass 39) the burnt body: every colour to a grey by its light, the outline kept; drawn over the frame, it covers it
+      for (let k = 0; k < n * n; k++) { const c = px[k]; if (!c) continue; out[k] = c === OUT ? OUT : ASH[Math.min(3, Math.floor(lum(c) / 64))]; }
+    } else if (kind === "sick") {   // (pass 39) the poisoned body: the cloth, the plume and the leather to greens; the steel and the outline stay
+      const steel = new Set(R.steel.concat(R.iron, [OUT]));
+      for (let k = 0; k < n * n; k++) { const c = px[k]; if (!c || steel.has(c)) continue; out[k] = SICK[Math.min(3, Math.floor(lum(c) / 64))]; }
+    } else if (kind === "shards") {   // (pass 39) the frozen body shattered: its pixels thinned to a scatter of ice (drawn in place of the frame)
+      for (let k = 0; k < n * n; k++) { const c = px[k]; if (!c || c === OUT) continue; const x = k % n, y = (k / n) | 0; if (hash3(x, y, 5) < 0.3) out[k] = ICE[(x + y) % 3]; }
     }
     return out;
   }
@@ -432,12 +479,14 @@
     const L0 = look ? lookOf(look) : CELLAR, carry = L0.carry && ["idle", "walk", "wind", "strike", "recover", "hurt"].includes(anim) ? L0.carry : null;
     const L = carry === L0.carry ? L0 : lookOf(Object.assign({}, look, { carry: null }));
     if (anim === "climb") facing = "away";
+    if (anim === "lie" && (facing === "away" || facing === "toward")) facing = "right";   // (pass 39) flat on the ground, drawn from the side whatever the facing
     const [drawing, flip] = DRAWING[facing];
     reach = drawing === "side" && !MORE[anim] && !carry ? (reach === true ? 1 : Math.max(0, Math.min(2, reach | 0))) : 0;
     const key = facing + "|" + anim + "|" + i + "|" + reach + L.key;   // the key names the arm, so the book never takes the bow's
     if (cache.has(key)) return cache.get(key);
     let sp;
     if (carry && anim === "hurt") sp = draw(drawing, poseOf(drawing, "bonk", 0), L);   // hurt with the ram: thrown back, the log still held
+    else if (anim === "lie") sp = drawLying(L);   // (pass 39)
     else if (MORE[anim]) sp = drawParts(drawing, partsOf(drawing, anim, i), L);
     else { const pose = poseOf(drawing, anim, i); pose.reach = reach; sp = draw(drawing, pose, L); }
     let px = sp.px, hand = sp.hand.slice();
