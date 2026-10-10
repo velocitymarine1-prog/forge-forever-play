@@ -624,6 +624,101 @@
     return { squire: Q, party: P, step(dt) { return P.step(dt, Q.step(dt)); } };
   }
 
-  root.Bots = { brothers, bench, loadout, party, squire, drive, ADAPT, DEFAULTS, rng };
+
+  // ------------------------------------------------------------------ the house's knights (design pass 36: the Arena)
+  // A duelist fights the other team's knights on the sand with the arena's reads: it keeps its distance by its weapon's reach, strikes
+  // when the foe is not in a wind-up it means to answer, dodges a telegraphed blow by its skill's dodgeMelee, guards a blow by `guard`,
+  // parries (a Guard press timed to the blow's landing, its first 0.2 s the window) by `parry`, flanks a guard facing it, chases a
+  // staggered foe for the crit, backs off at 25 HP to let poise regrow, lifts a downed ally when nobody is near it, rushes as a dagger and
+  // keeps range as a bow (swapping when pressed). Its state is plain data in fight.arena.botState[seat] (the lockstep's snapshot holds it)
+  // and its numbers draw from fight.rng.bots, so every phone simulates the house alike and no wire carries it.
+  function newDuelState() { return { think: 0, target: null, mode: "fight", queue: [], guardUntil: 0, strafe: 0, strafeT: 0, backOff: 0, swapT: 0, lift: null, face: 0 }; }
+  function duelists(fight) { if (!fight.arena) throw new Error("bots.js: the duelists play in the arena"); botsRng(fight); const seats = fight.knights.filter(k => k.house).map(k => k.seat); for (const s of seats) if (!fight.arena.botState[s]) fight.arena.botState[s] = newDuelState(); return { seats }; }
+  const duelStands = k => !k.out && !k.down && !k.ko && k.hp > 0 && !(k.lie > 0);
+  const facingMe = (f, k) => { let d = Math.atan2(k.y - f.y, k.x - f.x) - f.face; d = ((d + 3 * PI) % (2 * PI)) - PI; return Math.abs(d) <= 60 * PI / 180; };
+  function duelInput(fight, seat, dt) {
+    const A = fight.arena, S = A.spec, C = (root.FORGE_COMBAT || {}), k = fight.knights[seat];
+    const out = { move: [0, 0], strike: false, swap: false, dodge: false, guard: false, ability: false };
+    if (!k || k.out || k.ko) return out;
+    const B = A.botState[seat] || (A.botState[seat] = newDuelState()), N = S.house.skills[k.skill] || S.house.skills[S.house.default], R = botsRng(fight);
+    const foes = fight.knights.filter(q => q.team !== k.team && duelStands(q));
+    const myReach = u => (u.melee ? combat().reachOf(u) : 0);
+    // the last step's events: a foe's blow begun is a telegraph; answered by a dodge, a parry or a block, each rolled once
+    for (const e of fight.events || []) {
+      // a rush of fast blows on me (two within a second): I hold the guard a while (the dagger's land 20 %, the claws' none), by my skill's guard
+      if (e.type === "hit" && e.knight && e.d === k.seat && e.kind === "direct" && e.amount > 0 && e.by !== undefined) {
+        const fu = fight.knights[e.by] && fight.knights[e.by].hands[fight.knights[e.by].active] ? fight.knights[e.by].hands[fight.knights[e.by].active].u : null, F = C.forms && fu ? C.forms[fu.form] : null;
+        if (fu && fu.melee && F && (fu.windT || F.wind) < 0.12) { B.fast = (B.fast || []).filter(t => fight.t - t <= 1.0).concat([fight.t]); if (B.fast.length >= 2 && B.guardUntil <= fight.t && R() < Math.min(0.9, N.guard * 2)) { B.guardUntil = fight.t + 0.7; B.fast = []; } }
+        continue;
+      }
+      if (e.type !== "strike" || e.seat === undefined || e.seat === k.seat) continue;
+      const f = fight.knights[e.seat]; if (!f || f.team === k.team) continue;
+      const fu = f.hands[f.active] ? f.hands[f.active].u : null, F = C.forms ? C.forms[e.form] : null; if (!fu || !F) continue;
+      const wind = (fu.windT || F.wind || 0.1) + (e.move === 3 ? ((C.combos || {}).finisher || {}).wind || 0.1 : 0);
+      const reach = (fu.melee ? myReach(fu) : combat().reachOf(fu)) + k.r + 10, dd = dist(k.x, k.y, f.x, f.y);
+      const onMe = e.target === k.seat || (fu.melee && dd <= reach);
+      if (!onMe) continue;
+      const parryable = fu.melee && !(S.classes[duelClass(fu)] || {}).unparryable;
+      const roll = R();
+      if (parryable && k.poise > 20 && roll < N.parry) B.queue.push({ at: fight.t + Math.max(0, wind - 0.12), kind: "guard", hold: 0.34 });
+      else if (fu.melee && k.poise > 40 && roll < N.parry + N.guard && wind >= 0.3) B.queue.push({ at: fight.t + Math.max(0, wind - 0.3), kind: "guard", hold: 0.55 });
+      else if (roll < N.parry + N.guard + N.dodgeMelee) { const at = fight.t + N.react[0] + (N.react[1] - N.react[0]) * R(); if (at <= fight.t + wind - 0.02) { const [ax, ay] = unit(k.x - f.x, k.y - f.y), side = R() < 0.5 ? 1 : -1, sw = R() < 0.4; B.queue.push({ at, kind: "dodge", ax: sw ? -ay * side : ax, ay: sw ? ax * side : ay }); } }   // (a dodge that would come after the blow is no dodge: it only breaks the chain)
+    }
+    B.think -= dt; if (B.backOff > 0) B.backOff -= dt; if (B.swapT > 0) B.swapT -= dt; B.strafeT -= dt;
+    if (k.down) { const a = nearestOf(fight.knights.filter(q => q !== k && q.team === k.team && duelStands(q)), k.x, k.y); if (a) out.move = toward(k, a.x, a.y, 1); return out; }
+    if (k.lie > 0) { if (k.lie <= 0.2 && R() < 0.5) { out.dodge = true; const f = foes.length ? nearestOf(foes, k.x, k.y) : null; if (f) out.move = toward(k, f.x, f.y, -1); } return out; }
+    if (k.rising > 0 || k.stagger > 0 || k.st.freeze || k.st.stun || k.lag > 0) return out;
+    // what was queued and is due
+    for (let i = B.queue.length - 1; i >= 0; i--) {
+      const q = B.queue[i]; if (q.at > fight.t + 1e-9) continue; B.queue.splice(i, 1);
+      if (q.kind === "dodge") { if (!out.dodge) { out.dodge = true; out.move = [q.ax, q.ay]; } }
+      else if (q.kind === "guard") B.guardUntil = Math.max(B.guardUntil, fight.t + q.hold);
+    }
+    if (out.dodge) return out;
+    if (B.guardUntil > fight.t && !k.strike) { out.guard = true; const f = foes.length ? nearestOf(foes, k.x, k.y) : null; if (f) out.move = toward(k, f.x, f.y, 0.06); return out; }   // (the guard faces the foe: a tilt past the stick's dead zone turns the knight without carrying it)
+    if (B.think <= 0) {
+      B.think += 0.1;
+      // the target: a staggered foe first (the crit), else the nearest; a downed ally with no foe near it is lifted by its nearest mate
+      const stag = foes.filter(f => f.staggered > 0);
+      const pick = stag.length ? nearestOf(stag, k.x, k.y) : foes.length ? nearestOf(foes, k.x, k.y) : null;
+      B.target = pick ? pick.seat : null; B.lift = null;
+      for (const d of fight.knights) {
+        if (d.team !== k.team || !d.down || d.ko) continue;
+        if (foes.some(f => dist(f.x, f.y, d.x, d.y) <= 48)) continue;
+        const mates = fight.knights.filter(q => q.team === k.team && q !== d && duelStands(q));
+        if (nearestOf(mates, d.x, d.y) === k) { B.lift = d.seat; break; }
+      }
+      if (k.hp <= S.rules.lastStand.hp && k.poise < 50 && B.backOff <= 0 && R() < 0.5) B.backOff = 1.0;
+    }
+    if (B.lift !== null) { const d = fight.knights[B.lift]; if (d && d.down && !d.ko) { if (dist(k.x, k.y, d.x, d.y) > 12) out.move = toward(k, d.x, d.y, 1); return out; } B.lift = null; }
+    const f = B.target !== null ? fight.knights[B.target] : null;
+    if (!f || !duelStands(f)) return out;
+    const hand = k.hands[k.active], u = hand.u, dd = dist(k.x, k.y, f.x, f.y);
+    // the hand: melee when the foe is near, the bow when it is far and the knight has one
+    const mi = k.hands.findIndex(h => h.u.melee), bi = k.hands.findIndex(h => !h.u.melee);
+    if (k.hands.length > 1 && k.swapT <= 0 && B.swapT <= 0) {
+      if (!u.melee && mi >= 0 && dd <= 40) { out.swap = true; B.swapT = 0.6; return out; }
+      if (u.melee && bi >= 0 && dd >= 130 && !(f.staggered > 0)) { out.swap = true; B.swapT = 0.6; return out; }
+    }
+    if (B.backOff > 0) { out.move = toward(k, f.x, f.y, -1); return out; }
+    if (B.strafeT <= 0) { const r = R(); B.strafe = r < 0.3 ? -1 : r < 0.6 ? 1 : 0; B.strafeT = 0.4 + R() * 0.6; }
+    const [ux, uy] = unit(f.x - k.x, f.y - k.y), px = -uy * B.strafe, py = ux * B.strafe;
+    if (u.melee) {
+      const reach = myReach(u) * (N.meleeAt || 0.9) + f.r;
+      if (dd > reach) { const [mx, my] = unit(ux + px * 0.5, uy + py * 0.5); out.move = [mx, my]; }
+      else if (f.guard && facingMe(f, k) && !(S.classes[duelClass(u)] || {}).crush && R() < 0.8) { const side = B.strafe || 1; out.move = [-uy * side, ux * side]; }
+      else { out.move = toward(k, f.x, f.y, 0.06); out.strike = true; if (hand.ua && hand.acd <= 0 && R() < 0.3) out.ability = true; }
+    } else {
+      const range = combat().reachOf(u), lo = 50, hi = Math.min(110, range * 0.9);
+      if (dd > hi) out.move = [ux, uy];
+      else if (dd < lo) out.move = toward(k, f.x, f.y, -1);
+      else { out.move = toward(k, f.x, f.y, 0.06); out.strike = true; }
+    }
+    return out;
+  }
+  // the class of a blow's units, as proto/duel.js reads it (the arena's spec)
+  function duelClass(u) { const S = root.FORGE_ARENA; if (!S) return u.base; const base = u.base; if (!u.fuse && base && S.classes[base] && base !== "byForm") return base; return (S.classes.byForm || {})[u.form] || "sword"; }
+
+  root.Bots = { brothers, bench, loadout, party, squire, drive, ADAPT, DEFAULTS, rng, duelists, duelInput };   // (design pass 36) the house's knights
   if (typeof module !== "undefined" && module.exports) module.exports = root.Bots;
 })(typeof window !== "undefined" ? window : globalThis);

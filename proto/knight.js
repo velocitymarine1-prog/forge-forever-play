@@ -33,7 +33,8 @@
   // SEATS is the colour itself; SEAT_RAMP lights it for the plume (dark, the colour, lit, glint)
   const SEATS = ["#ffffff", "#2ce8f5", "#fee761", "#b55088"];
   const SEAT_RAMP = [["#c0cbdc", "#ffffff", "#ffffff", "#ffffff"], ["#0099db", "#2ce8f5", "#b8f4ff", "#ffffff"], ["#feae34", "#fee761", "#fffaf0", "#ffffff"], ["#68386c", "#b55088", "#b55088", "#ffc0c8"]];
-  const KITS = ["knight", "brother"];
+  const KITS = ["knight", "brother", "arena"];
+  const ARENA_BLUE = ["#0b2f55", "#124e89", "#0099db", "#2ce8f5"];   // the far side's blue (design pass 36 revision 1: seat 1's cyan is the brothers', pinned)
   const CARRY = ["ram"];
   // the overlays (design pass 12 section 3.12), each still under reduced motion: burning on two frames, chill and frozen on one
   const OVERLAYS = { burning: 2, chill: 1, frozen: 1 };
@@ -67,6 +68,14 @@
     o = o || {};
     const seat = o.seat === 0 || o.seat === 1 || o.seat === 2 || o.seat === 3 ? o.seat : null, brother = o.kit === "brother";
     const carry = CARRY.includes(o.carry) ? o.carry : null;
+    // the arena's kit (design pass 36, build 27): the player's own side wears the cellar's red (the player the cellar's knight itself, an
+    // ally a gold plume and band on the red tabard), the far side a blue plume, tabard and band; no seat colour, no gold mark but the player's
+    if (o.kit === "arena") {
+      const blue = o.side === "blue", ally = !blue && !!o.ally;
+      if (!blue && !ally) return { key: carry ? "|" + carry : "", plume: R.red, tabard: R.red, band: null, mark: true, carry, seat: null, kit: "arena" };
+      const ramp = blue ? ARENA_BLUE : SEAT_RAMP[2];
+      return { key: "|a" + (blue ? "b" : "y") + (carry ? carry : ""), plume: ramp, tabard: blue ? ARENA_BLUE : R.red, band: ramp, mark: false, carry, seat: null, kit: "arena" };
+    }
     if (seat === null && !brother) return { key: carry ? "|" + carry : "", plume: R.red, tabard: R.red, band: null, mark: true, carry, seat: null, kit: "knight" };
     const s = seat === null ? 0 : seat;
     return { key: "|" + s + (brother ? "b" : "k") + (carry ? carry : ""), plume: SEAT_RAMP[s], tabard: brother ? R.iron : R.red, band: SEAT_RAMP[s], mark: !brother, carry, seat: s, kit: brother ? "brother" : "knight" };

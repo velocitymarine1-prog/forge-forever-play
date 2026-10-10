@@ -329,7 +329,8 @@
       const cleared = run.cleared === true, area = typeof run.area === "string" ? run.area.slice(0, 60) : "", replay = !!run.replay || !!(profile.cleared || {})[area];
       let res = null;
       try {
-        if (cleared) {
+        if (run.arena && typeof run.arena === "object") res = await World.arena(run.arena, { id });   // (design pass 36) a bout on the sand: its XP, nothing cleared
+        else if (cleared) {
           const f = run.finds || {}, finds = {};
           for (const k of ["gold_chests", "iron_chests", "rare_enemies", "quest_embers"]) finds[k] = Math.max(0, Math.min(99, f[k] | 0));
           res = await World.run(Math.max(1, run.level | 0), !!run.boss, replay, things, finds, { id, area });
@@ -338,6 +339,7 @@
       if (!res || res.saved === false) break;   // the world can't take it now: it waits in the key, with the runs after it
       taken++;
       if (res.again) continue;
+      if (run.arena && typeof run.arena === "object") { toast(res.pay && res.pay.xp > 0 ? "From the sand: +" + res.pay.xp + " XP" + (res.levelled ? " · Level " + res.level + "!" : "") : "Back from the sand"); last = { res, before, cleared: false, things: [], id }; continue; }
       const n = {}; for (const t of (cleared ? things : res.banked || [])) n[t] = (n[t] || 0) + 1;
       const names = Object.keys(n).map(t => world.get(t).name + (n[t] > 1 ? " ×" + n[t] : "")).join(", ");
       if (cleared) toast(`Home with a clear${(res.replay === undefined ? replay : res.replay) ? " (a replay)" : ""}: ${res.pay.xp} XP, ${res.pay.coins} coins${res.pay.ember ? ", a Legend Ember" : ""}${names ? " · " + names : ""}`);
@@ -455,6 +457,18 @@
       const woke = before < G.fuse.level && profile.level >= G.fuse.level;
       const saved = save();
       return { pay: Object.assign({}, pay, { ember }), replay: !!replay, level: profile.level, levelled: profile.level > before, crucible_woke: woke, saved };
+    },
+    // (design pass 36, build 27) a bout on the Arena's sand brought home: its XP as the page worked it out (spec/arena.json xp: a win by
+    // mode, a loss a quarter, the house's knights a few a day), paid once by the run's id; nothing is cleared, no coins, no ember. The
+    // bench's world service has no route for it: it is paid on the phone either way
+    async arena(a, from) {
+      if (from && !Progress.rememberRun(profile, from.id)) return { again: true, pay: { xp: 0, coins: 0, ember: 0, ember_chances: [] }, level: profile.level, levelled: false, crucible_woke: false };
+      const before = profile.level, xp = Math.max(0, Math.min(1000, a.xp | 0));
+      profile.xp += xp;
+      profile.level = Progress.levelFor(profile.xp);
+      const woke = before < G.fuse.level && profile.level >= G.fuse.level;
+      const saved = save();
+      return { pay: { xp, coins: 0, ember: 0, ember_chances: [] }, replay: false, level: profile.level, levelled: profile.level > before, crucible_woke: woke, saved, arena: { mode: a.mode, win: !!a.win, house: !!a.house } };
     },
     // a run that did not clear (design pass 12 section 3.11.5): its things (ingredients the Forge knows, never a weapon) go into the
     // stock and profile.found, and nothing is paid; `from` ({ id }) banks it once, remembered in profile.runs in the same save; the
@@ -2604,8 +2618,8 @@
       const s0 = st[A.id], p = toCss(A.label[0], A.label[1]), b = document.createElement("button"); b.type = "button";
       b.className = "place " + s0; b.style.left = p.x + "px"; b.style.top = p.y + "px"; b.dataset.area = A.id;
       const n = MT.levelRows(A, clearedNow()).rows.filter(r => r.state === "cleared").length;
-      b.innerHTML = '<span class="nm"></span><span class="tag"></span>'; b.querySelector(".nm").textContent = A.name; b.querySelector(".tag").textContent = s0 === "soon" ? "soon" : s0 === "won" ? "✓ " + pipsOf(A) : pipsOf(A);
-      b.setAttribute("aria-label", A.name + ": " + (s0 === "soon" ? "coming soon" : s0 + ", " + n + " of " + A.levels.length + " levels cleared"));
+      b.innerHTML = '<span class="nm"></span><span class="tag"></span>'; b.querySelector(".nm").textContent = A.name; b.querySelector(".tag").textContent = A.pvp ? (s0 === "open" ? ((MT.SPEC.words.arena || {}).tag || "open") : "") : s0 === "soon" ? "soon" : s0 === "won" ? "✓ " + pipsOf(A) : pipsOf(A);   // (design pass 36: the Arena's tag)
+      b.setAttribute("aria-label", A.name + ": " + (A.pvp ? s0 : s0 === "soon" ? "coming soon" : s0 + ", " + n + " of " + A.levels.length + " levels cleared"));
       if (lv && lv.allow && !lv.allow(A.id)) b.classList.add("dim");
       b.addEventListener("click", e => { e.stopPropagation(); tapArea(A.id); });
       box.appendChild(b);
@@ -2661,6 +2675,7 @@
   // (the last choice remembered), ✕ back to the map; a shut area's rows locked
   function renderPlate() {
     const el = $("areaPlate"), A = MT.SPEC.areas.find(a => a.id === map.plate); if (!A) { el.hidden = true; return; }
+    if (A.pvp) return renderArenaPlate(el, A);   // (design pass 36) the Arena's plate: its line and one button
     const W = MT.SPEC.words, st = areaStates()[A.id], R = MT.levelRows(A, clearedNow(), mstore.get(KEY_PICK));
     const pick = R.pick, last = Math.max(0, Math.min(3, parseInt(mstore.get(KEY_BROTHERS), 10) || 0)), lv = lessonOn("mapView") || null, lit = !!(lv && lv.goOnly);
     el.className = "mapplate f-plank " + (A.place[0] > 256 ? "left" : "right");
@@ -2681,6 +2696,36 @@
     el.querySelectorAll(".party button").forEach(b => b.addEventListener("click", () => goLevel(A, +b.dataset.b)));
     $("plateBack").addEventListener("click", closePlate);
     if (!coarse) { const g = $("goAlone"); if (g && !g.disabled) g.focus(); }
+  }
+  // (design pass 36, build 27) the Arena's plate: ✕, its name, its line (shut: clear the castle first), and To the Gate of Champions
+  function renderArenaPlate(el, A) {
+    const W = MT.SPEC.words, AW = W.arena || {}, st = areaStates()[A.id], shut = st === "shut", lv = lessonOn("mapView") || null, lit = !!(lv && lv.goOnly);
+    el.className = "mapplate f-plank " + (A.place[0] > 256 ? "left" : "right");
+    el.setAttribute("aria-label", A.name);
+    el.innerHTML = '<button type="button" class="x' + (lit ? " off" : "") + '" id="plateBack" aria-label="Back to the map">✕</button><h5></h5><div class="line"></div>'
+      + '<button type="button" class="f-ember alone" id="goArena"' + (shut || lit ? " disabled" : "") + '>' + esc(AW.go || "To the Gate of Champions") + '</button>';
+    el.querySelector("h5").textContent = A.name; el.querySelector(".line").textContent = shut ? (AW.shut || W.shut.replace("{name}", "the Troll Castle")) : (AW.open || A.line);
+    el.hidden = false;
+    $("goArena").addEventListener("click", () => goArena(A));
+    $("plateBack").addEventListener("click", closePlate);
+    if (!coarse) { const g = $("goArena"); if (g && !g.disabled) g.focus(); }
+  }
+  // To the Gate of Champions: as Go, to the Battlegrounds page's ?area=arena (no brothers; the house's knights are the Arena's own)
+  function goArena(A) {
+    if (map.going || state.room !== "map" || session.leaving) return null;
+    map.going = { area: A.id, t0: map.t };
+    const url = MT.levelUrl({ area: A.area || "arena" }, 0, cellarUrl());
+    gryHush();
+    session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
+    save();
+    const sent = writeHandoff(null);
+    markWent("road");
+    window.TheForge.wentDown = { url, sent, try: null, how: "push", level: "arena", brothers: 0 };
+    lessonOn("go", "arena", 0);
+    const quick = reduce || params.get("harness") === "1";
+    const leave = () => { if (stay) return; popMap(() => { session.leaving = true; window.location.href = url + "#from=forge"; }); };
+    setTimeout(() => { $("mapCurtain").classList.add("on"); setTimeout(leave, quick ? 0 : 320); }, quick ? 0 : 250);
+    return url;
   }
   // Go (pass 25 section 4.5, pass 26 row 11): the knight takes two steps into the place, the soot curtain falls, the handoff and the save
   // are written, the Map Table's history entry comes off, and the level's address is pushed plainly with #from=forge

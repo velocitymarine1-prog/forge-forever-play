@@ -255,7 +255,7 @@
     paintCountry(this);
     paintFurniture(this);
     paintProps(this);
-    this.pieces = [castlePiece(this), homePiece(this), capitalPiece(this)].concat(spec.candles.map(([x, y]) => candlePiece(this, x, y)));
+    this.pieces = [castlePiece(this), homePiece(this), capitalPiece(this)].concat(spec.candles.map(([x, y]) => candlePiece(this, x, y))).concat(spec.areas.some(a => a.look === "arena") ? [arenaPiece(this)] : []);   // (design pass 36: the Arena's colosseum, after the candles so their places in the list hold)
     for (const c of spec.candles) this.lights.push({ kind: "candle", x: c[0], y: c[1] - 16, r: 120 });
     const hm = spec.home.model;
     this.lights.push({ kind: "fire", x: this.SX + CAMP.fire[0], y: this.SY + CAMP.fire[1], r: 16 }, { kind: "fire", x: this.SX + hm[0] + 44, y: this.SY + hm[1] + 20, r: 10 },
@@ -961,6 +961,27 @@
   ];
   const ship = () => rows(SHIP, { o: OUT, q: "#ead4aa", r: "#a22633", b: R.oak[2], a: R.oak[1] }, 5, 9);
   // a candle on its brass dish: wax lit on the left, a drip, the flame live (drawn as a piece so the figures never pass under it)
+  // (design pass 36, build 27) the Arena: a round colosseum of ashlar on the sands' northern edge, seen from the front and a little above:
+  // two tiers of arcade arches, the sand of its floor inside the oval, a dark gate at the front, a red pennant on a pole; outlined in
+  // soot as the map's models are. Its model point is the piece's top left (spec areas[].model); the place is the oval's middle
+  function arenaPiece(room) {
+    const A = room.spec.areas.find(a => a.look === "arena"), at = A.model, ox = at[0], oy = at[1], P = new Piece(room.SX + ox, room.SY + oy, 44, 30, room.SY + oy + 26), g = P.layer;
+    const st = R.tstone, sd = ["#e8b796", "#ead4aa"], cx = 22, cy = 17;
+    const ell = (x0, y0, rx, ry, c) => { for (let y = -ry; y <= ry; y++) for (let x = -rx; x <= rx; x++) if ((x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1) g.set(x0 + x, y0 + y, c); };
+    ell(cx, cy + 2, 17, 8, OUT); ell(cx, cy - 5, 17, 8, OUT); for (let y = cy - 5; y <= cy + 2; y++) for (let x = cx - 17; x <= cx + 17; x++) g.set(x, y, OUT);
+    ell(cx, cy + 2, 16, 7, st[1]); for (let y = cy - 5; y <= cy + 2; y++) for (let x = cx - 16; x <= cx + 16; x++) g.set(x, y, x < cx - 6 ? st[2] : x > cx + 8 ? st[0] : st[1]);
+    ell(cx, cy - 5, 16, 7, st[1]); ell(cx, cy - 6, 15, 6, st[2]);
+    ell(cx, cy - 5, 10, 4, sd[0]); ell(cx, cy - 5, 9, 3, sd[1]);
+    for (let x = cx - 14; x <= cx + 14; x += 3) { const dip = Math.abs(x - cx) > 10 ? -1 : 0; g.set(x, cy + 2 + dip, "#262b44"); g.set(x, cy + 3 + dip, "#262b44"); g.set(x, cy - 2 + dip, st[3]); g.set(x, cy - 1 + dip, "#262b44"); }
+    for (let y = cy; y <= cy + 1; y++) for (let x = cx - 16; x <= cx + 16; x++) if (g.px[y * P.w + x] !== OUT) g.set(x, y, st[3]);
+    for (let y = cy + 4; y <= cy + 8; y++) for (let x = cx - 1; x <= cx + 1; x++) g.set(x, y, "#262b44");
+    for (let y = cy - 16; y <= cy - 6; y++) g.set(cx + 12, y, OUT);
+    for (let x = cx + 13; x <= cx + 18; x++) for (let y = cy - 16; y <= cy - 14; y++) g.set(x, y, y === cy - 16 ? R.crimson[2] : R.crimson[1]);
+    g.set(cx + 13, cy - 13, R.crimson[0]); g.set(cx + 14, cy - 13, R.crimson[0]);
+    room.banners.push({ x: room.SX + ox + cx + 12, y: room.SY + oy + cy - 17, kind: "pennant" });
+    room.marks.push({ area: A.id, what: "colosseum", box: [ox + cx - 17, oy + cy - 17, ox + cx + 18, oy + cy + 10] });
+    return P;
+  }
   function candlePiece(room, x, y) {
     const P = new Piece(x - 8, y - 22, 17, 24, y + 2), g = P.layer;
     for (let yy = 16; yy <= 23; yy++) for (let xx = 0; xx <= 16; xx++) { const d = Math.hypot(xx - 8, (yy - 19.5) * 2); if (d <= 8.5) g.set(xx, yy, d > 7.5 ? OUT : d > 5.5 ? (xx < 7 ? "#fee761" : "#feae34") : "#be4a2f"); }
@@ -974,11 +995,19 @@
   // ------------------------------------------------------------------ the rules: an area's state and its rows (the build tests these)
   // cleared: a set (or an object of id: true) of the level ids cleared, the runs still waiting to be paid counted in by the page
   function isCleared(cleared, id) { return !!id && (cleared instanceof Set ? cleared.has(id) : !!(cleared && cleared[id])); }
+  // (design pass 36, build 27) a level still marked soon (the Throne) stands for the last built level of its area (the Keep): what opens
+  // after it opens after that one, until it is built (Isaac's call, pass 36 section 8)
+  function standIn(id) {
+    for (const A of (SPEC.areas || [])) { const L = (A.levels || []).find(l => l.id === id); if (!L) continue; if (!L.soon) return id; const built = (A.levels || []).filter(l => !l.soon); return built.length ? built[built.length - 1].id : id; }
+    return id;
+  }
+  const clearedOrStandIn = (cleared, id) => isCleared(cleared, id) || (standIn(id) !== id && isCleared(cleared, standIn(id)));
   // soon: no level built; shut: built, but the level it opens after is not cleared; open; won: its last level (wonBy) cleared
   function areaState(A, cleared) {
+    if (A.pvp) return A.opensAfter && !clearedOrStandIn(cleared, A.opensAfter) ? "shut" : "open";   // (design pass 36) the Arena: never soon, never won
     const built = (A.levels || []).filter(L => !L.soon);
     if (!built.length) return "soon";
-    if (A.opensAfter && !isCleared(cleared, A.opensAfter)) return "shut";
+    if (A.opensAfter && !isCleared(cleared, A.opensAfter)) return "shut";   // (the stand-in rule is the Arena's alone: the Frostpeaks wait for the Throne)
     if (A.wonBy && isCleared(cleared, A.wonBy)) return "won";
     return "open";
   }

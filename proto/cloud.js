@@ -117,6 +117,12 @@
   }
 
   // ------------------------------------------------------------------ the wire
+  // (build 27) socket(path): a WebSocket to the API (wss when the API is https; the same site when the switch is a path), for the
+  // arena's queue and bouts (proto/wire.js); throws where WebSocket is missing
+  function socket(path) {
+    const base = /^https?:\/\//i.test(API) ? API : root.location.origin + API;
+    return new root.WebSocket(base.replace(/^http/i, "ws") + path);
+  }
   async function call(method, path, body, ms, headers) {
     const ctl = typeof root.AbortController === "function" ? new root.AbortController() : null;
     const t = ctl ? root.setTimeout(() => ctl.abort(), ms || 10000) : 0;
@@ -469,6 +475,7 @@
     canBench() { return on && !!state.smith && (state.smith.role === "dev" || state.smith.role === "admin"); },
     touch, adopt: r => adopt(r, false), newKey, claim, erase, deleteGame, foot, onNote,
     call,   // (build 24) the Roll's claims and reads go through the same wire, with the token
+    socket, token,   // (build 27, design pass 36) the arena's wire: a WebSocket to the API and the token its first message carries
     // for the checks: what would be sent, and the bookkeeping
     collect, readSync, send
   };
