@@ -256,13 +256,14 @@
     if (state.room === "map" && map.pushed) { popMap(() => goHomeNow()); return { to: "menu", how: "popmap" }; }
     return goHomeNow();
   }
-  function goHomeNow() {
+  // (build 29, design pass 37: query is the menu's ?intro=1, the opening again from Settings' The story so far)
+  function goHomeNow(query) {
     if (state.forging || state.pouring || session.leaving) return null;
     gryHush(); closeFolk(); saveYardMark();
     session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
     save();
     writeHandoff(null);
-    const url = menuUrl();
+    const url = menuUrl() + (query || "");
     const went = window.Nav ? Nav.go("menu", url, { stay }) : { to: "menu", url, how: "push" };
     window.TheForge.wentTo = went;
     if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
@@ -2421,7 +2422,7 @@
   function setHands(front, back) { session.equipped = [front, back].filter(Boolean); session.active = 0; save(); renderPegs(); }
   // ------------------------------------------------------------------ the Roll's plank (design pass 29 section 3.6, build 24)
   // The folk's plank headed by the Roll's crest: the board's title, a line saying where you stand, a bar (your ★, what counts, how
-  // fresh), the top 50 knights as rows (a rank plate gold, silver and bronze for the first three, the name, when they last forged a
+  // fresh), the top 50 Outlanders as rows (the word for every player since design pass 37; a rank plate gold, silver and bronze for the first three, the name, when they last forged a
   // first, a ★ tag with the count), your row lit and flashed once, and pinned under the list with your real rank when you are outside
   // it. Online: the copy kept from the last read at once under Reading the Roll…, the queue settled first (2.5 s at most), then the
   // answer; offline or signed out, the kept copy dimmed with its line. With the cloud off: the world of one's own Roll (Roll.local)
@@ -2997,6 +2998,7 @@
       rows: lessonOn("settingsRows") || [], onRename(r) { lessonOn("renamed", r); },   // (build 8: Skip the lessons while they run; Your name)
       onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); if (name === "forced") { turn.forced = on; fitTurn(); } },
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
+      onStory() { goStory(); },   // (build 29, design pass 37) The story so far: the opening again on the menu page
       onClose: closeSettings
     });
   }
@@ -3004,6 +3006,8 @@
     // (a player's page keeps the bench hidden, outside Settings: renderInfo writes into it, and in phase 1 the save is the phone's anyway)
     Cloud.ready.then(() => { const b = $("bench"); if (!b) return; if (benchOk() && settings && settings.addSection) { b.hidden = false; settings.addSection(b); } else b.hidden = true; });
   }
+  // (build 29, design pass 37) the opening again: out through the house's way with the menu's ?intro=1 (its last line comes back here)
+  function goStory() { if (state.forging || state.pouring || session.leaving) return null; closeSettings(); const went = goHomeNow("?intro=1"); if (window.TheForge) window.TheForge.wentStory = went; return went; }
   $("setBtn").addEventListener("click", () => { if ($("setPlank").hidden) openSettings(false); else closeSettings(); });
   $("homeBtn").addEventListener("click", () => goHome());
   window.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setPlank").hidden) { e.preventDefault(); if (settings && settings.asking) settings.closeErase(); else closeSettings(); } });
@@ -3084,7 +3088,7 @@
       say: grySay, tap: gryTap, hush: gryHush, figure: gryFigure, place: gryPlace, open: gryOpen, meet: gryMeet, quiet: gryQuiet } };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderArmory(); renderInfo(); }
   // (build 8, design pass 16) what forge-lessons.js reaches besides the above
-  Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, plural, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, lessons: null });
+  Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, plural, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, goStory, lessons: null });   // (build 29: goStory, the opening again)
   // (build 17, design pass 26 section 3.3) where the page opens: ?room= for the checks; else the note in the address (menu, cellar, a
   // level), read here before nav.js takes it out, so a reload never looks like a new arrival; else the mark of where the page went
   // (ffWent: the cellar, the road); else the room and spot it last saved (ffYard); else the courtyard at the menu's spot
