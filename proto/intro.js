@@ -646,9 +646,9 @@
     function inkCheck() { const l = line(); const on = !!l.ink && panel().kind === "story" && (still() || st.beat >= st.lineBeat + 6); if (story.classList.contains("ink") !== on) story.classList.toggle("ink", on); }
     function render(entering) {
       const p = panel(), l = line(), kind = p.kind, hasField = fieldLine(l), hasBtn = !!l.button;
-      if (o.sign) { const show = kind === "title"; o.sign.hidden = !show; o.sign.classList.toggle("rise", show && entering && !still()); }
+      if (o.sign) { const show = kind === "title"; o.sign.hidden = !show; if (show && entering && !still()) rise(o.sign); else o.sign.classList.remove("rise"); }
       story.hidden = kind !== "story";
-      if (kind === "story") { story.textContent = l.words || ""; if (entering && !still()) { story.classList.remove("rise"); void story.offsetWidth; story.classList.add("rise"); } }
+      if (kind === "story") { story.textContent = l.words || ""; if (entering && !still()) rise(story); }
       inkCheck();
       const talk = kind === "talk" || kind === "name";
       box.hidden = !talk;
@@ -661,7 +661,7 @@
         tapEl.textContent = (WORDS.continue || {})[desktop ? "desktop" : "touch"] || "TAP TO CONTINUE";
         if (hasBtn) btn.textContent = st.replay ? (WORDS.back || "Back to the menu") : (WORDS.into || "Into the castle");
         if (hasField) { field.value = ""; why.textContent = ""; go.disabled = true; go.classList.remove("glow"); }
-        if (entering && !still()) { box.classList.remove("rise"); void box.offsetWidth; box.classList.add("rise"); }
+        if (entering && !still()) rise(box);
         if (entering && desktop && hasField) { try { field.focus({ preventScroll: true }); } catch (e) { /* not now */ } }
         if (entering && desktop && hasBtn) { try { btn.focus({ preventScroll: true }); } catch (e) { /* not now */ } }
       }
@@ -689,6 +689,9 @@
     }
     // the next line of the picture, skipping the name's line once the name is known (a replay, a resumed book)
     function nextLine() { const ls = panel().lines; let n = st.line + 1; while (n < ls.length && fieldLine(ls[n]) === false && ls[n].field && (st.named || st.replay)) n++; return n < ls.length ? n : -1; }
+    // the rise (the lessons' three steps): the class comes off again once the animation is over, so the element stands at rest with no
+    // animation on it (a browser that never plays it, the headless harnesses, would leave it at the first frame's opacity)
+    function rise(el) { el.classList.remove("rise"); void el.offsetWidth; el.classList.add("rise"); win.setTimeout(() => { if (!st.destroyed) el.classList.remove("rise"); }, 340); }
     function nudge() { if (still()) return; box.classList.remove("nudge"); void box.offsetWidth; box.classList.add("nudge"); win.setTimeout(() => box.classList.remove("nudge"), 220); }
     // tap(): a tap anywhere (the page's click on the game root, Enter, Space or the right arrow)
     function tap() {
