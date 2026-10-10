@@ -23,8 +23,11 @@
 // perPush) x gain, the spring and damp, the tilt capped at max), summed over the hits of the last second (the spring is linear).
 //   Drill.plan(thing)            the play: { form, melee, dummyX, cycle, hits: [t...], segs, still } (still: the first hit's moment)
 //   Drill.frameAt(thing, t)      { px, W, H } the stage at t seconds (px: W x H colours or null), pure
-//   Drill.words(thing)           { damage, strengths }: "steel, in a slow, heavy arc. Stuns." and "knocks back, hits hard." from the
-//                                weapon's record and spec/folk.json's drill word tables
+//   Drill.words(thing)           { damage, strengths, signature }: "steel, in a slow, heavy arc. Stuns.", "knocks back, hits hard." from
+//                                the weapon's record and spec/folk.json's drill word tables, and (design pass 38) the class's signature
+//                                line from spec/signatures.json ("HAMMER · STAGGER. 45 poise a blow: ...")
+//   Drill.poiseAt(thing, t)      (design pass 38) the dummy's poise bar at t: { q (0 to 1), broken (just shattered), shards }: each hit
+//                                takes the class's poise from a 40-poise dummy; at 0 it shatters and stays empty till the cycle's end
 //   Drill.mount(canvas, thing, o) the page's loop on requestAnimationFrame: { stop(), seek(t), t(), thing }; o.reduce draws one
 //                                still (the first hit) and never loops
 // Plain script, defines window.Drill (module.exports in node). Reads window.Knight, PixelForge, Combos, Cellar, Smithy, FORGE_COMBAT,
@@ -35,7 +38,7 @@
   const OUT = "#181425", N = 32, DUMMY = 32, DUMMY_CHEST = 14, SHADOW_W = 7;
   const FLASH = 0.06;
   const FIRE = ["#fff6c8", "#fee761", "#feae34", "#f77622"];
-  const mods = () => ({ K: root.Knight, PF: root.PixelForge, C: root.Combos, CE: root.Cellar, S: root.Smithy, G: root.FORGE_GRAMMAR, CB: root.FORGE_COMBAT, FK: root.FORGE_FOLK });
+  const mods = () => ({ K: root.Knight, PF: root.PixelForge, C: root.Combos, CE: root.Cellar, S: root.Smithy, G: root.FORGE_GRAMMAR, CB: root.FORGE_COMBAT, FK: root.FORGE_FOLK, SG: root.Signatures });
   const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -249,6 +252,7 @@
       const rows = f ? [".bbb.", "bwWwb", "bWwWb", "bwWwb", ".bbb."] : [".bbb.", "bwwwb", "bwWwb", "bwwwb", ".bbb."], pal = { b: "#8b9bb4", w: "#c0cbdc", W: "#ffffff" };
       for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) { const ch = rows[j][i]; if (ch === ".") continue; if (!alpha && (i + j) % 2) continue; put(x + i - 2, y + j - 2, pal[ch]); }
     }
+    const pb = poiseAt(thing, P, uu); if (pb) drawPoise(put, P.dummyX, FEET + 3, pb);   // (design pass 38) the poise bar under the dummy's feet, over everything (a smear would hide it)
     return { px, W, H, seg: s.kind, u, t };
   }
   const bboxCache = new Map();
@@ -260,15 +264,33 @@
     bboxCache.set(key, b); return b;
   }
 
+  // ------------------------------------------------------------------ the poise bar under the dummy (design pass 38)
+  // a 40-poise dummy; each hit of the cycle takes the class's poise (the third blow of a melee chain the finisher's); the bar breaks the
+  // first time it reaches 0 and stays empty (its shards flying for 0.4 s) until the cycle starts over
+  const POISE_W = 14, DUMMY_POISE = 40;
+  function poiseAt(thing, P, u) {
+    const { SG } = mods(); if (!SG || !SG.on || !SG.on()) return null;
+    const cls = SG.classOfThing(thing), C = SG.sigOf(cls), fin = (typeof C.finisherPoise === "number" ? C.finisherPoise : C.poise * 1.5);
+    let left = DUMMY_POISE, brokeAt = null;
+    P.hits.forEach((h, i) => { if (h > u || brokeAt !== null) return; const third = P.melee && i === 2; left -= third ? fin : C.poise; if (left <= 0) { left = 0; brokeAt = h; } });
+    return { q: left / DUMMY_POISE, brokeAt, shards: brokeAt !== null && u - brokeAt < 0.4 ? (u - brokeAt) / 0.4 : null, cls };
+  }
+  function drawPoise(put, x, y, pb) {
+    const w = POISE_W, x0 = Math.round(x - w / 2), f = pb.q > 0 ? Math.max(1, Math.round((w - 2) * Math.min(1, pb.q))) : 0;
+    for (let i = 0; i < w; i++) { put(x0 + i, y + 1, OUT); put(x0 + i, y, i === 0 || i === w - 1 ? OUT : (i - 1 < f ? "#feae34" : "#3e2731")); }
+    if (pb.shards !== null) { const q = pb.shards; for (let i = 0; i < 6; i++) { const a = -Math.PI * (0.15 + 0.7 * i / 5), v = 26 + ((i * 7) % 5) * 4; put(x + Math.cos(a) * v * q * 0.4, y - 1 + Math.sin(a) * v * q * 0.4 + 70 * (q * 0.4) ** 2, i % 3 ? "#feae34" : "#fee761"); } }
+  }
+
   // ------------------------------------------------------------------ the words under the stage
   function words(thing) {
-    const { G, FK } = mods(), D = (FK || {}).drill || {}, w = thing.weapon || {}, form = w.form || "slash";
+    const { G, FK, SG } = mods(), D = (FK || {}).drill || {}, w = thing.weapon || {}, form = w.form || "slash";
     const el = (D.elements || {})[w.element] || w.element || "steel", phrase = (D.forms || {})[form] || "";
     const st = (w.status || []).map(s => (D.statuses || {})[s]).filter(Boolean);
     const damage = el + (phrase ? ", " + phrase : "") + "." + (st.length ? " " + cap(st.join(" and ")) + "." : "");
     const uses = (((G || {}).forms || {})[form] || {}).uses || Object.keys(w.numbers || {}), nums = w.numbers || {};
     const top = uses.map((k, i) => [k, nums[k] | 0, i]).sort((a, b) => (b[1] - a[1]) || (a[2] - b[2])).slice(0, 2).map(([k]) => (D.strengths || {})[k]).filter(Boolean);
-    return { damage, strengths: top.length ? top.join(", ") + "." : "" };
+    const signature = SG && SG.on && SG.on() ? (SG.words.plaqueLine(SG.classOfThing(thing)) || "") : "";   // (design pass 38)
+    return { damage, strengths: top.length ? top.join(", ") + "." : "", signature };
   }
 
   // ------------------------------------------------------------------ the page's loop
@@ -291,7 +313,7 @@
     return { stop() { stopped = true; if (raf) root.cancelAnimationFrame(raf); }, seek(at) { t0 = 0; stopped = true; if (raf) root.cancelAnimationFrame(raf); draw(at); }, t: () => t, thing, plan: P, still: false };
   }
 
-  const api = { W, H, FLOOR, FEET, KX, DX_MELEE, DX_FAR, DX_ORBIT, plan, frameAt, words, mount, ground, wobbleAt, version: 1 };
+  const api = { W, H, FLOOR, FEET, KX, DX_MELEE, DX_FAR, DX_ORBIT, plan, frameAt, words, mount, ground, wobbleAt, poiseAt: (thing, t) => { const P = plan(thing); return poiseAt(thing, P, ((t % P.cycle) + P.cycle) % P.cycle); }, version: 2 };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Drill = api;
 })(typeof window !== "undefined" ? window : globalThis);

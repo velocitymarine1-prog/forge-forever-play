@@ -720,7 +720,17 @@
     for (const Q of W.plats) { if (!inPlat(Q, b.x, b.y)) continue; const h = platZ(Q, b.x, b.y); if (h <= z0 + 1e-9 && h >= z1 && h > lz) { land = Q; lz = h; } }
     const g = groundAt(W, b.x, b.y);
     if (!underSolid(W, b.x, b.y) && g.z >= z1 && g.z > lz) { land = null; lz = g.z; }   // the ground it falls through this step, or ground already above it (a push carried it out of a hole's bowl under the bank): it lands at once, never falling on under the world
-    if (lz === -FAR) { b.z = z1; return; }
+    if (lz === -FAR) {
+      // under a solid with no surface to meet (a body that slipped under a gallery's edge at a stair's foot: the ground is there but a
+      // solid stands over it, and nothing lands under the world's solids): it never falls on for ever; at the ground's level it goes to the
+      // nearest free point and lands there (design pass 38's build: the hall's east gallery stair, found by the clumsy squire's sim)
+      if (z1 < -1e-6 && !g.hole && underSolid(W, b.x, b.y)) {
+        freePoint(W, b, (W.N.free || {}).max); b.air = false; b.vz = 0; b.z = groundAt(W, b.x, b.y).z; b.on = null;
+        out.push({ kind: "land", H: Math.max(0, b.fallFrom - b.z), hole: null, structure: !!b.structFall, x: b.x, y: b.y, z: b.z }); b.structFall = false;
+        return;
+      }
+      b.z = z1; return;
+    }
     let hole = !land && g.deep ? g.hole : null;
     b.air = false; b.vz = 0; b.z = lz; b.on = land ? land.id : null;
     if (hole && b.catches) { freePoint(W, b); b.z = groundAt(W, b.x, b.y).z; hole = null; }

@@ -28,7 +28,8 @@
   const FACINGS = ["right", "left", "away", "toward"];
   const DRAWING = { right: ["side", false], left: ["side", true], away: ["up", false], toward: ["down", false] };
   const ANIMS = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, bonk: 1, hurt: 1, down: 1, crawl: 2, climb: 2, fall: 1, teeter: 1,
-    raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1 };   // pass 20: the combo's poses
+    raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1,   // pass 20: the combo's poses
+    guard: 1, reel: 1 };   // pass 38: the Guard (the weapon raised before the body) and the poise reel (thrown back, the arms low)
   // the seats' colours (design pass 12 section 3.12): none green, so no knight reads as a troll, none red, so none reads as a warning.
   // SEATS is the colour itself; SEAT_RAMP lights it for the plume (dark, the colour, lit, glint)
   const SEATS = ["#ffffff", "#2ce8f5", "#fee761", "#b55088"];
@@ -325,6 +326,19 @@
     const stand = d => d === "side"
       ? [{ x: 13, y0: 24, y1: 29, boot: [12, 16], far: true }, { x: 15, y0: 24, y1: 29, boot: [15, 19] }]
       : [{ x: 12, y0: 24, y1: 29, boot: [11, 14] }, { x: 17, y0: 24, y1: 29, boot: [17, 20] }];
+    // (pass 38) the Guard: the feet set, the weapon arm raised before the body with the fist at chest height, the helm tucked
+    if (anim === "guard") {
+      if (side) return { hip: 20, lean: 0, head: [0, 1], legs: [{ x: 11, y0: 24, y1: 29, boot: [10, 14], far: true }, { x: 17, y0: 24, y1: 29, boot: [17, 21] }],
+        arms: [{ seg: [16, 15, 22, 11], fist: [22, 8, 24, 10] }], hand: [23, 9] };
+      if (drawing === "up") return { hip: 20, head: [0, 1], legs: stand(drawing), arms: [{ seg: [8, 15, 7, 11], fist: [6, 7, 8, 9] }, { x0: 22, y0: 15, x1: 24, y1: 20, fist: [22, 21, 24, 22] }], back: true, hand: [7, 8] };   // (from behind: the raised arm on the left, as the other poses mirror)
+      return { hip: 20, head: [0, 1], legs: stand(drawing), arms: [HANG_L, { seg: [23, 15, 24, 11], fist: [23, 7, 25, 9] }], hand: [24, 8] };
+    }
+    // (pass 38) the poise reel: thrown back on the heels, the helm knocked back, the weapon arm dropped low behind
+    if (anim === "reel") {
+      if (side) return { hip: 21, lean: -2, head: [-2, 1], legs: [{ x: 9, y0: 25, y1: 29, boot: [8, 12], far: true }, { x: 15, y0: 25, y1: 29, boot: [15, 19] }],
+        arms: [{ x0: 8, y0: 15, x1: 10, y1: 22, fist: [8, 23, 10, 24], behind: true }], hand: [9, 23] };
+      return { hip: 21, head: [0, 1], legs: stand(drawing), arms: [{ x0: 6, y0: 15, x1: 8, y1: 22, fist: [6, 23, 8, 24] }, { x0: 23, y0: 15, x1: 25, y1: 22, fist: [23, 23, 25, 24] }], back: drawing === "up", hand: drawing === "down" ? [24, 23] : [7, 23] };
+    }
     if (anim === "hurt") {
       // the blink after a hit: thrown back, the arms flung up and out, the helm knocked back
       if (side) return { hip: 21, lean: -2, head: [-1, 0], legs: [{ x: 14, y0: 24, y1: 29, boot: [13, 17], far: true }, { x: 16, y0: 24, y1: 29, boot: [16, 20] }],
@@ -372,7 +386,7 @@
       arms: [{ x0: 3, y0: 13, x1: 8, y1: 15, fist: [1, 12, 2, 15] }, { x0: 23, y0: 16, x1: 28, y1: 18, fist: [29, 15, 30, 18] }],
       back: drawing === "up", hand: drawing === "down" ? [29, 16] : [2, 13] };
   }
-  const MORE = { hurt: 1, down: 1, crawl: 1, climb: 1, fall: 1, teeter: 1, raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1 };   // (pass 20: the combo's poses)
+  const MORE = { hurt: 1, down: 1, crawl: 1, climb: 1, fall: 1, teeter: 1, raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1, guard: 1, reel: 1 };   // (pass 20: the combo's poses; pass 38: guard and reel)
 
   // ------------------------------------------------------------------ the overlays
   // made from a frame's own pixels, for any square grid of n (a troll's too): burning, 3 px tongues of flame, #f77622 over #feae34,

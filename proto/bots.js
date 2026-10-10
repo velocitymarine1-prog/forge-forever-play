@@ -231,7 +231,12 @@
   }
 
   // ------------------------------------------------------------------ a bot
-  function newBot(seat, N, who) { return { seat, who, N, think: 0, mode: "follow", tid: null, lift: null, path: null, evade: null, queue: [], seen: {}, swapT: 0, goal: null }; }
+  function newBot(seat, N, who) { return { seat, who, N, think: 0, mode: "follow", tid: null, lift: null, path: null, evade: null, queue: [], seen: {}, swapT: 0, goal: null, hold: null }; }
+  // (design pass 38) the bots' Guard: spec/signatures.json bots: the chance a bot parries a parryable melee wind-up aimed at it (by its name;
+  // the squire by its own, the clumsier squire less), else the chance it guards through the blow when its poise allows the block
+  const sigBots = () => { const S = root.FORGE_SIGNATURES; return S && S.on !== false && S.bots ? S : null; };
+  const parryChance = bot => { const S = sigBots(); if (!S) return 0; const P = S.bots.parry || {}; if (bot.who === "squire") return bot.N.clumsy === true ? (P.clumsy || 0) : (P.squire || 0); return P[bot.name] !== undefined ? P[bot.name] : 0; };
+  const guardChance = bot => { const S = sigBots(); if (!S) return 0; const G = S.bots.guard || {}; if (bot.who === "squire") return bot.N.clumsy === true ? (G.clumsy || 0) : (G.squire || 0); return G.brother || 0; };
   // a telegraph starts (the last step's events): a melee wind-up whose area covers me, a slam's ring I stand in, a charge's strip I stand on
   // (dodged, dodgeMelee), an aim line on me (stepped off, stepOffLine), a burn on me (rolled out, rollBurning); each rolled once, then
   // done 0.25 to 0.40 s later (the squire 0.20 to 0.35)
@@ -260,7 +265,14 @@
       } else {
         const atk = attackOf(f, e.attack), reach = (atk.reach || atk.range || 22) + k.r + 8;
         if (atk.projectile) return;   // a shot's draw is no melee wind-up: its aim line is answered below (section 3.7a's "steps off an aim line"), never a dodge away from a troll it must close on
-        if ((e.seat === k.seat || dist(k.x, k.y, f.x, f.y) <= reach) && Math.abs((k.z || 0) - (f.z || 0)) <= 12) roll(N.dodgeMelee, "dodge", ax, ay);
+        if ((e.seat === k.seat || dist(k.x, k.y, f.x, f.y) <= reach) && Math.abs((k.z || 0) - (f.z || 0)) <= 12) {
+          // (design pass 38) a parryable blow aimed at me: a parry by my chance (a Guard press timed so the window covers the landing), else
+          // a guard through it when my poise allows the block, else the dodge as ever; a blow that cannot be parried (red) is dodged
+          const S = sigBots(), M = S ? ((S.mobs[f.kind] || {})[e.attack] || null) : null, parryable = !!(S && e.tel && e.tel.parry === true), wind = e.wind || 0.45;
+          if (parryable && e.seat === k.seat && R() < parryChance(bot)) { const lead = S.bots.parryLead || 0.12, at = Math.max(fight.t + N.react[0], e.t + wind - lead); bot.queue.push({ at, kind: "guard", hold: lead + (S.bots.guardHold || 0.3) }); return; }
+          if (parryable && e.seat === k.seat && M && k.poiseMax > 0 && k.poise > (M.poise || 10) * (S.poise.blockedX || 1.25) && R() < guardChance(bot)) { const at = fight.t + N.react[0] + (N.react[1] - N.react[0]) * R(); bot.queue.push({ at, kind: "guard", hold: Math.max(0.1, e.t + wind - at) + (S.bots.guardHold || 0.3) }); return; }
+          roll(N.dodgeMelee, "dodge", ax, ay);
+        }
       }
     } else if (e.type === "aimLine" && e.seat === k.seat) {
       const [lx, ly] = unit(e.x1 - e.x0, e.y1 - e.y0), side = R() < 0.5 ? 1 : -1;
@@ -292,6 +304,7 @@
       if (q.at > fight.t + 1e-9) continue;
       bot.queue.splice(i, 1);
       if (q.kind === "dodge") { if (!pressed) { out.dodge = true; out.move = [q.ax, q.ay]; pressed = true; } }
+      else if (q.kind === "guard") bot.hold = { until: fight.t + q.hold };   // (design pass 38) Guard held from now for its while
       else if (q.kind === "step") bot.evade = { kind: "step", ax: q.ax, ay: q.ay, until: fight.t + q.hold };
       else bot.evade = { kind: "leave", cx: q.cx, cy: q.cy, r: q.r, until: fight.t + 1.5 };
     }
@@ -423,6 +436,7 @@
     if (k.down) { const a = nearestOf(fight.knights.filter(q => q !== k && standing(q)), k.x, k.y); if (a) out.move = toward(k, a.x, a.y, 1); return out; }
     if (k.rise > 0 || k.frozen > 0 || k.climbing || k.air) { bot.queue.length = 0; return out; }
     if (due(fight, bot, k, out)) return out;
+    if (bot.hold) { if (fight.t < bot.hold.until) out.guard = true; else bot.hold = null; }   // (design pass 38) the Guard held through a blow
     if (bot.evade) {
       const E = bot.evade;
       if (fight.t >= E.until || (E.kind === "leave" && dist(k.x, k.y, E.cx, E.cy) > E.r)) bot.evade = null;
@@ -449,7 +463,7 @@
   }
   function brotherInput(fight, party, bot, dt) { const out = brotherInput0(fight, party, bot, dt); shoulder(fight, bot, fight.knights[bot.seat], out, botsRng(fight), dt); return out; }
   function brotherInput0(fight, party, bot, dt) {
-    const k = fight.knights[bot.seat], R = botsRng(fight), out = { move: [0, 0], strike: false, swap: false, dodge: false, ability: false };
+    const k = fight.knights[bot.seat], R = botsRng(fight), out = { move: [0, 0], strike: false, swap: false, dodge: false, ability: false, guard: false };
     const held = common(fight, bot, k, R, dt, out);
     if (held) return held;
     readMarks(fight, bot, k, R);
@@ -478,7 +492,7 @@
     if (!fight.level) throw new Error("bots.js: the bots play in a level");
     knightClass(fight); botsRng(fight);
     const B = brothersSpec(), seats = opts.seats || fight.knights.filter(k => k.seat > 0 && (k.kind === "brother" || k.kind === "bench")).map(k => k.seat);
-    const P = { N: B, seats, bots: seats.map(s => newBot(s, B, "brother")),
+    const P = { N: B, seats, bots: seats.map(s => Object.assign(newBot(s, B, "brother"), { name: (fight.knights[s] || {}).name || null })),
       step(dt, input0) {
         assignLifts(fight, P);
         const out = [input0 || {}];
@@ -547,7 +561,7 @@
   }
   function squireInput(fight, Q, bot, dt) { const out = squireInput0(fight, Q, bot, dt); shoulder(fight, bot, fight.knights[0], out, Q.rng, dt); return out; }
   function squireInput0(fight, Q, bot, dt) {
-    const k = fight.knights[0], out = { move: [0, 0], strike: false, swap: false, dodge: false, ability: false };
+    const k = fight.knights[0], out = { move: [0, 0], strike: false, swap: false, dodge: false, ability: false, guard: false };
     const held = common(fight, bot, k, Q.rng, dt, out);
     if (held) return held;
     readMarks(fight, bot, k, Q.rng);
@@ -613,7 +627,7 @@
     // (design pass 27) the level's own numbers for its squire: bots.leaveFuse (the Keep's 0.8), and the clumsier squire's targets.normal.clumsy
     const LB = (fight.area || {}).bots || {}, LC = (((fight.area || {}).targets || {}).normal || {}).clumsy || {};
     const S = squireSpec(), N = Object.assign({}, S, LB.leaveFuse !== undefined ? { leaveFuse: LB.leaveFuse } : {}, opts.clumsy ? Object.assign({}, S.clumsy, LC.leaveFuse !== undefined ? { leaveFuse: LC.leaveFuse } : {}) : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;
-    const bot = newBot(0, N, "squire");
+    const bot = newBot(0, N, "squire"); if (opts.clumsy) bot.N.clumsy = true;
     const Q = { N, bot, seed, rng: rng((seed ^ seedConst("squire")) >>> 0), step(dt) { return squireInput(fight, Q, bot, dt); } };
     bot.R = Q.rng;
     return Q;

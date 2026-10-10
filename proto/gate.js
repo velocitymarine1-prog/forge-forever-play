@@ -805,7 +805,15 @@
     const a = dir * TAU / DIR, ca = Math.cos(a), sa = Math.sin(a), w = 2 * (len + wd) + 8, sp = G(w, w), c = w >> 1, hw = wd / 2;
     for (let y = 0; y < w; y++) for (let x = 0; x < w; x++) { const dx = x - c, dy = y - c, t = dx * ca + dy * sa, s = -dx * sa + dy * ca; if (t < 0 || t > len) continue; const lim = t > len - 8 ? hw * (len - t) / 8 + 1 : hw - (t < 6 ? 2 : 0); if (Math.abs(s) > lim) continue; if (Math.abs(s) > lim - 1.2 || dith(x, y, 0.35)) sp.set(x, y, RED); }
     edge(sp); return gridSprite(sp, c, c); }); };
-  TG.glint = bright => once("glint" + (bright ? 1 : 0), () => { const sp = G(5, 5); if (bright) { for (let i = 0; i < 3; i++) { sp.set(1 + i, 2, RED); sp.set(2, 1 + i, RED); } } else { sp.set(1, 1, RED); sp.set(2, 1, RED); sp.set(1, 2, RED); sp.set(2, 2, RED); } edge(sp); return gridSprite(sp, 2, 2); });
+  // (design pass 38) white for a blow the knight can parry, red (as ever) for one that can only be dodged
+  TG.glint = (bright, white) => once("glint" + (bright ? 1 : 0) + (white ? "w" : ""), () => { const sp = G(5, 5), C = white ? "#ffffff" : RED; if (bright) { for (let i = 0; i < 3; i++) { sp.set(1 + i, 2, C); sp.set(2, 1 + i, C); } } else { sp.set(1, 1, C); sp.set(2, 1, C); sp.set(1, 2, C); sp.set(2, 2, C); } edge(sp); return gridSprite(sp, 2, 2); });
+  // (design pass 38) the poise bar: a gold hairline w wide under a health bar (a dark track, the fill from the left; the fill dim while
+  // the bar is locked after a stagger), with its soot under it. Anchored like the bar, at its top centre
+  const POISE = { fill: "#feae34", dim: "#be4a2f", track: "#3e2731" };
+  SPR.poise = (w, f, dim) => { w = clamp(Math.round(w), 6, 48); f = clamp(Math.round(f), 0, w - 2);
+    return once("gpoise" + w + "|" + f + (dim ? "d" : ""), () => { const px = new Array(w * 2).fill(OUT); for (let x = 1; x < w - 1; x++) px[x] = x - 1 < f ? (dim ? POISE.dim : POISE.fill) : POISE.track; return sprite(px, w, 2, w >> 1, 0, { poise: { w, f, dim: !!dim } }); }); };
+  // the six gold fragments of a shattered bar, for the page (one sprite per fragment, 2 x 2 and 1 x 1)
+  SPR.shard = big => once("gshard" + (big ? 1 : 0), () => { const sp = G(4, 4); if (big) { sp.set(1, 1, POISE.fill); sp.set(2, 1, "#fee761"); sp.set(1, 2, POISE.dim); sp.set(2, 2, POISE.fill); } else sp.set(1, 1, "#fee761"); return gridSprite(sp, 1, 1); });
   // the moat's shimmer: four frames of 1 px glints on 1 pixel in 40, as a 48 x 48 tile drawn over the water in view (clipped to it)
   MK.shimmer = f => once("shimmer" + ((f | 0) & 3), () => { const w = 48, px = new Array(w * w).fill(null); for (let i = 0; i < w * w; i++) if (hash(i % w, (i / w) | 0, 58 + ((f | 0) & 3)) < 1 / 40) px[i] = R.water[3]; return sprite(px, w, w, 0, 0); });
   // stone pebbles for a troll's crumble, bubbles for a drowning
@@ -1204,17 +1212,20 @@
   // broken (the rules' reelUntil on the fight's clock, or f.reel) and raises its shield for 0.25 s after a block (its guard's last block, or
   // the event); its cut and the wolf's bite strike, its shield bash winds and thrusts; a wolf flies its leap and gallops over 70 px/s
   const BRUTES = { brute: 1, rockbrute: 1 };
+  // (design pass 38) a troll whose poise is broken reels: the small trolls on their reel frame, the brutes on sit, the wizard on kneel
+  const reelAnim = f => ({ anim: BRUTES[f.kind] ? "sit" : f.kind === "wizard" ? "kneel" : "reel", i: 0 });
   function trollAnim(f, t, at) {
     const A = f.act;
-    if (f.reel > 0 || (at && f.reelUntil !== undefined && at.ft < f.reelUntil - 1e-9) || (at && f.reelUntil === undefined && at.brokeAt !== undefined && at.ft - at.brokeAt < 1.2)) return { anim: "reel", i: 0 };
+    if (f.reel > 0 || (at && f.reelUntil !== undefined && at.ft < f.reelUntil - 1e-9) || (at && f.reelUntil === undefined && at.brokeAt !== undefined && at.ft - at.brokeAt < 1.2)) return reelAnim(f);
+    if (f.critOpen && f.staggered) return reelAnim(f);
     if (A && A.phase) { const k = A.kind || "", q = A.T > 0 ? clamp((A.t || 0) / A.T, 0, 0.999) : 0;
       // (design pass 27) the burster's fuse swells over its four frames; the wizard's cast, point, nova and blink; the bat's swoop
       if (k === "fuse" && A.phase === "wind") return { anim: "fuse", i: Math.floor(q * 4) };
       if (k === "blink") return { anim: "blink", i: A.phase === "wind" ? Math.min(1, Math.floor(q * 2)) : 2 };
-      if (A.phase === "wind") return { anim: k === "charge" ? "charge" : k === "stab" || k === "jab" ? "jab" : k === "heave" ? "heave" : k === "roar" ? "roar" : k === "bash" ? "bash" : k === "hexbolt" ? "cast" : k === "hexring" ? "point" : k === "nova" ? "nova" : "wind", i: 0 };
+      if (A.phase === "wind") return { anim: k === "charge" ? "charge" : k === "stab" || k === "jab" ? "jab" : k === "heave" || k === "hook" ? "heave" : k === "roar" ? "roar" : k === "bash" ? "bash" : k === "hexbolt" ? "cast" : k === "hexring" ? "point" : k === "nova" ? "nova" : "wind", i: 0 };   // (the hook's throw on the heave frames, design pass 38)
       if (k === "leap" && A.phase !== "recover") return { anim: "leap", i: 0 };
       if (A.phase === "run") return f.fly ? { anim: "strike", i: 0 } : { anim: f.kind === "burster" ? "run" : "walk", i: Math.floor(t * 10) & 3 };
-      if (A.phase === "strike" || A.phase === "loose" || A.phase === "slam") return { anim: k === "stab" || k === "jab" ? "jab" : k === "heave" ? "heave" : k === "bash" ? "bash" : k === "nova" ? "nova" : "strike", i: 1 };
+      if (A.phase === "strike" || A.phase === "loose" || A.phase === "slam") return { anim: k === "stab" || k === "jab" ? "jab" : k === "heave" || k === "hook" ? "heave" : k === "bash" ? "bash" : k === "nova" ? "nova" : "strike", i: 1 };
       // the rock slam's recover ends with the lift (A.lift s): the brute stoops to its rock in the crater, then stands with it overhead
       if (A.phase === "recover") return { anim: A.lift && (A.t || 0) >= (A.T || 0) - A.lift / 2 ? "idle" : "recover", i: 0 }; }
     if (at) { const g = f.guard && typeof f.guard.last === "number" ? f.guard.last : -1e9, b = at.blockAt === undefined ? -1e9 : at.blockAt, last = Math.max(g, b); if (at.ft >= last - 1e-9 && at.ft - last < 0.25) return { anim: "block", i: 0 }; }
@@ -1255,7 +1266,7 @@
       c.drawImage(b.flash > 0 ? fr.white() : fr.canvas(), x0, y0);
       c.globalAlpha = 1;
       const A = b.act, tel = A && A.tel ? A.tel.kind : null;
-      if (A && A.phase === "wind" && fr.tip && (tel === "glint" || !tel || (tel === "draw" && (A.kind === "bolt" || A.kind === "hexbolt")) || tel === "rings")) { const atk = A.atk || {}, bright = A.T ? A.t >= A.T - (atk.glintBright || 0.15) : false; drawAt(c, TG.glint(bright ? 1 : 0), x0 + fr.tip[0], y0 + fr.tip[1]); }
+      if (A && A.phase === "wind" && fr.tip && (tel === "glint" || !tel || (tel === "draw" && (A.kind === "bolt" || A.kind === "hexbolt")) || tel === "rings")) { const atk = A.atk || {}, bright = A.T ? A.t >= A.T - (atk.glintBright || 0.15) : false; drawAt(c, TG.glint(bright ? 1 : 0, !!(A.tel && A.tel.parry)), x0 + fr.tip[0], y0 + fr.tip[1]); }   // (design pass 38: white when the blow can be parried)
       if (b.ward && FX && FX.ward) drawAt(c, FX.ward(o.still ? 0 : Math.floor(o.t * 6) & 3), b.x, b.y - z);   // (design pass 27) the egg of light over a warded caster
       if (o.statuses) o.statuses(b, c);
     });
@@ -1425,11 +1436,14 @@
     const v = this.view, inV = (x, y) => x >= v.x0 - 24 && x <= v.x0 + this.vw + 24 && y >= v.y0 - 24 && y <= v.y0 + this.vh + 24;
     let n = 0;
     const bar = (x, y, w, q, kind, tip) => { const f = q > 0 ? Math.max(1, Math.round((w - 2) * Math.min(1, q))) : 0; drawAt(ctx, SPR.bar(w, f, kind, tip), x, y); n++; };
+    // (design pass 38) the poise bar under a body's health bar: shown while its poise is below its max, broken, or locked after a break
+    const poiseOn = b => b.poiseMax > 0 && (b.poise < b.poiseMax - 1e-9 || b.critOpen || b.poiseLock > (F.t || 0));
+    const poise = (x, y, w, b) => { if (!poiseOn(b)) return; const q = b.critOpen ? 0 : b.poise / b.poiseMax, f = q > 0 ? Math.max(1, Math.round((w - 2) * Math.min(1, q))) : 0; drawAt(ctx, SPR.poise(w, f, !b.critOpen && b.poiseLock > (F.t || 0)), x, y + 4); n++; };
     for (const f of F.foes || []) {
-      if (f.dead || f.spawn > 0 || f.gone || !(f.hp < f.hpMax - 1e-9)) continue;
+      if (f.dead || f.spawn > 0 || f.gone || !(f.hp < f.hpMax - 1e-9 || poiseOn(f))) continue;
       if (F.level && F.level.boss === f) continue;   // (design pass 27) the boss's bar is the page's plate
-      const big = !!BRUTES[f.kind], y = Math.round(f.y - (f.z || 0) - (f.h || 24) - (big ? 6 : 5));
-      if (inV(f.x, y)) bar(Math.round(f.x), y, big ? 18 : f.kind === "wolf" ? 8 : f.kind === "bat" ? 6 : 12, f.hp / f.hpMax, "red", root.Combat && root.Combat.foeRegrowing ? root.Combat.foeRegrowing(F, f) : f.regrowT > 1e-9);   // (a wolf's bar 8 px, design pass 21; a bat's 6, design pass 27)
+      const big = !!BRUTES[f.kind], y = Math.round(f.y - (f.z || 0) - (f.h || 24) - (big ? 6 : 5)), w = big ? 18 : f.kind === "wolf" ? 8 : f.kind === "bat" ? 6 : 12;
+      if (inV(f.x, y)) { bar(Math.round(f.x), y, w, f.hp / f.hpMax, "red", root.Combat && root.Combat.foeRegrowing ? root.Combat.foeRegrowing(F, f) : f.regrowT > 1e-9); poise(Math.round(f.x), y, w, f); }   // (a wolf's bar 8 px, design pass 21; a bat's 6, design pass 27)
     }
     for (const p of F.pieces || []) {
       if (p.broken || p.gone || !(p.hp < p.hpMax - 1e-9) || !PIECE_BARS[p.kind]) continue;
@@ -1439,7 +1453,7 @@
     // the gate's, over the portcullis's lower half with the guide's arrow under it (the arch's top is under the top row when the camera is low)
     const G0 = F.gate || {}, gp = (F.pieces || []).find(p => p.kind === "gate");
     if (gp && gp.active && !gp.broken && G0.down && G0.burst === null && gp.hpMax > 0) { const y = Math.round(gp.y - 36); if (inV(gp.x, y)) bar(Math.round(gp.x), y, 40, gp.hp / gp.hpMax, "red"); }
-    for (const k of F.knights) if (k !== F.k && !k.out && !k.down && !(k.rise > 0) && k.hp < k.hpMax - 1e-9) { const y = Math.round(k.y - (k.z || 0) - 30); if (inV(k.x, y)) bar(Math.round(k.x), y, 12, k.hp / k.hpMax, "green"); }
+    for (const k of F.knights) if (k !== F.k && !k.out && !k.down && !(k.rise > 0) && (k.hp < k.hpMax - 1e-9 || poiseOn(k))) { const y = Math.round(k.y - (k.z || 0) - 30); if (inV(k.x, y)) { bar(Math.round(k.x), y, 12, k.hp / k.hpMax, "green"); poise(Math.round(k.x), y, 12, k); } }
     return n;
   };
   const PIECE_BARS = { hut: 8, tent: 8, engine: 8, tower: 22 };   // how far over its height a piece's bar stands

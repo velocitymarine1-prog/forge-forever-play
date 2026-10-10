@@ -48,7 +48,7 @@
   const STONE = R.stone;
   const FACINGS = ["right", "left", "away", "toward"];
   const DRAWING = { right: ["side", false], left: ["side", true], away: ["up", false], toward: ["down", false] };
-  const SMALL = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, hit: 1, stone: 1, climb: 2, fall: 1 };
+  const SMALL = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, hit: 1, stone: 1, climb: 2, fall: 1, reel: 1 };   // (reel: design pass 38, the poise stagger of a small troll)
   const LARGE = { idle: 2, walk: 4, wind: 1, strike: 1, recover: 1, hit: 1, stone: 1 };
   // each kind: its body, its cell, its skin, its dress and weapon, and the frames its kit adds
   const KIND = {
@@ -63,11 +63,11 @@
     // design pass 21 (the Great Hall): the troll knight (its shield's block, bash and reel) and the rabid troll wolf (its gallop and its
     // leap), who never climbs
     trollknight: { body: "knight", N: 32, skin: R.green, weapon: "sword", extra: { block: 1, bash: 2, reel: 1 } },
-    wolf: { body: "wolf", N: 32, skin: R.mange, weapon: "jaws", climbs: false, extra: { run: 4, leap: 1 } },
+    wolf: { body: "wolf", N: 32, skin: R.mange, weapon: "jaws", climbs: false, extra: { run: 4, leap: 1, reel: 1 } },
     // design pass 27: the Keep's three, on bodies of their own (the sketch's frames: the wizard's cast, point, jab, nova, ward 2, kneel and
     // blink 3; the bat's fly 4 (its idle too); the burster's run 4 and fuse 4)
     wizard: { body: "wizard", N: 48, skin: R.nature, weapon: "hexstaff", extra: { cast: 1, point: 1, jab: 1, nova: 1, ward: 2, kneel: 1, blink: 3 } },
-    bat: { body: "bat", N: 32, skin: R.fur, weapon: "fangs", climbs: false, extra: { idle: 4, fly: 4 } },
+    bat: { body: "bat", N: 32, skin: R.fur, weapon: "fangs", climbs: false, extra: { idle: 4, fly: 4, reel: 1 } },
     burster: { body: "burster", N: 32, skin: R.nature, weapon: "belly", extra: { run: 4, fuse: 4 } }
   };
   const KINDS = Object.keys(KIND);
@@ -252,7 +252,7 @@
   // the near arm in the side drawing, and its weapon
   function nearArm(sp, drawing, arm, X, B, K, P) {
     const S = K.skin;
-    if (arm === "heave") { limb(sp, 16 + X, 15 + B, 21 + X + (P.pull ? -2 : 1), 20 + B, S); return null; }
+    if (arm === "heave") { limb(sp, 16 + X, 15 + B, 21 + X + (P.pull ? -2 : 1), 20 + B, S); return [21 + X + (P.pull ? -2 : 1), 20 + B]; }   // (the fist is the tip: the hook's glint sits on it, design pass 38)
     const at = {
       rest: [[16, 17], [18, 23]], raise: [[15, 16], [13, 10]], swing: [[16, 17], [22, 19]], ground: [[16, 17], [21, 23]],
       flinch: [[15, 16], [15, 21]], jab0: [[16, 17], [14, 21]], jab1: [[16, 17], [22, 19]], flail: [[16, 17], [19, 8]]
@@ -875,6 +875,7 @@
     if (anim === "strike") return { jaw: 3, lunge: 2, legs: [1, 1, 0, 0], froth: true, hackles: true };
     if (anim === "recover") return { crouch: 1, jaw: 1, legs: [0, 1, 0, 1] };
     if (anim === "hit" || anim === "stone") return { flinch: true, crouch: 1, tailDown: true, lunge: -1, hackles: true };
+    if (anim === "reel") return { flinch: true, crouch: 2, tailDown: true, lunge: -2, hackles: true };   // (design pass 38) its poise broken: flat on its belly, back on its haunches
     return { bob: i % 2, jaw: i % 2 ? 1 : 0, froth: i % 2 === 1 };   // idle: panting
   }
 
@@ -1111,6 +1112,7 @@
     if (anim === "strike") return { swept: true, mouth: 1 };
     if (anim === "recover") return { wing: 2 };
     if (anim === "hit") return { wing: 1, flinch: true };
+    if (anim === "reel") return { wing: 2, flinch: true };   // (design pass 38) pinned or broken: the wings up, flinching
     if (anim === "stone") return { folded: true };
     return { wing: [0, 1, 2, 1][i % 4] };
   }
@@ -1195,6 +1197,7 @@
     if (anim === "run") return { step: [2, 0, -2, 0][i % 4], bob: i % 2 ? 0 : 1, lean: 1, arms: "back", glow: 1 };
     if (anim === "fuse" || anim === "wind") return { swell: i, glow: 1 + i, arms: "up", smoke: 1 + (i >> 1), lean: 0 };
     if (anim === "hit" || anim === "stone") return { flinch: true, lean: -1, head: [-1, -1], arms: "back", glow: 1 };   // (the stone frame is the hit pose in stone, as every kind's)
+    if (anim === "reel") return { flinch: true, lean: -2, head: [-2, -1], arms: "back", glow: 1 };   // (design pass 38) its poise broken: further back
     return { bob: i % 2, arms: "reach", glow: 1 };
   }
   const BURSTER_ANIMS = { idle: 2, walk: 4, run: 4, fuse: 4, hit: 1, stone: 1 };
@@ -1214,6 +1217,7 @@
     if (anim === "strike") return { lean: 1, arm: body === "archer" ? "loose" : body === "brute" ? "strike" : "swing" };
     if (anim === "recover") return { lean: body === "brute" ? 2 : 1, bob: 1, arm: body === "archer" ? "lower" : "ground" };
     if (anim === "hit" || anim === "stone") return { lean: -1, head: [-1, -1], flinch: true, arm: "flinch" };
+    if (anim === "reel") return { lean: -2, head: [-1, -2], flinch: true, arm: "flinch", bob: 1 };   // (design pass 38) its poise broken: a lurch back, the head down, the weapon arm dropped
     if (anim === "climb") return { climb: i % 2, arm: "back" };
     if (anim === "fall") return { fall: true, arm: "flail" };
     if (anim === "jab") return { lean: i % 2 ? 1 : -1, arm: i % 2 ? "jab1" : "jab0" };

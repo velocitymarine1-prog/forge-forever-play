@@ -39,7 +39,7 @@
   const on = !!API && !fileUrl && !testPage && typeof root.fetch === "function";
   // cross: the server is on another site (the GitHub Pages copy): no cookie, the token alone, and no keepalive send as a page closes
   let cross = false; try { cross = /^https?:\/\//i.test(API) && new URL(API).origin !== root.location.origin; } catch (e) { cross = false; }
-  const K = { smith: "forge-forever:smith", local: "forge-forever:local:", lessons: "forge-forever:lessons:", intro: "forge-forever:intro:", sync: "forge-forever:cloud", device: "forge-forever:device",
+  const K = { smith: "forge-forever:smith", local: "forge-forever:local:", lessons: "forge-forever:lessons:", sync: "forge-forever:cloud", device: "forge-forever:device",
     note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts", hallSeen: "forge-forever:hall-seen", keepSeen: "forge-forever:keep-seen" };
   const WAIT = 4000, DEBOUNCE = 2000, GAP = 5000, RETRY = 30000, KEEPALIVE_MAX = 60000, AWAY = 60000;
   const DEV = "isaac";   // the bench's dev smith (proto/smith.js): never sent online
@@ -112,7 +112,7 @@
   function wipeLocal() {
     if (root.Settings && typeof root.Settings.eraseLocal === "function") { root.Settings.eraseLocal(); return; }
     const ks = St() && St().keys ? St().keys("forge-forever:") : [];
-    for (const k of ks) if (k.indexOf(K.local) === 0 || k.indexOf(K.lessons) === 0 || k.indexOf(K.intro) === 0) del(k);   // (build 29: the opening's record too)
+    for (const k of ks) if (k.indexOf(K.local) === 0 || k.indexOf(K.lessons) === 0) del(k);
     for (const k of [K.smith, "forge-forever:to-cellar", "forge-forever:from-cellar", K.cellarSeen]) del(k);
   }
 

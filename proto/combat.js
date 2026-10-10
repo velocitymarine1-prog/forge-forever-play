@@ -55,6 +55,14 @@
   let PHYS = null;
   function phys() { if (!PHYS) PHYS = root.Physics || (typeof require === "function" ? require("./physics.js") : null); if (!PHYS) throw new Error("combat.js needs proto/physics.js (window.Physics)"); return PHYS; }
   function use(spec, abilities, trollSpec) { DATA = spec; if (abilities) ABIL = abilities; if (trollSpec) TROLLS = trollSpec; }
+  // the class signatures (design pass 38, card t96): proto/signatures.js reads spec/signatures.json and is called at four seams (the
+  // class of a blow, a knight's hit on a troll, a troll's blow on a knight, the clocks), each a no-op when the spec is absent or off
+  // (fight.sig false: the rules of build 26 play event for event). It is handed this file's own functions through host()
+  let SIGM = null;
+  function SIG() { if (!SIGM) SIGM = root.Signatures || (typeof require === "function" ? (() => { try { return require("./signatures.js"); } catch (e) { return null; } })() : null); return SIGM; }
+  let HOSTC = null;
+  function host() { return HOSTC || (HOSTC = { emit, cancelAct, applyStatus, damage, stagger, stamp, putRam, stopStream, breakChain, drawnAt, hitPoint, data, runEnd, hurt, letGo: (fight, k) => { phys().letGo(fight.world, k, false); emit(fight, { type: "letGo", x: k.x, y: k.y, z: k.z }, k); } }); }
+  const sigOn = fight => !!(fight && fight.sig);
   // the trolls' kits and bodies (design pass 12, spec/trolls.json); a kind with a base takes every field of its base it does not set,
   // its body included, and its own resist, weak and immune lists join the trolls' common ones (a kind's own word wins: the Emberback
   // resists the fire the others are weak to)
@@ -202,7 +210,11 @@
       fight.knights.push(k);
     });
     fight.k = fight.knights[0]; fight.hands = fight.k.hands;
+    // (design pass 38) the signatures are on unless the caller, the area or the spec says not; every body gets its poise
+    fight.sig = opts.sig !== false && area.sig !== false && !area.arena && !!(SIG() && SIG().on());   // (the Arena, design pass 36, keeps its own poise and guard: never both)
+    if (fight.sig) for (const k of fight.knights) SIG().initBody(fight, k, k.kind === "brother" ? "brother" : "knight");
     (area.dummies || []).forEach((d, i) => fight.dummies.push(newDummy(d, i)));
+    if (fight.sig) for (const d of fight.dummies) SIG().initBody(fight, d, d.kind);
     if (fight.level) levelFight(fight, area);
     fight.world = phys().world(fight, fight.level ? C.physics : null, C);
     if (fight.level) levelWorld(fight);
@@ -291,6 +303,9 @@
       x: at[0], y: at[1], face: (face === undefined ? 0 : face) * RAD, active: 0, moving: false, walkT: 0, strike: null, twinQ: null, pressed: false, lastSwap: false, lastDodge: false,
       streamOn: false, holdT: 0, stream: null, gout: null, charging: false, chargeT: 0, bonk: 0, shove: null, dodge: 0, dodgeCd: 0, safe: 0, dvx: 0, dvy: 0, swapT: 0, lunge: null, trailT: 0,
       lastAbility: false, abQ: null, guardT: 0,
+      // (design pass 38) the Guard, the parry and riposte windows, the knockdown, the poise reel, hitlag, poise, the mark, the fangs' bleed
+      guarding: false, lastGuard: false, guardAt: -1e9, guardOff: -1e9, guardRel: 0, parryUntil: 0, riposteUntil: 0, knock: null, reelT: 0, lag: 0, _lag: false, critOpen: false,
+      poise: 0, poiseMax: 0, poiseAt: -1e9, poiseLock: 0, markUntil: 0, bleedN: 0, bleedAt: -1e9, bleedImm: 0, dodgeEnd: -1e9, bandUntil: 0, bandRate: 0, safeActs: false,
       hp: data().knight.hp, hpMax: data().knight.hp, hurt: 0, stagger: 0, down: null, out: false, rise: 0, secondWind: true, satchel: [] };
   }
   // a hand: one weapon's units and clocks. Its units know whose hand made them (u.knight), so a shot, a trap, a minion, a patch or a
@@ -429,6 +444,7 @@
     fight.input = input;
     const K = fight.knights;
     if (fight.steps === 1) for (const k of K) for (const h of k.hands) for (const n of h.u.notes.concat(h.u2 ? h.u2.notes : [])) logOnce(fight, n);
+    if (fight.sig) SIG().step(host(), fight, dt);   // (design pass 38) the poise clocks: regrowth, the reels' ends, the frenzy and the band
     if (fight.world.level) { levelStep(fight, dt, input); return finishStep(fight, dt, input); }
     for (const k of K) knightStep(fight, k, dt, inputOf(fight, input, k.seat));
     dummiesStep(fight, dt);
@@ -441,7 +457,7 @@
   function levelStep(fight, dt, input) {
     const P = phys(), W = fight.world, K = fight.knights;
     W.list = bodies(fight); P.begin(W, W.list);
-    for (const k of (fight.arena && (fight.steps & 1) ? K.slice().reverse() : K)) { k._mv = null; knightStep(fight, k, dt, inputOf(fight, input, k.seat)); if (!k.out && !(fight.arena && k.lag > 0)) moveBody(fight, k, k._mv, dt); }   // (design pass 36) the arena's seats take turns going first, so no side has the first blow of a tie
+    for (const k of (fight.arena && (fight.steps & 1) ? K.slice().reverse() : K)) { k._mv = null; knightStep(fight, k, dt, inputOf(fight, input, k.seat)); if (!k.out && !(fight.arena && k.lag > 0) && !k._lag) moveBody(fight, k, k._mv, dt); }   // (design pass 36) the arena's seats take turns going first, so no side has the first blow of a tie; (design pass 38) a knight in hitlag stands where it is
     dummiesStep(fight, dt);
     fieldsStep(fight, dt); deckWatch(fight, dt);
     for (const f of fight.foes.slice()) foeStep(fight, f, dt);
@@ -470,6 +486,12 @@
     const C = data(), KN = C.knight;
     if (k.out) return;   // carried off (a level): it watches from the edge until it comes back
     if (fight.arena && fight.arena.lagged(fight, k, dt, inp)) return;   // (design pass 36) hitlag: the body and its clocks stand still
+    // (design pass 38) hitlag: for a few ticks after a blow in a level the body and its clocks stand still; its presses are tracked
+    const track = () => { k.pressed = !!inp.strike; k.lastSwap = !!inp.swap; k.lastDodge = !!inp.dodge; k.lastAbility = !!inp.ability; k.lastGuard = !!inp.guard; k.moving = false; };
+    // (a press that lands inside the lag is kept, and fires when the lag ends: a dodge or a parry timed to a blow is never swallowed)
+    if (k.lag > 0) { const B = k.buf || (k.buf = {}); if (inp.dodge && !k.lastDodge) B.dodge = true; if (inp.swap && !k.lastSwap) B.swap = true; if (inp.ability && !k.lastAbility) B.ability = true; if (inp.guard && !k.lastGuard) B.guard = true; k.lag -= dt; if (k.lag <= 1e-9) k.lag = 0; k._lag = true; track(); return; }
+    k._lag = false;
+    if (k.buf) { const B = k.buf; k.buf = null; if (B.dodge) k.lastDodge = false; if (B.swap) k.lastSwap = false; if (B.ability) k.lastAbility = false; if (B.guard) k.lastGuard = false; }   // (the buffered presses read as new presses now)
     for (const h of k.hands) { h.cd -= dt; if (h.recover > 0) h.recover = Math.max(0, h.recover - dt); if (h.lungeCd > 0) h.lungeCd -= dt; if (h.acd > 0) { h.acd = Math.max(0, h.acd - dt); if (h.acd === 0) emit(fight, { type: "ready", hand: k.hands.indexOf(h) }, k); } }
     if (k.guardT > 0) k.guardT = Math.max(0, k.guardT - dt);
     if (k.dodgeCd > 0) k.dodgeCd -= dt;
@@ -480,9 +502,13 @@
     if (fight.level) statusStep(fight, k, dt);   // burning, chill and frozen (design pass 12, section 3.8)
     if (fight.arena && fight.arena.knightPre(fight, k, dt, inp)) return;   // (design pass 36) the arena's rules on a knight: poise, the guard, the lie-down, its statuses; true when it cannot act
     if (k.down || k.rise > 0 || fight.wipe) { lie(fight, k, dt, inp); return; }
+    // (design pass 38) knocked down by a troll's crit: it lies, then rises, then has its safety until it acts; nothing fires meanwhile
+    if (k.knock) { SIG().knockStep(host(), fight, k, dt); track(); return; }
     if (k.climbing || k.air) { aloft(fight, k, dt, inp); return; }
     // frozen: no walking, strike, dodge, swap or ability for its 1.0 s; its presses are tracked, so nothing fires when it thaws
     if (k.frozen > 0) { k.pressed = !!inp.strike; k.lastSwap = !!inp.swap; k.lastDodge = !!inp.dodge; k.lastAbility = !!inp.ability; k.moving = false; return; }
+    // (design pass 38) its poise broken: the reel, which no dodge ends; the first blow on it is a troll's critical
+    if (k.reelT > 0) { k.guarding = false; track(); return; }
     // a blow's stagger (a level): no walk, strike, swap or ability, and a dodge ends it (spec/combat.json knight.stagger)
     const ST = fight.arena ? fight.arena.staggerAllows : (KN.stagger || {}), staggered = k.stagger > 0;   // (design pass 36) a staggered knight in the arena does nothing, and a dodge does not end it
     // swapping takes 0.3 s: the knight sheathes and draws
@@ -495,6 +521,18 @@
       emit(fight, { type: "swap", hand: k.active, weapon: k.hands[k.active].thing.id }, k);
     }
     const hand = handOf(k), u = hand.u;
+    // (design pass 38) Guard: held, the weapon is raised; the first ticks of a press are the parry window (a shield's longer; a press within
+    // repress.within of the last release shorter); released, a blow waits guard.release. Never while the ram is carried
+    const guardHeld = !!inp.guard, guardPressed = guardHeld && !k.lastGuard; k.lastGuard = guardHeld;
+    let walkX = 1;
+    if (fight.sig) {
+      const GD = SIG().spec().guard, P = GD.parry;
+      if (guardPressed && !k.carry && k.bonk <= 0) { const ticks = fight.t - k.guardOff < P.repress.within - 1e-9 ? P.repress.ticks : SIG().classOf(u) === "shield" ? P.ticksShield : P.ticks; k.guardAt = fight.t; k.parryUntil = fight.t + ticks * (C.step || 1 / 60) - 1e-6; }
+      if (k.guarding && !(guardHeld && !k.carry)) { k.guardOff = fight.t; k.guardRel = GD.release; }
+      k.guarding = guardHeld && !k.carry;
+      if (k.guardRel > 0) k.guardRel = Math.max(0, k.guardRel - dt);
+      walkX = SIG().knightWalkX(fight, k);
+    } else k.guarding = false;
     // staggered by the quintain: pushed away, nothing else
     if (k.bonk > 0) {
       k.bonk -= dt;
@@ -507,7 +545,7 @@
     const dodge = !!inp.dodge && !k.lastDodge; k.lastDodge = !!inp.dodge;
     if (dodge && k.dodge <= 0 && k.dodgeCd <= 0 && (!staggered || ST.dodge)) {
       const a = mm > 0.05 ? Math.atan2(mv[1], mv[0]) : k.face, D = KN.dodge;
-      k.dodge = D.time; k.dodgeCd = D.cooldown; k.safe = D.safe; k.dvx = Math.cos(a) * D.px / D.time; k.dvy = Math.sin(a) * D.px / D.time;
+      k.dodge = D.time; k.dodgeCd = D.cooldown; k.safe = D.safe; k.safeActs = false; k.dvx = Math.cos(a) * D.px / D.time; k.dvy = Math.sin(a) * D.px / D.time;
       if (staggered && ST.dodgeEnds) k.stagger = 0;
       k.strike = null; k.twinQ = null; k.charging = false; k.chargeT = 0; stopStream(fight, k); breakChain(k);
       emit(fight, { type: "dodge", x: k.x, y: k.y, a }, k);
@@ -517,13 +555,13 @@
       go(fight, k, { drive: { kind: "vel", vx: k.dvx, vy: k.dvy, d } }, dt);
       k.walkT += dt; k.moving = true;
       k.pressed = !!inp.strike;
-      if (k.dodge <= 0) { k.dodgeEnd = fight.t; if (k.burn) endBurn(fight, k, "dodge"); }   // the roll puts a burn out when the dodge ends (a level); (design pass 36) the arena's pin reads when it ended
+      if (k.dodge <= 0) { k.dodgeEnd = fight.t; if (k.burn) endBurn(fight, k, "dodge"); }   // the roll puts a burn out when the dodge ends (a level); (design passes 36 and 38) the arena's and the archer's pin read when it ended
       return;
     }
     // walking: 80 px/s at full tilt, slower at partial tilt; frost_trail drops its patch where the step lands, before the resolve
     k.moving = mm > 0.05 && !k.lunge && (!staggered || ST.walk);
     if (k.moving) {
-      const tilt = Math.min(1, mm), sp = KN.speed * tilt * u.speed * (fight.arena ? fight.arena.speedX(k) : 1);   // (design pass 36) slowed, guarding
+      const tilt = Math.min(1, mm), sp = KN.speed * tilt * u.speed * (fight.arena ? fight.arena.speedX(k) : 1) * walkX;   // (design pass 36) slowed, guarding; (design pass 38) half speed guarding, the orb's field
       k.walkT += dt;
       if (!k.strike && !k.streamOn && !k.gout) k.face = Math.atan2(mv[1], mv[0]);
       const trail = u.mods.has("frost_trail") ? b => { k.trailT += dt; if (k.trailT >= C.modifiers.frost_trail.every) { k.trailT = 0; patch(fight, "frost", b.x, b.y, C.modifiers.frost_trail.radius, u.statusT, u); } } : null;
@@ -534,7 +572,8 @@
     // Strike
     const held = !!inp.strike, pressed = held && !k.pressed;
     k.pressed = held;
-    const F = C.forms[u.form], ready = k.swapT <= 0 && !k.strike && !k.gout && (!staggered || ST.strike) && !(fight.arena && fight.arena.noStrike(k));   // (design pass 36) no strike while the guard is up
+    if (k.safeActs && (pressed || guardPressed)) { k.safeActs = false; k.safe = 0; }   // (design pass 38) the knockdown's safety ends when the knight acts
+    const F = C.forms[u.form], ready = k.swapT <= 0 && !k.strike && !k.gout && (!staggered || ST.strike) && !(fight.arena && fight.arena.noStrike(k)) && !k.guarding && !(k.guardRel > 0);   // (design pass 36) no strike while the guard is up; (design pass 38) nor the signatures' Guard, nor just after it
     const next = () => false;   // design pass 10: a legend strikes with its body's form only; its head gives the ability
     // the ability: a press, when the hand has one and its clock is done; a blow in progress is cut short, as a dodge cuts it
     const abil = !!inp.ability && !k.lastAbility; k.lastAbility = !!inp.ability;
@@ -549,8 +588,8 @@
       if (!fu) return; hand.count++;
       if (!C.forms[fu.form].blow) return;
       const s = k.strike, mv = s && s.move && s.hand === k.active ? s.move : 0;
-      hand.cd = Math.max(hand.cd, -dt) + 1 / fu.rate / (fight.arena ? fight.arena.rateX(k) : 1) * (mv === 3 ? 1 + C.combos.reset : 1);   // (design pass 36) the claws' frenzy and the horn's band quicken the rate
-      if (mv && hand.combo) hand.combo.until = fight.t + Math.max(hand.cd, s.dur - s.t) + (fight.arena ? fight.arena.comboWindow(k) : C.combos.window);
+      hand.cd = Math.max(hand.cd, -dt) + 1 / (fu.rate * (sigOn(fight) ? SIG().rateX(fight, k, hand) : 1)) / (fight.arena ? fight.arena.rateX(k) : 1) * (mv === 3 ? 1 + C.combos.reset : 1);   // (design passes 36 and 38) the claws' frenzy and the horn's band quicken the rate
+      if (mv && hand.combo) hand.combo.until = fight.t + Math.max(hand.cd, s.dur - s.t) + (fight.arena ? fight.arena.comboWindow(k) : sigOn(fight) ? SIG().comboWindow(fu, C.combos.window) : C.combos.window);   // (the sword's longer window)
     };
     if (u.mods.has("charge") && u.form !== "stream") {
       // charge: hold to charge (up to 1 s), release to strike at x (1 + 1.5 x the charge); a charge weapon doesn't repeat while held
@@ -711,7 +750,7 @@
   }
   const SMEAR = { whip: "lash", claw: "rake", scythe: "reap", axe: "chop" };
   function resolve(fight, k, s) {
-    const C = data(), u = s.fu, [ox, oy] = chestOf(k), amount = u.hit * u.K * s.charge;
+    const C = data(), u = s.fu, [ox, oy] = chestOf(k), amount = u.hit * u.K * s.charge * (fight.sig && !u.ram ? SIG().damageX(u) : 1);   // (design pass 38: the shield's own factor)
     const look = { el: u.element, mat: u.material };
     // (design pass 20) a combo blow: its hits name the move, and in place of the crescent or the streaks the screen draws the move's swing
     const mvName = s.move ? ((C.combos.sets || {})[s.set] || [])[s.move - 1] || null : null, fin = s.move === 3;
@@ -757,6 +796,8 @@
       lob(fight, k, s);
     }
     if (fight.arena && u.melee && !struck.length) fight.arena.whiff(fight, k, s);   // (design pass 36) a whiff costs recovery
+    // (design pass 38) a melee blow that met nothing: the hammer's and the lance's cost, the flail's whiffed meteor
+    if (fight.sig && u.melee && !struck.length && !u.isAbility && !u.ram) SIG().onWhiff(host(), fight, k, k.carry || k.hands[s.hand], u);
     // the finisher shakes the screen (a smash's harder), in place of a smash's own shake
     if (fin) { const X = C.combos.finisher; emit(fight, { type: "shake", amp: s.form === "smash" ? X.shakeSmash : X.shake, time: X.shakeT }, k); }
     if (u.melee) {
@@ -791,7 +832,7 @@
     for (let i = 0; i < n; i++) {
       const a = a0 + (n > 1 ? (i - (n - 1) / 2) * fan / (n - 1) : 0);
       const p = addShot(fight, k, { kind: u.shotKind, x, y, a, v: u.pspeed, range: u.shot * (u.mods.has("bounce") ? M.bounce.travel : 1), reach: u.shot, target: s.target, fu: u, hand: s.hand, el: u.element, mat: u.material,
-        amount: u.hit * u.K * s.charge, r: u.shotR, size: u.size, pierce: u.mods.has("pierce") ? mo(u, "pierce").through : 0, phasing: u.mods.has("phasing"),
+        amount: u.hit * u.K * s.charge, r: u.shotR * (fight.sig ? SIG().areaX(u) : 1), size: u.size, pierce: u.mods.has("pierce") ? mo(u, "pierce").through : (fight.sig ? SIG().pierceOf(u) : 0), phasing: u.mods.has("phasing"),   // (design pass 38: the staff's wider orb, the crossbow's bolt through one body)
         homing: u.mods.has("homing") ? M.homing.turn : u.mods.has("seeking") ? M.seeking.turn : 0, boomerang: u.mods.has("boomerang"), mult: n > 1 ? SP.each : 1,
         split: u.mods.has("split"), ricochet: u.mods.has("ricochet") ? M.ricochet.turns : 0, bounce: u.mods.has("bounce") ? M.bounce.walls : 0, form: s.form });
       if (fight.level && s.target) aimZ(p, s.target);
@@ -1033,6 +1074,8 @@
     let per = null;
     if (S.tick >= F.tick - 1e-9) { S.tick = 0; per = u.hit * u.K * u.rate * F.tick * (u.mods.has("charge") ? F.chargeX : 1); }
     cone(fight, S, u, per, u.rate * F.tick);
+    // (design pass 38) the horn's rally: on a tick that flows, once a cooldown, the brothers within reach quicken and the trolls in the cone lose poise
+    if (per !== null && fight.sig && SIG().classOf(u) === "horn") SIG().rally(host(), fight, k, u, f => { const dd = dist(S.x, S.y, f.x, f.y - (f.z || 0) - (f.chest || 0)); return dd <= u.streamLen + f.r && Math.abs(angDiff(Math.atan2(f.y - (f.z || 0) - (f.chest || 0) - S.y, f.x - S.x), S.a)) <= u.half * RAD + Math.atan2(f.r, Math.max(1, dd)); });
     if (k.holdT >= u.hold - 1e-9) { stopStream(fight, k); hand.recover = F.recover; hand.recoverOf = F.recover; emit(fight, { type: "recover", what: "stream", hand: k.active, time: F.recover }, k); }
   }
   function startGout(fight, k, fu, want, charge) {
@@ -1237,7 +1280,7 @@
     const mult = flat !== undefined ? 1 : affinity(d, o.form, u.element, u);
     let dmg = flat !== undefined ? flat : base * mult, tag = mult > 1.01 ? "WEAK" : mult === 0 ? "IMMUNE" : mult < 0.99 ? "RESIST" : null, crit = false;
     const direct = o.kind === "direct";
-    if (d.foe && d.staggered) { dmg *= takenX(d); if (!tag) tag = "STAGGER"; }   // a staggered brute takes x 1.25 from every hit (section 3.5)
+    if (d.foe && d.staggered && !fight.sig) { dmg *= takenX(d, fight); if (!tag) tag = "STAGGER"; }   // a staggered brute takes x 1.25 from every hit (section 3.5); (design pass 38: the crit instead)
     if (flat === undefined) {
       if (direct && fight.crits && u.crit > 0 && fight.rand() < u.crit) { dmg *= u.critX; crit = true; }
       if (d.st.mark) dmg *= C.statuses.mark.more;
@@ -1263,22 +1306,27 @@
     // its push, no status; the meter fills toward the guard's break
     const blockX = d.foe && d.spec && d.spec.guard && flat === undefined ? guardBlock(fight, d, o, dmg, o.form === "smash" || o.melee ? Math.atan2(d.y - k.y, d.x - k.x) : ang) : null;   // a melee blow (a smash's burst too) comes from its knight
     if (blockX !== null) { dmg *= blockX; push *= (d.spec.guard.push === undefined ? 0.33 : d.spec.guard.push); tag = "BLOCK"; }
+    // (design pass 38) the class signature's part of the blow: the poise it takes and the break, the crit on a staggered body, the
+    // counter, the reap, the riposte, the reach rules; what follows the hit (the stagger, the pin, the pull, the statuses) comes after it
+    const SG = fight.sig && flat === undefined ? SIG().onHit(host(), fight, k, d, u, o, { dmg, tag, crit, direct, blockX, dist: Math.hypot(hp[0] - from[0], hp[1] - from[1]) }) : null;
+    if (SG) { dmg = SG.dmg; tag = SG.tag; crit = SG.crit; }
     const at = d.foe || d.piece ? drawnAt(d) : hp;
     const XF = u.isFinisher && direct && o.melee ? C.combos.finisher : FEEL;   // (design pass 20) a finisher holds the screen longer
     const e = emit(fight, { type: "hit", d: d.i, dummy: d.kind, amount: dmg, tag, crit, form: o.form, element: u.element, kind: o.kind, why: o.why || null, x: at[0], y: at[1], melee: !!o.melee,
-      hold: direct && o.melee ? (crit ? XF.holdCrit : XF.hold) : 0, sum: !!o.sum }, k);
+      hold: direct && o.melee && !(SG && SIG().lagOn(fight) && SIG().spec().feel.hitlag.striker !== false) ? (crit ? XF.holdCrit : XF.hold) : 0, sum: !!o.sum }, k);   // (the page's hold stays where the striker lags by rule; where he plays on, build 26's hold on a finisher or a crit stands)
     if (o.move && direct) { e.move = o.move; if (u.isFinisher) e.fin = true; }
     if (blockX !== null) { e.blocked = true; emit(fight, { type: "foeBlock", foe: d.id, x: at[0], y: at[1], amount: dmg, dent: guardOf(d).dent }, k); }
     log(fight, d, dmg);
     // a level: a piece takes its hit points and nothing else (statuses do not act on it); a troll takes its hit points, then the rest
     if (d.piece) { if (direct) d.flash = FEEL.flash; damage(fight, d, dmg, null, foot, k); return e; }
     if (d.foe) { damage(fight, d, dmg, o.why || null, null, k, o.kind); if (o.melee && direct && d.spec && d.spec.blink) (d.meleeHits = d.meleeHits || []).push(fight.t); }   // (design pass 27) a caster counts the melee blows that land toward its blink
+    if (SG) { if (direct) SIG().hitlag(fight, k, d, dmg, crit || !!u.isFinisher, !!o.melee); for (const fn of SG.after) fn(); }   // (design pass 38) the hitlag, then the break, the pin, the counter's cancel
     if (mult === 0) return e;   // immune: nothing of the blow lands
     if (o.kind === "raw") { d.flash = FEEL.flash; if (!d.rail && !d.arm) d.wv += C.wobble.raw; return e; }
     if (direct) d.flash = FEEL.flash;
     // the push and the pull: the rail dummy slides along its rail, the quintain's arm turns (0.15 rad/s per point of damage, 0.1 per
     // pixel of push), a dummy on a post wobbles
-    const pull = u.mods.has("pull") ? mo(u, "pull").px * share : 0, to = o.centre && !o.own ? o.centre : [k.x, k.y], Q = C.dummies.quintain, W = C.wobble;
+    const pull = (u.mods.has("pull") ? mo(u, "pull").px * share : 0) + (SG ? SG.pull : 0), to = o.centre && !o.own ? o.centre : [k.x, k.y], Q = C.dummies.quintain, W = C.wobble;   // (design pass 38: the whip's and the scythe's pulls)
     if (d.foe) {   // a troll: the push is an impulse by its mass, a pull an impulse toward the knight (a hit knocks a climber off its ladder)
       const P = phys(), Wd = fight.world;
       if (!d.dead && push > 0) P.push(Wd, d, Math.cos(ang), Math.sin(ang), push);
@@ -1291,7 +1339,8 @@
     if (direct && d.puff) emit(fight, { type: "fx", kind: d.puff, x: d.puff === "sparks" ? hp[0] - Math.cos(seen) * 4 : hp[0], y: hp[1], seed: fight.steps + d.i }, k);
     // statuses (none through a troll knight's shield)
     const strength = o.kind === "tick" ? dmg / share : dmg;
-    if (blockX === null) for (const s of u.statuses) { if (d.immune.includes(s)) { emit(fight, { type: "immune", d: d.i, status: s, x: hp[0], y: hp[1] }, k); continue; } applyStatus(fight, d, s, strength, u, o); }
+    if (blockX === null) for (const s of (SG && SG.statuses.length ? u.statuses.concat(SG.statuses) : u.statuses)) { if (d.immune.includes(s)) { emit(fight, { type: "immune", d: d.i, status: s, x: hp[0], y: hp[1] }, k); continue; } applyStatus(fight, d, s, strength, u, o); }   // (design pass 38: the dagger's stack, the axe's weaken, the wand's mark, the lantern's blind)
+    if (SG && d.st.bleed) SIG().bleedBurst(host(), fight, d, u);   // (design pass 38) five stacks burst
     if (u.mods.has("sticky")) d.st.sticky = { t: M.sticky.time };   // hits slow the target 40 % for 1 s
     if (u.mods.has("vampiric")) { const v = dmg * mo(u, "vampiric").heal; emit(fight, { type: "heal", amount: v, why: "vampiric", x: k.x, y: k.y }, k); healKnight(fight, k, v); }
     if (fight.marks && d.foe && direct) {   // a level's marks (section 3.6a): a water hit leaves a puddle r 6 at the troll's feet (at most one a knight a second); a lightning hit scorch r 3
@@ -1321,7 +1370,7 @@
   }
   // damage over time: a tick of burn, poison or bleed, or a burning patch (k: the knight that set it, when known)
   function dot(fight, d, amount, what, k) {
-    const hp = d.foe || d.piece ? drawnAt(d) : hitPoint(d), dmg = amount * (d.st.mark ? data().statuses.mark.more : 1) * takenX(d);
+    const hp = d.foe || d.piece ? drawnAt(d) : hitPoint(d), dmg = amount * (d.st.mark ? data().statuses.mark.more : 1) * takenX(d, fight);
     if (fight.arena && d.knight) return fight.arena.dot(fight, d, amount, what, k);   // (design pass 36) a burning patch's tick on a knight
     emit(fight, { type: "hit", d: d.i, dummy: d.kind, amount: dmg, tag: null, crit: false, form: null, element: what, kind: "dot", why: what, x: hp[0], y: hp[1], melee: false, hold: 0, sum: false }, k);
     log(fight, d, dmg);
@@ -1337,7 +1386,7 @@
   }
   function log(fight, d, dmg) { const b = fight.board; b.last = dmg; b.name = d.name; b.log.push([fight.t, dmg]); }
   function applyStatus(fight, d, s, dmg, u, o) {
-    const C = data(), S = C.statuses, T = u.statusT, st = d.st, Z = S[s];
+    const C = data(), S = C.statuses, T = u.statusT * (fight.sig ? SIG().statusTimeX(u) : 1), st = d.st, Z = S[s];   // (design pass 38: the staff's statuses last longer)
     let applied = true;
     if (s === "burn") st.burn = { t: T, rate: Math.max((st.burn || {}).rate || 0, dmg * Z.rate), tick: (st.burn || {}).tick || 0, by: u.knight };   // reapplying refreshes it and keeps the higher rate
     else if (s === "freeze") { if (st.freezeImm || st.freeze) applied = false; else st.freeze = { t: Math.min(T, Z.max) * (d.freezeScale || 1) }; }   // a brute's freeze lasts half as long (section 3.5)
@@ -1350,7 +1399,7 @@
         if (pd) for (const g of fight.foes.slice()) { if (g === d || g.dead || g.spawn > 0 || (near && g === near[1]) || !inMark(pd, g)) continue; emit(fight, { type: "fx", kind: "arc", from: hitPoint(d), to: hitPoint(g), el: "lightning", seed: fight.steps + g.i }, u.knight); hit(fight, g, dmg * Z.share, { form: o.form, kind: "raw", why: "shock", from: hitPoint(d), fu: u }); } }
     }
     else if (s === "poisoned") st.poisoned = { t: T, stacks: Math.min(Z.stacks, ((st.poisoned || {}).stacks || 0) + 1), rate: Math.max((st.poisoned || {}).rate || 0, dmg * Z.rate), tick: (st.poisoned || {}).tick || 0, by: u.knight };
-    else if (s === "bleed") st.bleed = { t: T, stacks: Math.min(Z.stacks, ((st.bleed || {}).stacks || 0) + 1), rate: Math.max((st.bleed || {}).rate || 0, dmg * Z.rate), tick: (st.bleed || {}).tick || 0, by: u.knight };
+    else if (s === "bleed") { if (st.bleedImm) applied = false; else st.bleed = { t: T, stacks: Math.min(Z.stacks, ((st.bleed || {}).stacks || 0) + 1), rate: Math.max((st.bleed || {}).rate || 0, dmg * Z.rate), tick: (st.bleed || {}).tick || 0, by: u.knight }; }   // (design pass 38: none while immune after a burst)
     else if (s === "stun") { if (st.stunImm || st.stun) applied = false; else st.stun = { t: Z.time }; }
     else if (s === "slow" || s === "blind" || s === "weaken" || s === "mark") st[s] = { t: T };
     else if (s === "lifesteal") { const k = u.knight || fight.k, v = dmg * Z.heal; emit(fight, { type: "heal", amount: v, why: "lifesteal", x: k.x, y: k.y, from: hitPoint(d) }, k); healKnight(fight, k, v); }
@@ -1379,33 +1428,44 @@
     o = o || {};
     if (!fight.level || !k || k.out || k.down || k.rise > 0 || fight.wipe) return "none";
     if (fight.arena && k.lie > 0 && !o.tick) return "none";   // (design pass 36) a knight on the sand takes no blow (the ticks go on)
-    let dmg = amount, res = "hit";
+    let dmg = amount, res = "hit", SR = null, push = o.push, sets = o.sets, stag = o.stagger, pull = o.pull || 0;
     if (!o.tick) {
       if (k.safe > 0) return "safe";
       if (k.hurt > 0 && !o.fall) return "spared";
       const from = o.from || [k.x, k.y], u = handOf(k).u, block = () => emit(fight, { type: "block", x: k.x, y: k.y, bx: (from[0] + k.x) / 2, by: k.y - 14 }, k);
       const facing = Math.abs(angDiff(Math.atan2(from[1] - k.y, from[0] - k.x), k.face)) < Math.PI / 2;
       if (k.guardT > 0 && !o.fall) { block(); emit(fight, { type: "reflect", x: k.x, y: k.y }, k); return "reflect"; }
+      // (design pass 38) the signatures' side: a knight on the ground after a knockdown, the Guard's block and parry, the attack's poise
+      // and the knight's reel, a troll's crit, the mark, the troll knight's riposte, the archer's pin, the fangs' bleed, the long burns
+      if (fight.sig) {
+        SR = SIG().onHurt(host(), fight, k, o, dmg);
+        if (SR.res === "safe" || SR.res === "parry" || SR.res === "reflect" || (SR.res === "block" && o.shot)) return SR.res;
+        dmg = SR.dmg; push = SR.push; sets = SR.sets; stag = SR.stagger; pull = SR.pull;
+        if (SR.res === "block") res = "block";
+      }
       if (o.shot) {
         if (u.mods.has("guard") && facing) { block(); return "block"; }
         if (u.mods.has("reflect")) { emit(fight, { type: "reflect", x: k.x, y: k.y }, k); return "reflect"; }
-      } else if (o.melee && u.mods.has("guard") && facing) { dmg = amount * (1 - C.modifiers.guard.less); res = "cut"; block(); }
-    }
+      } else if (o.melee && u.mods.has("guard") && facing && res !== "block") { dmg = amount * (1 - C.modifiers.guard.less); res = "cut"; block(); }
+    } else if (fight.sig) { SR = SIG().onHurt(host(), fight, k, o, dmg); if (SR.res === "safe") return "safe"; dmg = SR.dmg; }
     k.hp = Math.max(0, k.hp - dmg);
     if (dmg > 0) { k.hitAt = fight.t; k.regenT = null; }   // the regrowth waits regen.after s from the last damage (design pass 18)
-    if (!fight.arena) emit(fight, { type: "hurt", amount: dmg, src: o.src || null, tick: !!o.tick, x: k.x, y: k.y }, k);   // (design pass 36) the arena says it as a hit event, from its own pipeline
-    if (!o.tick) { k.hurt = fight.arena ? (fight.arena.rules.hurtSafe || 0) : KN.hurtSafe; if (o.stagger > 0) stagger(fight, k, o.stagger); }
+    const he = fight.arena ? null : emit(fight, { type: "hurt", amount: dmg, src: o.src || null, tick: !!o.tick, x: k.x, y: k.y }, k);   // (design pass 36) the arena says it as a hit event, from its own pipeline
+    if (he && (o.tag || (SR && SR.tag))) he.tag = o.tag || SR.tag;   // (design pass 38) STAGGER, CRIT, PIN, RIPOSTE, BLEED OUT over the knight
+    if (!o.tick) { k.hurt = fight.arena ? (fight.arena.rules.hurtSafe || 0) : KN.hurtSafe; if (stag > 0) stagger(fight, k, stag); }
     if (fight.world.level && !o.tick && !o.fall) {   // a blow that lands: it knocks a climber off its ladder, and its push is an impulse
       const P = phys(), from = o.from || [k.x, k.y];
       if (k.climbing) { P.letGo(fight.world, k, true); emit(fight, { type: "letGo", x: k.x, y: k.y, z: k.z }, k); }
-      if (o.push > 0) { const dd = Math.hypot(k.x - from[0], k.y - from[1]), a = dd > 1e-6 ? Math.atan2(k.y - from[1], k.x - from[0]) : k.face + Math.PI; P.push(fight.world, k, Math.cos(a), Math.sin(a), o.push); }
+      if (push > 0) { const dd = Math.hypot(k.x - from[0], k.y - from[1]), a = dd > 1e-6 ? Math.atan2(k.y - from[1], k.x - from[0]) : k.face + Math.PI; P.push(fight.world, k, Math.cos(a), Math.sin(a), push); }
+      if (pull > 0) { const dd = Math.hypot(from[0] - k.x, from[1] - k.y); if (dd > 1e-6) P.push(fight.world, k, (from[0] - k.x) / dd, (from[1] - k.y) / dd, Math.min(pull, Math.max(0, dd - 12))); }   // (design pass 38) the winchman's hook pulls the knight toward him
     }
     // a blow shatters a freeze (it deals its damage); a blow that sets a status (o.sets: a fire bolt's burning, an ice arrow's chill) sets
     // it once it lands, and fire meeting a frozen knight puts the cold out and sets no burn (section 3.8)
     const cold = k.frozen > 0;
     if (cold && !o.tick && !o.fall) thaw(fight, k, "shatter");
-    if (o.sets && k.hp > 0 && !(cold && o.sets === "burning")) afflict(fight, k, o.sets);
+    if (sets && k.hp > 0 && !(cold && sets === "burning")) afflict(fight, k, sets, { timeX: SR ? SR.timeX : 1 });
     if (k.hp <= 0) fall(fight, k);
+    if (SR && k.hp > 0) for (const fn of SR.after) fn();   // (design pass 38) the reel, the knockdown, the mark, the bleed stack
     return res;
   }
   // a blow's stagger: a strike still in its wind-up is cut short (one past it finishes, and a held charge keeps charging)
@@ -1421,6 +1481,7 @@
     if (k.climbing) phys().letGo(fight.world, k, false);   // and lets go of a ladder
     clearStatuses(fight, k, "down");   // being downed puts a burn out, and the cold goes with it
     k.hp = 0; k.hurt = 0; k.stagger = 0; k.dodge = 0; k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.lunge = null; stopStream(fight, k); breakChain(k);
+    k.knock = null; k.reelT = 0; k.critOpen = false; k.guarding = false; k.lag = 0; k.safeActs = false;   // (design pass 38)
     const solo = soloOf(fight) && full(k), brothers = fight.knights.some(b => !full(b));
     if (solo && k.secondWind) { k.secondWind = false; k.rise = C.secondWind.delay; emit(fight, { type: "secondWind", x: k.x, y: k.y, delay: k.rise }, k); return; }
     if (solo && !brothers) { wipe(fight); return; }   // alone, the second fall is a wipe
@@ -1448,6 +1509,7 @@
     fight.wipe = null; L.attempt++;
     for (const k of fight.knights) {
       k.hp = k.hpMax; k.down = null; k.out = false; k.rise = 0; k.hurt = 0; k.stagger = 0; k.safe = 0; k.bonk = 0; k.shove = null; k.dodge = 0; k.secondWind = true;
+      k.knock = null; k.reelT = 0; k.critOpen = false; k.guarding = false; k.lag = 0; k.poise = k.poiseMax; k.poiseLock = 0; k.bleedN = 0; k.markUntil = 0; k.safeActs = false;   // (design pass 38)
       if (L.rally && L.rally[k.seat]) { k.x = L.rally[k.seat][0]; k.y = L.rally[k.seat][1]; }
       if (fight.world.level) { place(fight, k, k.x, k.y); clearSeat(fight, k); }   // never on a crater, a clod or a stone (section 3.6a)
     }
@@ -1494,6 +1556,7 @@
     if (!fight.level) return;
     for (const k of fight.knights) if (k.out) {
       k.out = false; k.hp = data().downed.returnHp; k.hurt = 0; k.stagger = 0; k.safe = 0;
+      k.knock = null; k.reelT = 0; k.critOpen = false; k.guarding = false; k.lag = 0; k.poise = k.poiseMax; k.poiseLock = 0; k.bleedN = 0; k.markUntil = 0;   // (design pass 38)
       if (at && at[k.seat]) { k.x = at[k.seat][0]; k.y = at[k.seat][1]; }
       if (fight.world.level) place(fight, k, k.x, k.y);
       emit(fight, { type: "back", x: k.x, y: k.y, hp: k.hp }, k);
@@ -1516,9 +1579,10 @@
     const KS = KSTAT(), k = typeof who === "number" ? fight.knights[who] : who;
     if (!fight.level || !KS || !k || k.out || k.down || k.rise > 0 || fight.wipe) return "none";
     if (what === "burning") {
+      const timeX = o && typeof o.timeX === "number" ? o.timeX : 1;   // (design pass 38) a staff's burn lasts longer
       if (k.frozen > 0 || (k.chill && k.chill.n > 0)) { if (k.frozen > 0) thaw(fight, k, "fire"); endChill(fight, k, "fire"); return "quenched"; }
-      if (k.burn) { k.burn.t = KS.burning.time * dX(fight, "knightStatusTime"); return "renewed"; }
-      k.burn = { t: KS.burning.time * dX(fight, "knightStatusTime"), tick: 0 };
+      if (k.burn) { k.burn.t = KS.burning.time * dX(fight, "knightStatusTime") * timeX; return "renewed"; }
+      k.burn = { t: KS.burning.time * dX(fight, "knightStatusTime") * timeX, tick: 0 };
       emit(fight, { type: "kstatus", status: "burning", on: true, x: k.x, y: k.y }, k);
       return "burning";
     }
@@ -1635,8 +1699,8 @@
     if (b.knight) return hurt(fight, b, amount, o);
     if (b.dead || b.spawn > 0 || (b.safeT > 0 && !o.tick)) return "none";
     if (b.ward) { emit(fight, { type: "foeWard", foe: b.id, x: b.x, y: b.y - (b.z || 0) - (b.chest || 0) }); return "none"; }   // (design pass 27) the ward
-    const dmg = amount * takenX(b);
-    emit(fight, { type: "hit", d: b.i, dummy: b.kind, amount: dmg, tag: b.staggered ? "STAGGER" : null, crit: false, form: null, element: o.element || null, kind: o.tick ? "dot" : "world", why: o.src || null,
+    const dmg = amount * takenX(b, fight);
+    emit(fight, { type: "hit", d: b.i, dummy: b.kind, amount: dmg, tag: b.staggered && !fight.sig ? "STAGGER" : null, crit: false, form: null, element: o.element || null, kind: o.tick ? "dot" : "world", why: o.src || null,
       x: b.x, y: b.y - (b.z || 0) - (b.chest || 0), melee: false, hold: 0, sum: false });
     if (o.stagger > 0) b.stagger = Math.max(b.stagger || 0, o.stagger);
     if (o.push > 0 && o.from) { const dd = Math.hypot(b.x - o.from[0], b.y - o.from[1]), a = dd > 1e-6 ? Math.atan2(b.y - o.from[1], b.x - o.from[0]) : b.face; phys().push(fight.world, b, Math.cos(a), Math.sin(a), o.push); }   // a chunk's or a stone's push, away from where it landed
@@ -1693,8 +1757,10 @@
   // under it (o.on: a platform's id). For its spawn tell (0.6 s, o.tell) it cannot act, be hit or be pushed; stage C's brains move it
   function spawn(fight, kind, x, y, o) {
     o = o || {};
-    const C = data(), K = fight.level ? trollKind(kind) : null;
+    const C = data();
+    let K = fight.level ? trollKind(kind) : null;
     if (!K || fight.foes.length >= (C.caps.foes || 24)) return null;
+    if (fight.sig) { const X = SIG().extraAttacks(kind); if (X) K = Object.assign({}, K, { attacks: Object.assign({}, K.attacks || {}, X) }); }   // (design pass 38) the winchman's hook
     const T = trollSpec(), B = K.body || {}, f = { id: fight.bodyId++, foe: true, kind, name: K.name, x, y }, hp = Math.round(K.hp * dX(fight, "trollHp"));
     bodyOf(f, { r: B.r, h: B.h, mass: B.mass, massStaggered: B.massStaggered, climb: B.climb || null, catches: (B.catches || []).includes("deep"), speed: (K.speed || 42) * dX(fight, "trollSpeed") }, false);
     Object.assign(f, { i: f.id, chest: K.chest, size: K.size, shadow: K.shadow, hp, hpMax: hp, weak: K.weak, resist: K.resist, immune: K.immune, ignores: K.ignores || [], tears: K.tears || [],
@@ -1703,6 +1769,7 @@
       freezeScale: K.stagger && K.stagger.freezeScale ? K.stagger.freezeScale : 1, lastHit: null, chop: null, cls: classOf(fight, B.r || 8), brain: null,
       rock: null, rockLying: null, roared: false, roarDue: false, post: null, manning: false, hold: !!o.hold, fixed: !!o.fixed, wantClose: false });   // o.hold: it keeps to the platform it stands on (the tower archer); o.fixed: it never moves and is no body (a wall archer in its breach, at o.z)
     if (K.stagger && K.stagger.dropsRock) f.onStagger = dropRock;
+    if (fight.sig) SIG().initBody(fight, f, kind);   // (design pass 38) its poise, in place of the threshold
     if (o.brain === undefined ? fight.brains : o.brain) f.brain = newBrain(fight, f);
     surfaceOf(fight, f, o.on);
     if (B.fly) { f.fly = B.fly; f.z = B.fly.z || 10; f.on = null; }   // (design pass 27) a flier: at its height, on nothing, never falling
@@ -1737,6 +1804,7 @@
     if (f.dead) return;
     if (f.spawn > 0) { f.spawn -= dt; if (f.spawn <= 1e-9) { f.spawn = 0; fight.tdirty = true; emit(fight, { type: "arrive", foe: f.id, kind: f.kind, x: f.x, y: f.y, z: f.z }); } return; }
     f.flash = Math.max(0, f.flash - dt);
+    if (f.lag > 0) { f.lag -= dt; if (f.lag <= 1e-9) f.lag = 0; return; }   // (design pass 38) hitlag: it stands still, its clocks with it
     if (f.stagger > 0) { f.stagger -= dt; if (f.stagger <= 1e-9) f.stagger = 0; }
     if (f.stagger === 0) f.staggered = false;
     for (const key of Object.keys(f.cd)) if (f.cd[key] > 0) f.cd[key] -= dt;
@@ -1897,7 +1965,7 @@
     const C = data(), tx = at.x !== undefined ? at.x : at[0], ty = at.y !== undefined ? at.y : at[1], tz = at.x !== undefined ? (at.z || 0) + (at.chest !== undefined ? at.chest : C.knight.chest) : (o.z || 0);
     const fz = (from.z || 0) + (from.chest || 0), fd = Math.hypot(tx - from.x, ty - from.y);
     const p = { id: fight.nextId++, kind: o.kind || "troll-arrow", by: from.id, fx: from.x, fy: from.y, fz, x0: from.x, y0: from.y, a: Math.atan2(ty - from.y, tx - from.x), dz: fd > 1e-6 ? (tz - fz) / fd : 0,
-      v: o.speed || 150, range: o.range || 200, traveled: 0, r: o.r === undefined ? C.projectiles.radius : o.r, o, hits: [], done: false,
+      v: o.speed || 150, range: o.range || 200, traveled: 0, r: o.r === undefined ? C.projectiles.radius : o.r, o, hits: [], done: false, pierce: o.pierce || 0,
       aloft: !!o.aloft || (from.z || 0) > 0 || (at.x !== undefined && (at.z || 0) > 0) };   // fired by or at a body above the ground: past the view's walls
     p.x = p.fx; p.y = p.fy - p.fz;
     (fight.foeShots || (fight.foeShots = [])).push(p);
@@ -1917,8 +1985,8 @@
         for (const g of fight.foes) {
           if (g.dead || g.gone || g.spawn > 0 || Math.hypot(p.fx - g.x, p.fy - g.y) > p.r + g.r || p.fz < (g.z || 0) - 1e-9 || p.fz > (g.z || 0) + (g.h || 24) + 1e-9) continue;
           p.done = true;
-          const mult = affinity(g, null, p.o.element || null, { mods: NOMODS }), dmg = (p.o.damage || 0) * mult * takenX(g);
-          emit(fight, { type: "hit", d: g.i, dummy: g.kind, amount: dmg, tag: mult > 1.01 ? "WEAK" : mult < 0.99 ? "RESIST" : g.staggered ? "STAGGER" : null, crit: false, form: "shoot", element: p.o.element || null, kind: "direct", why: "reflect", x: g.x, y: g.y - (g.z || 0) - (g.chest || 0), melee: false, hold: 0, sum: false });
+          const mult = affinity(g, null, p.o.element || null, { mods: NOMODS }), dmg = (p.o.damage || 0) * mult * takenX(g, fight);
+          emit(fight, { type: "hit", d: g.i, dummy: g.kind, amount: dmg, tag: mult > 1.01 ? "WEAK" : mult < 0.99 ? "RESIST" : g.staggered && !fight.sig ? "STAGGER" : null, crit: false, form: "shoot", element: p.o.element || null, kind: "direct", why: "reflect", x: g.x, y: g.y - (g.z || 0) - (g.chest || 0), melee: false, hold: 0, sum: false });
           damage(fight, g, dmg, "reflect", [p.x0, p.y0], null, "direct");
           if (p.o.sets && !g.dead) trollSets(fight, g, p.o.sets);
           emit(fight, { type: "foeShotHit", id: p.id, foe: g.id, res: "back", x: p.x, y: p.y });
@@ -1929,10 +1997,11 @@
         if (Math.hypot(p.fx - k.x, p.fy - k.y) > p.r + k.r || p.fz < (k.z || 0) - 1e-9 || p.fz > (k.z || 0) + (k.h || 24) + 1e-9) continue;
         if (trenchCover(fight, { fx: p.x0, fy: p.y0, a: p.a }, k)) { p.over = true; continue; }   // it flies over a knight its trench covers (its end says so: the page's trench line)
         p.hits.push(k.seat);
-        const res = hurt(fight, k, p.o.damage || 0, { shot: p.kind, from: [p.x0, p.y0], push: p.o.push, stagger: p.o.stagger, src: p.o.src || null, sets: p.o.sets });
+        const res = hurt(fight, k, p.o.damage || 0, { shot: p.kind, from: [p.x0, p.y0], push: p.o.push, stagger: p.o.stagger, src: p.o.src || null, sets: p.o.sets, byId: p.by });
         if (res === "safe") continue;   // the dodge's safety lets it pass
         emit(fight, { type: "foeShotHit", id: p.id, seat: k.seat, res, x: p.x, y: p.y });
         if (res === "reflect") { p.back = true; p.a += Math.PI; p.dz = -p.dz; p.traveled = 0; p.x0 = p.fx; p.y0 = p.fy; break; }
+        if (p.pierce > 0) { p.pierce--; continue; }   // (design pass 38) the ice archer's bolt goes through one knight to the next
         p.done = true; p.hit = k.seat; p.res = res;
         break;
       }
@@ -1972,7 +2041,7 @@
     const out = [], zr = data().physics.z.burst;
     for (const k of fight.knights) {
       if (k.out || k.down || Math.hypot(k.x - x, k.y - y) > r + k.r + 1e-9 || Math.abs((k.z || 0) - z) > zr + 1e-9) continue;
-      out.push({ seat: k.seat, res: hurt(fight, k, o.damage || 0, { melee: !!o.melee, from: o.from || [x, y], push: o.push, stagger: o.stagger, src: o.src || null, sets: o.sets }) });
+      out.push({ seat: k.seat, res: hurt(fight, k, o.damage || 0, { melee: !!o.melee, from: o.from || [x, y], push: o.push, stagger: o.stagger, src: o.src || null, sets: o.sets, by: o.by || null, parry: o.parry }) });
     }
     return out;
   }
@@ -2502,8 +2571,9 @@
   // (the note's "1.4 s from the strike's start"), so a wind-up starts when the cooldown is down to its own length.
   const ATTACK = { club: "melee", stab: "melee", jab: "melee", arrow: "shot", bolt: "shot", slam: "ring", rockSlam: "ring", charge: "charge",
     cut: "melee", bash: "melee", bite: "melee", leap: "leap",   // design pass 21: the troll knight's cut and shield bash, the wolf's bite and leap
-    fuse: "fuse", swoop: "charge", hexbolt: "shot", hexring: "ring", nova: "ring", blink: "blink" };   // design pass 27: the burster's fuse, the bat's swoop, the wizard's fan, rings, nova and blink
-  const TOKEN_OF = { melee: "melee", shot: "archers" }, ELEMENT_OF = { "fire-bolt": "fire", "ice-arrow": "ice" };   // what a kind's projectile carries (a reflected one strikes by it)
+    fuse: "fuse", swoop: "charge", hexbolt: "shot", hexring: "ring", nova: "ring", blink: "blink",   // design pass 27: the burster's fuse, the bat's swoop, the wizard's fan, rings, nova and blink
+    hook: "hook" };   // design pass 38: the winchman's hook on its chain
+  const TOKEN_OF = { melee: "melee", shot: "archers", hook: "melee" }, ELEMENT_OF = { "fire-bolt": "fire", "ice-arrow": "ice" };   // what a kind's projectile carries (a reflected one strikes by it)
   const PI = Math.PI;
   function newBrain(fight, f) { return { target: null, rt: 0, circle: f.id % 2 ? 1 : -1, stuck: { t: 0, best: Infinity, tx: null, ty: null, side: false }, spot: null }; }
   // the brain's step, before the body's move: the act in progress, the target, an attack if one may start, else the way
@@ -2677,6 +2747,7 @@
   function beginAct(fight, f, k, name, atk, fam, token, windT, start) {
     if (!f.spec.turn) f.face = Math.atan2(k.y - f.y, k.x - f.x);   // (design pass 21) a kind with a turning rate turns through its wind-up instead
     f.act = Object.assign({ kind: name, atk, fam, phase: "wind", t: 0, T: Math.max(windT * dX(fight, "windUp"), trollCommon().telegraphMin || 0.45), seat: k.seat, token, drive: null, hits: [] }, start);   // a difficulty's wind-up never goes under telegraphMin
+    if (fight.sig && f.act.tel) { const M = SIG().mobAttack(f.kind + "." + name); f.act.tel.parry = !!(M && M.parry); }   // (design pass 38) the glint is white when the blow can be parried
     emit(fight, { type: "windUp", foe: f.id, kind: f.kind, attack: name, seat: k.seat, x: f.x, y: f.y, z: f.z, wind: f.act.T, tel: f.act.tel || null });
   }
   // an act's clock: at the end of a phase the family moves it on (the blow lands at the strike's start)
@@ -2697,9 +2768,23 @@
   function landBlow(fight, f, A, dmg, o) {
     const S = data().statuses, k = fight.knights[A.seat];
     if (f.st.blind && fight.rand() < S.blind.miss) { emit(fight, { type: "miss", foe: f.id, attack: A.kind, x: f.x, y: f.y }); return "miss"; }
-    return hurt(fight, k, dmg * weakX(f) * dX(fight, "trollDamage"), Object.assign({ melee: true, from: [f.x, f.y], src: f.kind + "." + A.kind }, o));
+    return hurt(fight, k, dmg * weakX(f) * dX(fight, "trollDamage"), Object.assign({ melee: true, from: [f.x, f.y], src: f.kind + "." + A.kind, by: f, attack: A.kind }, o));
   }
   const FAMILY = {
+    // (design pass 38) the winchman's hook on its chain: from range px a wind with a white glint, then the knight within reach and in
+    // front is hurt and pulled toward him (and the trebuchet's shot); its numbers are spec/signatures.json's mobs.winchman.hook
+    hook: {
+      can(fight, f, k, atk) { if (!reaches(fight, f, k) || Math.hypot(k.x - f.x, k.y - f.y) > (atk.range || 40) + 1e-9) return null; return { tel: { kind: "glint" } }; },
+      strike(fight, f, A) {
+        const atk = A.atk, k = fight.knights[A.seat];
+        f.cd[A.kind] = cdOf(f, atk, 5);
+        A.phase = "strike"; A.T = atk.strike || 0.1;
+        const dd = Math.hypot(k.x - f.x, k.y - f.y), reach = (atk.reach || atk.range || 40) + k.r, within = Math.abs(angDiff(Math.atan2(k.y - f.y, k.x - f.x), f.face)) <= ((atk.arc || 100) / 2) * RAD + 1e-9;
+        let res = "miss";
+        if (standing(k) && dd <= reach + 1e-9 && within && reaches(fight, f, k)) res = landBlow(fight, f, A, atk.damage, { push: atk.push || 0, pull: atk.pull || 16, stagger: atk.stagger });
+        emit(fight, { type: "foeStrike", foe: f.id, attack: A.kind, seat: A.seat, res, x: f.x, y: f.y, z: f.z });
+      }
+    },
     // a club, a stab, a jab: begun when the target is within range (feet to feet, plus its r) and within 12 px of height; the blow is an
     // arc in front of the troll (100 degrees, 20 px of reach for the club; a stab lands on its target alone)
     melee: {
@@ -2745,7 +2830,8 @@
       strike(fight, f, A) {
         const atk = A.atk, S = data().statuses, proj = atk.projectile || "troll-arrow";
         f.cd[A.kind] = cdOf(f, atk, 2.2);
-        const shotOpts = { z: A.aim.z, aloft: (f.z || 0) > 0 || A.aim.z > 0, speed: atk.speed, range: atk.reach || atk.range, r: atk.hitR, damage: atk.damage * weakX(f) * dX(fight, "trollDamage"), push: atk.push, stagger: atk.stagger, kind: proj, src: f.kind + "." + A.kind, sets: atk.sets, miss: atk.miss || null, element: atk.element || ELEMENT_OF[proj] || null, woodDamage: atk.woodDamage, attack: A.kind };
+        const shotOpts = { z: A.aim.z, aloft: (f.z || 0) > 0 || A.aim.z > 0, speed: atk.speed, range: atk.reach || atk.range, r: atk.hitR, damage: atk.damage * weakX(f) * dX(fight, "trollDamage"), push: atk.push, stagger: atk.stagger, kind: proj, src: f.kind + "." + A.kind, sets: atk.sets, miss: atk.miss || null, element: atk.element || ELEMENT_OF[proj] || null, woodDamage: atk.woodDamage, attack: A.kind,
+          pierce: fight.sig ? ((SIG().mobAttack(f.kind + "." + A.kind) || {}).pierce || 0) : 0 };   // (design pass 38: the ice archer's bolt through one knight)
         if (f.st.blind && fight.rand() < S.blind.miss) emit(fight, { type: "miss", foe: f.id, attack: A.kind, x: f.x, y: f.y });
         else if (A.fan) {   // (design pass 27) a fan: n bolts along the locked aim turned by (i - (n - 1) / 2) x spread degrees
           const from = A.from || f, dx = A.aim.x - from.x, dy = A.aim.y - from.y;
@@ -2780,9 +2866,9 @@
             if (k.out || k.down || Math.abs((k.z || 0) - R.z) > zr + 1e-9) continue;
             const dd = Math.hypot(k.x - R.x, k.y - R.y), Z = dd <= atk.core.r + k.r + 1e-9 ? atk.core : dd <= atk.outer.r + k.r + 1e-9 ? atk.outer : null;
             if (!Z) continue;
-            hit.push({ seat: k.seat, res: hurt(fight, k, Z.damage * weakX(f) * dX(fight, "trollDamage"), { melee: true, from: [R.x, R.y], push: Z.push, stagger: Z.stagger, src }), zone: Z === atk.core ? "core" : "outer" });
+            hit.push({ seat: k.seat, res: hurt(fight, k, Z.damage * weakX(f) * dX(fight, "trollDamage"), { melee: true, from: [R.x, R.y], push: Z.push, stagger: Z.stagger, src, by: f, zone: Z === atk.core ? "core" : "outer" }), zone: Z === atk.core ? "core" : "outer" });
           }
-        } else hit = foeBurst(fight, R.x, R.y, R.z, R.r, { damage: atk.damage * weakX(f) * dX(fight, "trollDamage"), push: atk.push, stagger: atk.stagger, melee: true, from: [f.x, f.y], src });
+        } else hit = foeBurst(fight, R.x, R.y, R.z, R.r, { damage: atk.damage * weakX(f) * dX(fight, "trollDamage"), push: atk.push, stagger: atk.stagger, melee: true, from: [f.x, f.y], src, by: f });
         f.cd[A.kind] = cdOf(f, atk, 2.8);
         emit(fight, { type: "foeStrike", foe: f.id, attack: A.kind, seat: A.seat, hit: hit.map(h => h.seat), x: R.x, y: R.y, z: R.z, r: R.r });
         if (atk.shake) emit(fight, { type: "shake", amp: atk.shake, time: data().feel.shakeT });
@@ -2904,7 +2990,7 @@
     let ward = false;
     for (const k of fight.knights) {
       if (k.out || k.down || Math.hypot(k.x - x, k.y - y) > r + k.r + 1e-9 || Math.abs((k.z || 0) - z) > zr + 1e-9) continue;
-      hit.push({ seat: k.seat, res: hurt(fight, k, (atk.damage || 22) * weakX(f) * dX(fight, "trollDamage"), { from: [x, y], push: atk.push, stagger: atk.stagger, src }) });
+      hit.push({ seat: k.seat, res: hurt(fight, k, (atk.damage || 22) * weakX(f) * dX(fight, "trollDamage"), { from: [x, y], push: atk.push, stagger: atk.stagger, src, by: f }) });
     }
     for (const g of fight.foes) {
       if (g === f || g.dead || g.gone || g.spawn > 0 || Math.abs((g.z || 0) - z) > zr + 1e-9) continue;
@@ -2940,7 +3026,7 @@
     const atk = A.atk, src = f.kind + "." + A.kind, S = data().statuses, hit = [], r = A.r || atk.radius || 18;
     for (const R of A.rings) {
       if (f.st.blind && fight.rand() < S.blind.miss) { emit(fight, { type: "miss", foe: f.id, attack: A.kind, x: R.x, y: R.y }); continue; }
-      for (const h of foeBurst(fight, R.x, R.y, R.z, r, { damage: atk.damage * weakX(f) * dX(fight, "trollDamage"), push: atk.push, stagger: atk.stagger, melee: true, from: [R.x, R.y], src, sets: atk.sets })) hit.push(h.seat);
+      for (const h of foeBurst(fight, R.x, R.y, R.z, r, { damage: atk.damage * weakX(f) * dX(fight, "trollDamage"), push: atk.push, stagger: atk.stagger, melee: true, from: [R.x, R.y], src, sets: atk.sets, by: f })) hit.push(h.seat);
       if (atk.patch && fight.marks) fire(fight, R.x, R.y, atk.patch.r || 12, atk.patch.life || 3, "troll", { z: R.z, on: R.on, look: atk.patch.look || null });
     }
     f.cd[A.kind] = cdOf(f, atk, 6.0);
@@ -3047,7 +3133,7 @@
       const dx = k.x - f.x, dy = k.y - f.y, along = dx * A.ux + dy * A.uy;
       if (along < -2 || Math.hypot(dx, dy) > f.r + k.r + 2) continue;
       A.hits.push(k.seat);
-      const res = A.blindMiss ? "miss" : hurt(fight, k, (atk.damage || 16) * weakX(f), { melee: true, from: [f.x, f.y], src: f.kind + "." + A.kind, push: atk.push, stagger: atk.stagger });   // (the bat's swoop names itself, design pass 27: "bat.swoop"; the brute's stays "brute.charge")
+      const res = A.blindMiss ? "miss" : hurt(fight, k, (atk.damage || 16) * weakX(f), { melee: true, from: [f.x, f.y], src: f.kind + "." + A.kind, push: atk.push, stagger: atk.stagger, by: f });   // (the bat's swoop names itself, design pass 27: "bat.swoop"; the brute's stays "brute.charge")
       const side = dx * -A.uy + dy * A.ux >= 0 ? 1 : -1;
       if (res !== "safe" && res !== "none" && res !== "miss") P.push(W, k, -A.uy * side, A.ux * side, atk.shove || 32);
       emit(fight, { type: "foeStrike", foe: f.id, attack: A.kind, seat: k.seat, res, x: f.x, y: f.y, z: f.z });
@@ -3089,18 +3175,22 @@
     const GD = f.spec.guard; if (!GD || o.kind !== "direct" || !guardUp(fight, f)) return null;
     const smash = o.form === "smash"; if (!smash && !(GD.forms || []).includes(o.form)) return null;
     if (Math.abs(angDiff(ang + Math.PI, f.face)) > (GD.arc || 120) / 2 * RAD + 1e-9) return null;   // the blow comes from outside the shield's arc
+    const SX = fight.sig && o.fu ? SIG().shieldOf(o.fu, o) : null;   // (design pass 38) the class on the shield: the hammer's and the axe's crush, the dagger's fifth through, the claws stopped, the headsman's cut ignoring it
+    if (SX && SX.ignore) return null;
     const G = guardOf(f), win = GD.window || 3.0;
     if (fight.t - G.last > win + 1e-9) G.meter = 0;
-    G.last = fight.t; G.meter += dmg * (smash ? (GD.smashCounts || 1.5) : 1);
+    G.last = fight.t; G.meter += dmg * (smash ? (GD.smashCounts || 1.5) : 1) * (SX ? SX.crush : 1);
     G.blocks = G.blocks.filter(t => fight.t - t <= 3).concat([fight.t]);
     const D = GD.dents || [0.33, 0.66], frac = G.meter / (GD.breakAt || 40);
     G.dent = frac >= D[1] ? 2 : frac >= D[0] ? 1 : 0;
     if (G.meter >= (GD.breakAt || 40) - 1e-9) {
       G.meter = 0; G.dent = 0; G.blocks = [];
       const reel = GD.reel || 1.2; f.stagger = Math.max(f.stagger, reel); f.staggered = true; f.reelUntil = fight.t + reel; G.upAt = fight.t + reel + (GD.raise || 0.4);
+      if (fight.sig) { f.critOpen = true; f.poise = 0; f.poiseAt = fight.t; f.critUntil = fight.t + SIG().windowOf(f.kind, false); }   // (design pass 38) a guard break is a poise stagger: the next blow is a crit
       if (f.act) cancelAct(fight, f, "guardBreak", true);
       emit(fight, { type: "guardBreak", foe: f.id, x: f.x, y: f.y, z: f.z });
     }
+    if (SX && SX.take !== null) return SX.take;
     return smash ? (GD.smashTake === undefined ? 0.5 : GD.smashTake) : (GD.take === undefined ? 0.15 : GD.take);
   }
   // the bash's condition: two blocks within 1.5 s, or a knight hugging the shield for 1 s
@@ -3124,7 +3214,7 @@
       if (!standing(k) || Math.hypot(k.x - f.x, k.y - f.y) > f.r + k.r + 2) continue;
       if ((f.z || 0) >= (k.z || 0) + (k.h || 24) || (k.z || 0) >= (f.z || 0) + (f.h || 14)) continue;   // over its head or under it
       A.hits.push(k.seat);
-      const res = A.blindMiss ? "miss" : hurt(fight, k, (atk.damage || 4) * weakX(f) * dX(fight, "trollDamage"), { melee: true, from: [f.x, f.y], push: atk.push, stagger: atk.stagger, src: f.kind + "." + A.kind });
+      const res = A.blindMiss ? "miss" : hurt(fight, k, (atk.damage || 4) * weakX(f) * dX(fight, "trollDamage"), { melee: true, from: [f.x, f.y], push: atk.push, stagger: atk.stagger, src: f.kind + "." + A.kind, by: f });
       emit(fight, { type: "foeStrike", foe: f.id, attack: A.kind, seat: k.seat, res, x: f.x, y: f.y, z: f.z });
       break;
     }
@@ -3232,6 +3322,7 @@
       else wish = [ux * speed, uy * speed];
     }
     if (K.weave && closing && wish && !f.climbing) { const a = (K.weave.amp || 0.35) * Math.sin(TAU * fight.t / (K.weave.period || 0.6) + f.id), c = Math.cos(a), sn = Math.sin(a); wish = [wish[0] * c - wish[1] * sn, wish[0] * sn + wish[1] * c]; }   // (design pass 21) a wolf weaves as it closes
+    if (fight.sig && wish) { const sx = SIG().trollSpeedX(fight, f); if (sx !== 1) wish = [wish[0] * sx, wish[1] * sx]; }   // (design pass 38) the wolf's frenzy, the orb's field
     f.intent = drop ? { wish, tilt, drop: true } : { wish, tilt };
     f.moving = Math.hypot(wish[0], wish[1]) > 1e-6;
     f.wantClose = closing && f.moving;
@@ -3397,7 +3488,7 @@
     const K = f.spec, single = kind !== "dot" && kind !== "tick";
     if (single) f.hurtAt = fight.t; else f.dotAt = fight.t;   // a blow starts the 3.0 s before regrowth over; a dot's tick only holds it while the dots come (a burn has its own 2 s grace)
     if (by && by.seat !== undefined) f.lastHit = by.seat;
-    const ST = K.stagger;
+    const ST = fight.sig ? null : K.stagger;   // (design pass 38) poise replaces the brutes' meter and the small trolls' threshold
     if (ST) {
       const win = f.stagWin;
       win.push([fight.t, amount]);
@@ -3409,7 +3500,7 @@
         emit(fight, { type: "foeStagger", foe: f.id, time: ST.time, x: f.x, y: f.y, z: f.z });
         if (ST.dropsRock && f.onStagger) f.onStagger(fight, f);   // the rock brute lets its rock fall
       }
-    } else if (single && K.poise && amount >= K.poise - 1e-9 && f.act && f.act.phase === "wind") cancelAct(fight, f, "interrupt");
+    } else if (!fight.sig && single && K.poise && amount >= K.poise - 1e-9 && f.act && f.act.phase === "wind") cancelAct(fight, f, "interrupt");
     // the roar: once, the first time a brute's HP falls to half or below (it comes after the attack in hand, and after any stun or freeze)
     const RO = roarOf(K);
     if (RO && !f.roared && !f.roarDue && !f.dead && f.hp <= f.hpMax * (RO.at === undefined ? 0.5 : RO.at) + 1e-9) f.roarDue = true;
@@ -3443,7 +3534,7 @@
     f.rockLying = P.addSolid(W, { kind: "rockLying", shape: "c", x: R.x, y: R.y, r: 7, ht: 0, thin: true, base: R.z || 0 });
     A.after = (fg, g) => { if (g.rockLying) { P.removeSolid(W, g.rockLying); g.rockLying = null; } };
   }
-  const takenX = f => f.foe && f.staggered ? (f.spec.stagger ? f.spec.stagger.taken || 1.25 : f.spec.guard ? f.spec.guard.taken || 1.25 : 1) : 1;   // (design pass 21) a troll knight reeling from a broken guard takes x 1.25 too
+  const takenX = (f, fight) => (fight && fight.sig) ? 1 : f.foe && f.staggered ? (f.spec.stagger ? f.spec.stagger.taken || 1.25 : f.spec.guard ? f.spec.guard.taken || 1.25 : 1) : 1;   // (design pass 21) a troll knight reeling from a broken guard takes x 1.25 too; (design pass 38) the crit replaces it
   // a status a troll's own kind sets on a troll (a reflected ice arrow chills its archer: the trolls' slow for 2 s, three within 3 s freeze it)
   function trollSets(fight, f, what) {
     const S = data().statuses;
@@ -3537,6 +3628,9 @@
           const u = k.hands[k.active].u, facing = Math.abs(angDiff(Math.atan2(d.y - k.y, d.x - k.x), k.face)) < Math.PI / 2;
           if (st.blind && fight.rand() < S.blind.miss) emit(fight, { type: "miss", x: k.x, y: k.y, d: d.i }, k);   // a blinded quintain misses half the time
           else if (k.guardT > 0) { arm.w = -arm.w; emit(fight, { type: "block", x: k.x, y: k.y, bx: (bx + k.x) / 2, by: k.y - 14, d: d.i }, k); emit(fight, { type: "reflect", x: k.x, y: k.y, d: d.i }, k); }
+          // (design pass 38) the Guard against the bag: in the parry window the arm stops dead (PARRY, the riposte open; a sword's next blow its finisher); held, it is blocked as the Shield's trait blocks it
+          else if (fight.sig && k.guarding && facing && fight.t <= k.parryUntil + 1e-9) { arm.w = 0; k.parryUntil = 0; k.riposteUntil = fight.t + SIG().spec().guard.parry.riposte.within; if (SIG().classOf(u) === "sword") k.hands[k.active].combo = { n: 2, until: Infinity }; emit(fight, { type: "parry", x: k.x, y: k.y, bx: (bx + k.x) / 2, by: k.y - 14, d: d.i }, k); }
+          else if (fight.sig && k.guarding && facing) { arm.w = -arm.w * Q.blockBack; emit(fight, { type: "block", x: k.x, y: k.y, bx: (bx + k.x) / 2, by: k.y - 14, d: d.i }, k); }
           else if (u.mods.has("guard") && facing) { arm.w = -arm.w * Q.blockBack; emit(fight, { type: "block", x: k.x, y: k.y, bx: (bx + k.x) / 2, by: k.y - 14, d: d.i }, k); }
           else if (u.mods.has("reflect")) { arm.w = -arm.w; emit(fight, { type: "reflect", x: k.x, y: k.y, d: d.i }, k); }
           else {
@@ -3551,12 +3645,13 @@
   }
   // ------------------------------------------------------------------ resetting the room (the menu's Reset)
   function reset(fight) {
-    for (const d of fight.dummies) { d.st = {}; d.wob = 0; d.wv = 0; d.flash = 0; d.combo = null; d.chill = false; if (d.arm) { d.arm.w = 0; d.arm.cool = 0; } }
+    for (const d of fight.dummies) { d.st = {}; d.wob = 0; d.wv = 0; d.flash = 0; d.combo = null; d.chill = false; if (d.arm) { d.arm.w = 0; d.arm.cool = 0; } d.poise = d.poiseMax || 0; d.critOpen = false; d.reelT = 0; d.poiseLock = 0; }
     fight.shots = []; fight.traps = []; fight.minions = []; fight.patches = [];
     fight.board = { last: null, name: "", log: [], dps: 0 };
     for (const k of fight.knights) {
-      for (const h of k.hands) { h.orbit = null; h.aura = null; h.recover = 0; h.cd = 0; h.acd = 0; }
+      for (const h of k.hands) { h.orbit = null; h.aura = null; h.recover = 0; h.cd = 0; h.acd = 0; h.frenzy = null; }
       k.strike = null; k.twinQ = null; k.gout = null; k.charging = false; k.chargeT = 0; k.abQ = null; k.guardT = 0; stopStream(fight, k); breakChain(k);
+      k.guarding = false; k.reelT = 0; k.critOpen = false; k.knock = null; k.poise = k.poiseMax || 0; k.poiseLock = 0; k.riposteUntil = 0; k.parryUntil = 0; k.lag = 0;   // (design pass 38)
     }
     return fight;
   }
@@ -3568,6 +3663,7 @@
     fieldClass, nextToward, fieldReach, trollSets, standing, inAttackBox, lineClear, applyStatus, bestSpot, trenchCovered, trenchEnd, wireBetween,
     mark, endMark, stamp, fire, ice, puddle, crater, chunks, throwStone, stuck, groundBits, GBIT, clearSeat, setPost, manned, roarOf, emberRoll,
     emit, inThumb, drownPuddle, fieldsReady, difficultyOf, dX,
-    ward, blinkTo, blinkReady, blast };   // design pass 27: the Keep
+    ward, blinkTo, blinkReady, blast,   // design pass 27: the Keep
+    signatures: SIG, sigOn };   // design pass 38: the class signatures (proto/signatures.js)
   if (typeof module !== "undefined" && module.exports) module.exports = root.Combat;
 })(typeof window !== "undefined" ? window : globalThis);

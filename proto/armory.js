@@ -290,6 +290,8 @@
         const f = doc.createElement("div"); f.className = "bayfoot"; f.style.setProperty("--bw", b.x1 - b.x0 + 1);
         const p = doc.createElement("button"); p.type = "button"; p.className = "bayplate" + (b.more > 0 ? " over" : ""); p.dataset.cls = b.cls; p.innerHTML = "<b></b><span></span>";
         p.firstChild.textContent = b.label; p.lastChild.textContent = b.n;
+        // (design pass 38) the class's signature word on the plate (spec/signatures.json), when the page has it
+        { const Sg = root.Signatures, wd = Sg && Sg.on && Sg.on() ? Sg.words.bayWord(b.cls) : null; if (wd) { const sg = doc.createElement("i"); sg.className = "sig"; sg.textContent = "· " + wd; p.insertBefore(sg, p.lastChild); } }
         if (b.more > 0) { const m = doc.createElement("i"); m.className = "more"; m.textContent = "+" + b.more; p.appendChild(m); }
         p.setAttribute("aria-label", b.label + ": " + b.n + " held" + (b.more > 0 ? ", " + b.shown + " on the shelves" : "") + ". See them all");
         p.addEventListener("click", () => { if (o.onBay) o.onBay(b.cls); });

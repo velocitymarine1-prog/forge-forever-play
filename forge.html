@@ -216,6 +216,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 @keyframes relit{50%{color:var(--gold-d);text-shadow:0 0 6px var(--hot)}}
 .plaque .kindline,.plaque .traits,.plaque .named{text-align:left;font-family:var(--data);font-size:calc(11px*var(--k));letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-top:calc(3px*var(--k))}
 .plaque .traits{text-wrap:balance}
+/* the signature line (design pass 38): the class, its one word and its rule, under the traits */
+.plaque .sig{text-align:left;font-family:var(--data);font-size:calc(10.5px*var(--k));letter-spacing:.04em;color:var(--ink3);margin-top:calc(4px*var(--k));text-wrap:balance;text-transform:none}
+.plaque .sig:empty{display:none}
 .plaque .named{letter-spacing:.06em;margin-top:0}
 .plaque .named:empty{display:none}
 .plaque .line{text-align:left;font-size:calc(13.5px*var(--k));color:var(--ink);margin:calc(3px*var(--k)) 0}
@@ -372,6 +375,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .bayfoot{width:calc(var(--s)*var(--bw)*1px);display:flex;justify-content:center;pointer-events:none}
 .bayplate{position:sticky;left:46px;right:46px;display:flex;gap:6px;align-items:baseline;white-space:nowrap;padding:2px 7px;background:var(--oak);border:2px solid var(--oak-l);border-radius:0;font-family:var(--data);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--hot);pointer-events:auto;cursor:pointer;appearance:none;-webkit-appearance:none;line-height:1.3}
 .bayplate span{color:var(--parch)}
+.bayplate .sig{font-style:normal;font-size:9px;letter-spacing:.08em;color:var(--brass);margin-left:2px}   /* the class's signature word (design pass 38) */
 .bayplate .more{font-style:normal;color:var(--soot);background:var(--brass);padding:0 4px;margin-left:2px}
 .bayplate:focus-visible{outline:2px solid var(--hot);outline-offset:1px}
 @media (hover:hover){.bayplate:hover{border-color:var(--hot)}}
@@ -430,6 +434,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .mapplate h5{font-family:var(--display);font-weight:800;font-size:25px;line-height:1;margin:0 26px 0 0;text-align:center;color:var(--parch)}
 .mapplate .line{font-size:12.5px;line-height:1.25;color:#d9cdb8;margin:2px 0 6px;text-align:center}
 .mapplate .lv{display:flex;flex-direction:column;gap:3px}
+.mapplate .line2{font-family:var(--data);font-size:10.5px;letter-spacing:.03em;line-height:1.3;color:var(--brass);margin:5px 0 2px;text-align:center;text-wrap:balance}   /* the picked level's line (design pass 38): what holds it, what answers it */
+.mapplate .line2:empty{display:none}
 .mapplate .lv button{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:6px;align-items:center;padding:2px 7px;min-height:26px;font-family:var(--data);font-size:12px;border:2px solid #3a3448;background:#231c2e;text-align:left;color:var(--parch);cursor:pointer}
 .mapplate .lv button .nm{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mapplate .lv button .st{font-size:10.5px;color:var(--mute);white-space:nowrap}
@@ -514,6 +520,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .drill .dlines{flex:1;min-width:0}
 .drill .dline{font-size:13.5px;line-height:1.3;color:var(--ink)}
 .drill .dline b{font-family:var(--data);font-weight:600;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+.drill .dline.sig{font-family:var(--data);font-size:11px;letter-spacing:.03em;color:var(--ink3)}   /* the signature line (design pass 38) */
 .drill .pbtns{flex:none;margin:0}
 .drill .pbtns button{flex:0 0 120px;min-width:0;padding:2px}
 /* the Rack's two hands: two big slots over the list, the one in front marked */
@@ -569,7 +576,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .still .pour.holding .fill{width:100%}
 </style>
 <meta name="ff-cloud" content="https://forge-forever.velocityicy.workers.dev/api/v1"></head>
-<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="63c393d" data-booted="0" data-errors="0">
+<body data-battlegrounds="battlegrounds.html" data-menu="index.html" data-build="43aa357" data-booted="0" data-errors="0">
 <div class="phone" id="phone"><div id="probe"></div><div class="app" id="app">
     <div class="sign">
       <button class="f-iron home" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
@@ -719,6 +726,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="spec/folk.js"></script>
 <script src="spec/map.js"></script>
 <script src="spec/boards.js"></script>
+<script src="spec/signatures.js"></script>
 <script src="proto/combiner.js"></script>
 <script src="proto/naming.js"></script>
 <script src="proto/progress.js"></script>
@@ -730,6 +738,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script src="proto/knight.js"></script>
 <script src="proto/cellar.js"></script>
 <script src="proto/combos.js"></script>
+<script src="proto/signatures.js"></script>
 <script src="proto/drill.js"></script>
 <script src="proto/trolls.js"></script>
 <script src="proto/physics.js"></script>

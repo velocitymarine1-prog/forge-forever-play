@@ -13,7 +13,9 @@
 //   C3 Strike: Strike glows, 0 / 3 counts the blows that land on straw (the rules' hit events with dummy "straw"; a burn tick is not a
 //      blow); then his beat about the Fire. C4 Dodge: Dodge glows, one dodge. C5 Swap: Swap glows, one swap; then his beat with a
 //      glance at the rack on the wall. C6 The quintain: a floor ring round it, 0 / 3 hits on it; the arm catching the knight (the rules'
-//      bonk) says "It got you!" and the count goes on. C7 Up: the stairs' opening and ↑ Forge glow; the page leaving for the Forge ends it.
+//      bonk) says "It got you!" and the count goes on. C8 Guard (design pass 38): Guard glows, the ring stays round the quintain; the arm parried (the rules' parry event) ends it;
+//      the arm catching the knight says "It got you!" again. C9 Poise: a ring round the armored dummy; a CRIT on it (the rules' hit with
+//      the tag) ends it. C7 Up: the stairs' opening and ↑ Forge glow; the page leaving for the Forge ends it.
 //   Until C7 ↑ Forge and the house are dimmed and inert, so are Back to the Forge and Main menu in the cellar's menu, and the door to
 //   the Troll Gate on the left wall is no zone: no prompt, no plate (the cellar's menu itself stays live; the stairs stay live too: up
 //   them, the Forge says the lessons are in the cellar and sends the player back down). The first-visit plank does not show while the
@@ -31,7 +33,7 @@
   let L = null, lay = null;   // lessons.js's controller on #game, and this file's own layer (the anchors and the thumb)
   const live = { arriving: false, flare: 0, anchors: {}, thumb: null, blocked: [] };
   // the floor rings, in world pixels: an ellipse round the straw dummies' feet and one round the quintain's (section 3.5's marks)
-  const RINGS = { straw: { cx: 232, cy: 128, rx: 42, ry: 34 }, quintain: { cx: 96, cy: 168, rx: 44, ry: 30 } };
+  const RINGS = { straw: { cx: 232, cy: 128, rx: 42, ry: 34 }, quintain: { cx: 96, cy: 168, rx: 44, ry: 30 }, armored: { cx: 324, cy: 140, rx: 34, ry: 26 } };   // (armored: design pass 38's C9)
   // the stairs' opening on the back wall and the rack, in world pixels (proto/cellar.js draws them there)
   const BOXES = { stairs: { x: 21, y: 18, w: 36, h: 46 }, rack: { x: 94, y: 22, w: 46, h: 32 } };
   const EMBER = ["#f77622", "#feae34", "#fee761"], SOOT = "#181425";
@@ -53,6 +55,7 @@
   function resolve(name) {
     if (name === "strike") return $("strikeBtn");
     if (name === "dodge") return $("dodgeBtn");
+    if (name === "guard") return $("guardBtn");
     if (name === "swap") return $("swapBtn");
     if (name === "forge") return $("upBtn");
     if (name === "stairs" || name === "rack") return live.anchors[name] || null;
@@ -171,8 +174,8 @@
       if (!L || !L.active) return;
       const landed = new Set();
       for (const e of events) {
-        if (e.type === "hit") { if (e.dummy && e.kind !== "dot" && !landed.has(e.dummy)) { landed.add(e.dummy); L.event("hit", { dummy: e.dummy }); } }
-        else if (e.type === "dodge" || e.type === "swap") L.event(e.type);
+        if (e.type === "hit") { if (e.dummy && e.kind !== "dot" && !landed.has(e.dummy)) { landed.add(e.dummy); L.event("hit", { dummy: e.dummy }); } if (e.tag === "CRIT" && e.dummy) L.event("crit", { dummy: e.dummy }); }   // (crit: design pass 38's C9)
+        else if (e.type === "dodge" || e.type === "swap" || e.type === "parry") L.event(e.type);   // (parry: design pass 38's C8)
         else if (e.type === "bonk") L.event("bonk");
       }
     },

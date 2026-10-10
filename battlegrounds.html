@@ -95,6 +95,11 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 #strikeBtn{right:14px;bottom:14px;width:76px;height:76px;color:var(--soot)}
 #strikeBtn canvas{width:52px;height:52px}
 #dodgeBtn{right:102px;bottom:14px;width:52px;height:52px}
+/* the Guard button (design pass 38): hold to block, the first ticks of a press the parry window; left of Dodge, I or Left Shift on a desktop */
+#guardBtn{right:158px;bottom:14px;width:52px;height:52px}
+#guardBtn.on{filter:brightness(1.3) drop-shadow(0 0 6px #ffffff)}
+.lefty #guardBtn{right:auto;left:158px}
+.game.forge-room #guardBtn{display:none}
 #swapBtn{right:102px;bottom:78px;width:52px;height:52px}
 #swapBtn canvas{width:33px;height:33px}
 /* a legend's ability (design pass 10): a gold button above Strike, with its head's class weapon; the clock shows the cooldown */
@@ -109,10 +114,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .hbtn.on{filter:brightness(1.3) drop-shadow(0 0 6px var(--hot))}
 /* the Arena (design pass 36, build 27): Guard between Swap's column and Dodge, its gold rim in the parry window; the poise bar under the
    health plate; the round plate in the weapon plate's place; the foe's plate in the trolls-left plate's; the Gate of Champions */
-#guardBtn{right:158px;bottom:14px;width:52px;height:52px}
-#guardBtn canvas{width:32px;height:32px}
-.lefty #guardBtn{right:auto;left:158px}
-#guardBtn.parry .glow{opacity:1}
+#guardBtn.parry .glow{opacity:1}   /* (the button itself is design pass 38's, above) */
 .hp.poise{top:78px;height:24px;gap:6px;padding:0 6px}
 .poise .pl{font-size:9px;letter-spacing:.06em;color:var(--brass)}
 .poise.broken .pl{color:var(--hot)}
@@ -159,7 +161,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .boss b{font-weight:600}
 .hp canvas,.obj canvas{image-rendering:pixelated;flex:none}
 #hpHeart{width:18px;height:16px}
-#hpBar{width:112px;height:12px}
+#hpBar{width:112px;height:18px}   /* (design pass 38: the poise hairline under the health bar, three rows more) */
 #objIcon{width:18px;height:18px}
 #objBar{width:56px;height:12px}
 .hp b,.obj b{min-width:2ch;font-weight:600;text-align:right}
@@ -181,7 +183,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .plank h2{margin:0 0 4px;text-align:center;font-family:var(--display);font-weight:800;font-size:27px;line-height:1;color:var(--ink);text-wrap:balance}
 .plank p{margin:4px 0;font-size:14.5px;color:var(--ink);text-align:center}
 .plank .small{font-family:var(--data);font-size:11px;letter-spacing:.03em;color:var(--ink2)}
-.keys{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:8px 0}
+.keys{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:8px 0}
 .keys div{padding:2px 2px 4px;text-align:center;font-family:var(--data);font-size:10.5px;line-height:1.25;color:var(--parch)}
 .keys b{display:block;font-family:var(--display);font-weight:700;font-size:17px;line-height:1.1;color:var(--hot)}
 .pbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
@@ -279,11 +281,12 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
     <button class="top f-iron" id="upBtn">↑ Courtyard</button>
     <div class="wplate f-stone" id="wplate" role="status" aria-live="off"><b id="wName"></b><div class="line"><span class="pips" id="pips" hidden><i></i><i></i><i class="gold"></i></span><span id="wLine"></span><span class="tagp" id="wTag" hidden></span><span class="slow" id="wSlow" hidden>SLOW</span></div></div>
     <button class="top f-iron" id="menuBtn" aria-label="The cellar's menu" title="The cellar's menu"><canvas data-glyph="cog" aria-hidden="true"></canvas></button>
-    <div class="hp f-stone" id="hpPlate" hidden role="img" aria-label="Health 100 of 100"><canvas id="hpHeart" width="9" height="8" aria-hidden="true"></canvas><canvas id="hpBar" width="56" height="6" aria-hidden="true"></canvas><b id="hpNum">100</b></div>
+    <div class="hp f-stone" id="hpPlate" hidden role="img" aria-label="Health 100 of 100"><canvas id="hpHeart" width="9" height="8" aria-hidden="true"></canvas><canvas id="hpBar" width="56" height="9" aria-hidden="true"></canvas><b id="hpNum">100</b></div>
     <div class="obj f-stone" id="objPlate" hidden role="img" aria-label="Trolls left"><canvas id="objIcon" width="9" height="9" aria-hidden="true"></canvas><b id="objNum"></b><canvas id="objBar" width="28" height="6" hidden aria-hidden="true"></canvas></div>
     <div class="boss f-stone" id="bossPlate" hidden role="img" aria-label="Boss"><b id="bossName"></b><canvas id="bossBar" width="120" height="6" aria-hidden="true"></canvas></div>
     <div class="note" id="note" hidden></div>
     <button class="hbtn f-iron" id="swapBtn" aria-label="Swap weapons"></button>
+    <button class="hbtn f-iron" id="guardBtn" aria-label="Guard: hold to block, press as a blow comes to parry">Guard<i class="glow"></i></button>
     <button class="hbtn f-iron" id="dodgeBtn" aria-label="Dodge">Dodge</button>
     <button class="hbtn f-gold" id="abilityBtn" aria-label="Ability" hidden></button>
     <button class="hbtn f-ember" id="strikeBtn" aria-label="Strike"></button>
@@ -304,6 +307,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
         <div class="f-iron"><b>Strike</b><span id="keyStrike">tap, or hold</span></div>
         <div class="f-iron"><b>Swap</b><span id="keySwap">the other weapon</span></div>
         <div class="f-iron"><b>Dodge</b><span id="keyDodge">through the bag</span></div>
+        <div class="f-iron"><b>Guard</b><span id="keyGuard">hold to block</span></div>
       </div>
       <p class="small" id="keyLine">Under the rack on the wall you can take any weapon you own. The stairs lead back up to the courtyard.</p>
       <div class="pbtns"><button class="f-ember primary" id="firstGo">Down to the cellar</button></div>
@@ -404,6 +408,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="spec/lessons.js"></script>
 <script src="spec/xp.js"></script>
 <script src="spec/arena.js"></script>
+<script src="spec/signatures.js"></script>
 <script src="ledger/ledger.js"></script>
 <script src="proto/coin.js"></script>
 <script src="proto/progress.js"></script>
@@ -423,6 +428,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="proto/hall.js"></script>
 <script src="proto/keep.js"></script>
 <script src="proto/physics.js"></script>
+<script src="proto/signatures.js"></script>
 <script src="proto/combat.js"></script>
 <script src="proto/level.js"></script>
 <script src="proto/bots.js"></script>

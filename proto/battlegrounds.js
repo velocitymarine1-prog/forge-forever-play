@@ -474,7 +474,7 @@
   const paused = () => !!(state.plank || state.plate || document.hidden || state.left);
 
   // ------------------------------------------------------------------ input: the stick, the buttons, the keyboard
-  const input = { strike: false, swap: false, dodge: false, ability: false, use: false, keys: {}, test: null };
+  const input = { strike: false, swap: false, dodge: false, ability: false, use: false, guard: false, keys: {}, test: null };   // (guard: design pass 38, held)
   // The floating stick (design pass 7's: it floats to where the thumb lands in its zone, 44 px is full tilt, the dead zone 12 %) was
   // written out here until design pass 24 (section 4.16, build 17) moved it to proto/stick.js, so the cellar, the levels and the Courtyard
   // walk under one thumb. The page gives it its three elements (#stickZone, #stick, #knob: the cellar's lessons read them), toGame (a game
@@ -507,10 +507,11 @@
   holdButton($("strikeBtn"), () => { input.strike = true; }, () => { input.strike = false; });
   holdButton($("swapBtn"), () => { input.swap = true; });
   holdButton($("dodgeBtn"), () => { input.dodge = true; });
+  // (design pass 38) Guard: held to block, its press the parry window; the button lit while held
+  holdButton($("guardBtn"), () => { input.guard = true; $("guardBtn").classList.add("on"); }, () => { input.guard = false; $("guardBtn").classList.remove("on"); });
   // a legend's ability (design pass 10): the gold button above Strike, or U (above J, as the button is above Strike); pressed, it is brighter
   holdButton($("abilityBtn"), () => { input.ability = true; $("abilityBtn").classList.add("on"); }, () => { $("abilityBtn").classList.remove("on"); });
-  const KEYMAP = { KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down", KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right", KeyJ: "strike", Space: "strike", KeyK: "swap", KeyL: "dodge", ShiftLeft: "dodge", ShiftRight: "dodge", KeyE: "use", KeyU: "ability", Escape: "menu" };
-  if (ARENA) { KEYMAP.KeyI = "guard"; KEYMAP.ShiftLeft = "guard"; }
+  const KEYMAP = { KeyW: "up", ArrowUp: "up", KeyS: "down", ArrowDown: "down", KeyA: "left", ArrowLeft: "left", KeyD: "right", ArrowRight: "right", KeyJ: "strike", Space: "strike", KeyK: "swap", KeyL: "dodge", ShiftRight: "dodge", KeyI: "guard", ShiftLeft: "guard", KeyE: "use", KeyU: "ability", Escape: "menu" };   // (design pass 38: Guard on I and Left Shift; Dodge keeps L and Right Shift)
   window.addEventListener("keydown", e => {
     const what = KEYMAP[e.code];
     if (!what || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -521,7 +522,7 @@
     if (what === "swap") input.swap = true; else if (what === "dodge") input.dodge = true; else if (what === "ability") input.ability = true; else if (what === "use") use(); else input.keys[what] = true;
   });
   window.addEventListener("keyup", e => { const what = KEYMAP[e.code]; if (what) input.keys[what] = false; });
-  window.addEventListener("blur", () => { input.keys = {}; input.strike = false; stickUp(); });
+  window.addEventListener("blur", () => { input.keys = {}; input.strike = false; input.guard = false; $("guardBtn").classList.remove("on"); stickUp(); });
   for (const ev of ["contextmenu", "gesturestart", "dblclick"]) game.addEventListener(ev, e => e.preventDefault());
   // what the thumbs say for this step
   function gather() {
@@ -530,11 +531,11 @@
     let mx = 0, my = 0;
     if (stick && stick.held) { mx = stick.x; my = stick.y; }   // a thumb on the stick is the wish, in its dead zone too
     else { mx = (K.right ? 1 : 0) - (K.left ? 1 : 0); my = (K.down ? 1 : 0) - (K.up ? 1 : 0); const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; } }
-    const inp = { move: [mx, my], strike: input.strike || !!K.strike, swap: input.swap, dodge: input.dodge, ability: input.ability };
+    const inp = { move: [mx, my], strike: input.strike || !!K.strike, swap: input.swap, dodge: input.dodge, ability: input.ability, guard: input.guard || !!K.guard };   // (guard: held, design pass 38)
     if (LEVEL && input.use) inp.use = true;   // E or a tap on the prompt by the chest or the ram: the rules take it up (section 3.14)
     if (ARENA) inp.guard = !!(input.guard || K.guard || (T && T.guard));   // (design pass 36) Guard is held, not pressed (a driver's guard too)
     input.swap = false; input.dodge = false; input.ability = false; input.use = false;   // Swap, Dodge, the ability and use are passed once, a press each
-    if (T) { if (T.move) inp.move = T.move; if (T.strike !== undefined) inp.strike = !!T.strike; if (T.swap) { inp.swap = true; T.swap = false; } if (T.dodge) { inp.dodge = true; T.dodge = false; } if (T.ability) { inp.ability = true; T.ability = false; } if (T.use) { inp.use = true; T.use = false; } if (T.target !== undefined) inp.target = T.target; if (T.face !== undefined) inp.face = T.face;
+    if (T) { if (T.move) inp.move = T.move; if (T.strike !== undefined) inp.strike = !!T.strike; if (T.guard !== undefined) inp.guard = !!T.guard; if (T.swap) { inp.swap = true; T.swap = false; } if (T.dodge) { inp.dodge = true; T.dodge = false; } if (T.ability) { inp.ability = true; T.ability = false; } if (T.use) { inp.use = true; T.use = false; } if (T.target !== undefined) inp.target = T.target; if (T.face !== undefined) inp.face = T.face;
       if (T.pass) { const P = LEVEL ? LV.passage() : null; if (P && P.id === T.pass && state.arrive <= 0) startPassage(P); T.pass = undefined; } }   // (design pass 21: a driver's pass is a tap on the door's prompt: the page's fade, then the pass)
     // arriving: the knight walks in while input waits, to the area's walkTo ([x, y], null for an axis it keeps: the cellar's knight walks
     // down off the bottom step, the level's in from the left edge of the field; through a passage, the passage's walkTo)
@@ -621,7 +622,8 @@
   // ------------------------------------------------------------------ what happened: events to effects, numbers, holds and shakes
   const LIFE = { smear: 0.26, streak: 0.16, star: 0.14, ring: 0.3, whirl: 0.3, crack: 1.0, dust: 0.35, blast: 0.4, puff: 0.4, straw: 0.35, sparks: 0.25, arc: 0.18, dash: 0.25 };
   const INK = { normal: "#ffffff", crit: "#fee761", RESIST: "#8b9bb4", IMMUNE: "#8b9bb4", WEAK: "#f77622", COMBO: "#feae34", WALL: "#feae34", BLOCK: "#feae34", raw: "#fee761", heal: "#63c74d", bonk: "#e4a672", block: "#c0cbdc", reflect: "#2ce8f5", miss: "#8b9bb4", bleed: "#e43b44",
-    WARD: "#63c74d" };   // (design pass 27) a blow on the Green Hand's ward
+    WARD: "#63c74d",   // (design pass 27) a blow on the Green Hand's ward
+    STAGGER: "#fee761", CRIT: "#feae34", PARRY: "#ffffff", COUNTER: "#fee761", "BLEED OUT": "#e43b44", PIN: "#c0cbdc", WEAKEN: "#b55088", MARK: "#b55088", RIPOSTE: "#feae34", DOWN: "#e43b44", RALLY: "#feae34" };   // (design pass 38) the signatures' words
   const ELC = { physical: ["#5a6988", "#8b9bb4", "#c0cbdc", "#ffffff"] };
   const elemRamp = e => PF.ELEM[e] || ELC.physical;
   function ramp(el, mat) { if (el && el !== "physical" && PF.ELEM[el]) return PF.ELEM[el]; const m = PF.RAMP[mat] || PF.RAMP.steel; return mat === "wood" ? PF.RAMP.steel : m; }
@@ -641,6 +643,13 @@
       else if (e.type === "ability") { say(e.x, e.y - 40, String(e.name).toUpperCase(), elemRamp(e.el)[3], true); addFx({ kind: "star", x: e.x, y: e.y - 16, c: "#fee761", big: true, life: 0.2 }); }
       else if (e.type === "ready") hud.ab = -1;
       else if (e.type === "block") { say(e.x, e.y - 36, "BLOCK", INK.block); addFx({ kind: "sparks", x: e.bx, y: e.by, seed: fight.steps }); }
+      // (design pass 38) the signatures' moments: a parry (twelve sparks, the word), a poise bar shattered (its six gold fragments, STAGGER),
+      // a troll pinned in the air, the knight knocked down, the horn's rally
+      else if (e.type === "parry") { say(e.x, e.y - 36, "PARRY", INK.PARRY, true); addFx({ kind: "sparks", x: e.bx, y: e.by, seed: fight.steps, n: 12 }); addFx({ kind: "star", x: e.bx, y: e.by, c: "#ffffff", big: true, life: 0.16 }); }
+      else if (e.type === "poiseBreak") { say(e.x, e.y - (e.seat !== undefined ? 36 : 17), "STAGGER", INK.STAGGER); addFx({ kind: "shatter", x: e.x, y: e.y - (e.seat !== undefined ? 30 : 8), seed: fight.steps, life: SIGS ? SIGS.poise.shatter.time : 0.4 }); }
+      else if (e.type === "pin") say(e.x, e.y - 17, "PIN", INK.PIN);
+      else if (e.type === "knock") say(e.x, e.y - 36, "DOWN", INK.DOWN, true);
+      else if (e.type === "rally") say(e.x, e.y - 40, "RALLY", INK.RALLY, true);
       else if (e.type === "reflect") say(e.x, e.y - 36, "REFLECT", INK.reflect);
       else if (e.type === "miss") say(e.x, e.y - 36, "MISS", INK.miss);
       else if (e.type === "immune") say(e.x, e.y - 24, "IMMUNE", INK.IMMUNE);
@@ -666,6 +675,8 @@
     if (e.type === "hurt") {
       const kz = e.z !== undefined ? e.z : ((fight.knights[e.seat] || fight.k).z || 0);   // a number over a knight on the roof or the deck is lifted with it
       say(e.x + (e.tick ? rnd() * 6 - 3 : 0), e.y - kz - (e.tick ? 30 : 36), Math.max(1, Math.round(e.amount)), e.tick && e.src === "burning" ? INK.WEAK : INK.bleed);
+      if (e.tag) say(e.x, e.y - kz - 44, e.tag, INK[e.tag] || INK.normal, e.tag === "CRIT" || e.tag === "BLEED OUT");   // (design pass 38) STAGGER, CRIT, PIN, RIPOSTE, BLEED OUT over the knight
+      if (isMine(e) && e.amount > 0 && e.src) lv.lastSrc = e.src;   // (design pass 38) the kind that ended the run, for Grycus's hint at the Forge
       if (e.src === "wire" && isMine(e)) firstTime("wire", "Wire cuts. Go round or cut it.");
       if (isMine(e) && fight.k.hp > 0 && fight.k.hp <= LVN.badlyHurt && !lv.badly) { lv.badly = true; note("Badly hurt", "badlyHurt"); }
       return true;
@@ -719,6 +730,9 @@
   })();
   // a first-time line the first time a kind is seen on the screen (design pass 21: the Great Hall's troll knight and wolf, page.firsts)
   const FIRSTS = LEVEL && PG.firsts && typeof PG.firsts === "object" ? Object.entries(PG.firsts).filter(([, line]) => typeof line === "string" && line) : [];
+  // (design pass 38) Grycus's hints: the kinds the level's own firsts do not name, said once the first time the kind is seen, in his voice
+  const SIGS = window.FORGE_SIGNATURES && window.FORGE_SIGNATURES.on !== false ? window.FORGE_SIGNATURES : null;
+  const HINTS = LEVEL && SIGS && SIGS.words && SIGS.words.hints ? Object.entries(SIGS.words.hints).filter(([kind, line]) => typeof line === "string" && line && !FIRSTS.some(([k]) => k === kind)).map(([kind, line]) => [kind, "Grycus: " + line]) : [];
   // what a troll's death counts among the run's finds (design pass 21: its drop table's find, the Emberback's rare_enemies; without the
   // tables, the Emberback's as before)
   const findOf = kind => { const D = window.FORGE_DROPS; if (!D || !D.trolls) return kind === "emberback" ? "rare_enemies" : null; const t = D.trolls[kind]; return t && typeof t.find === "string" ? t.find : null; };
@@ -838,7 +852,8 @@
   function sendHome(cleared) {
     if (lv.sent) return lv.sent;
     const run = { id: runId, area: AREA.id, level: AREA.level || 1, boss: !!AREA.boss, replay: clearedBefore, cleared: !!cleared, things: lv.things.slice(), finds: Object.assign({}, lv.finds),
-      party: fight.knights.filter(fullKnight).length, brothers: fight.knights.filter(k => k.kind === "brother").length };
+      party: fight.knights.filter(fullKnight).length, brothers: fight.knights.filter(k => k.kind === "brother").length,
+      by: !cleared && typeof lv.lastSrc === "string" ? lv.lastSrc.split(".")[0] : null };   // (design pass 38) the kind that ended the run: Grycus's hint at the Forge
     return (lv.sent = sendRun(run));
   }
   // (design pass 36) a run of any kind into the key: a level's (sendHome) or an Arena bout's XP (arena-page.js, its own id, cleared false,
@@ -902,7 +917,7 @@
     // its time, and a first-time line the first time a kind of its page's firsts is seen on the screen (tried again while a higher line shows)
     if (!lv.started) { lv.started = true; if (typeof PG.start === "string" && PG.start) note(PG.start, "start"); }
     if (lv.stirAt && state.t >= lv.stirAt - 1e-9) { lv.stirAt = 0; note(PG.stir, "stir"); }
-    if (FIRSTS.length && (fight.steps & 3) === 0) for (const [kind, line] of FIRSTS) if (!lv.firsts.has(kind) && seenOnScreen(kind)) firstTime(kind, line);
+    if ((FIRSTS.length || HINTS.length) && (fight.steps & 3) === 0) for (const [kind, line] of FIRSTS.concat(HINTS)) if (!lv.firsts.has(kind) && seenOnScreen(kind)) firstTime(kind, line);
   }
   function onHit(e) {
     const tagged = e.tag && INK[e.tag];
@@ -1294,12 +1309,16 @@
     const tilt = d.arm ? 0 : Math.round(d.wob), mode = d.flash > 0 ? "white" : d.st.freeze ? "ice" : null;
     ctx.drawImage(C.dummySprite(d.kind, tilt, mode), Math.round(d.x) - d.size / 2, Math.round(d.y) - (d.size - 2));
     if (d.arm) C.quintainArm(ctx, Math.round(d.x), Math.round(d.y), d.arm.a, d.arm.len);
+    // (design pass 38) the dummy's poise bar over its head, once its poise is below its max, broken or locked (the gold hairline of the levels' bars)
+    if (Gate && Gate.sprites && Gate.sprites.poise && d.poiseMax > 0 && (d.poise < d.poiseMax - 1e-9 || d.critOpen || d.poiseLock > fight.t)) { const w = 14, q = d.critOpen ? 0 : d.poise / d.poiseMax, f = q > 0 ? Math.max(1, Math.round((w - 2) * Math.min(1, q))) : 0; Gate.drawAt(ctx, Gate.sprites.poise(w, f, !d.critOpen && d.poiseLock > fight.t), Math.round(d.x), Math.round(d.y) - d.head - 5); }
     drawStatuses(d, t);
   }
   // a knight's animation in a level (design pass 12, section 3.12): the frames a real fight needs, from its state, else the cellar's
   function levelAnim(k) {
     // (design pass 36) a knight on the sand: on the ground after a knockdown, reeling in a stagger, the weapon up in a guard
     if (ARENA) { if (k.down || k.lie > 0) return { anim: "down", i: 0 }; if (k.staggered > 0) return { anim: "hurt", i: 0 }; if (k.guard && !k.strike && !k.dodge) return { anim: "wind", i: 0 }; return Combat.animOf(fight, k); }
+    if (k.knock) return { anim: k.knock.phase === "lie" ? "down" : "hurt", i: 0 };   // (design pass 38) knocked down: flat, then up on one knee
+    if (k.reelT > 0) return { anim: "reel", i: 0 };   // (design pass 38) its poise broken
     if (k.air) return { anim: "fall", i: 0 };
     if (k.climbing) return { anim: "climb", i: Math.floor((k.z || 0) / 6) & 1 };
     if (k.down || k.rise > 0) return k.down && k.moving ? { anim: "crawl", i: Math.floor(k.walkT * 4) & 1 } : { anim: "down", i: 0 };
@@ -1315,7 +1334,7 @@
   // the knight (c: a context in world coordinates; the painter lifts a knight by its height before calling this in a level)
   function drawKnight(fxf, k, c) {
     k = k || fight.k; c = c || ctx;
-    const a = LEVEL || ARENA ? levelAnim(k) : Combat.animOf(fight), h = Combat.hold(fight, a.anim, a.i, k), look = LEVEL || ARENA ? lookOf(k) : null, SW = swingFrame(k, a);
+    const a0 = LEVEL || ARENA ? levelAnim(k) : Combat.animOf(fight), a = !ARENA && k.guarding && !k.strike && !k.knock && !(k.reelT > 0) && (a0.anim === "idle" || a0.anim === "walk") ? { anim: "guard", i: 0 } : a0, h = Combat.hold(fight, a.anim, a.i, k), look = LEVEL || ARENA ? lookOf(k) : null, SW = swingFrame(k, a);   // (the Guard's pose, design pass 38; the arena draws its own guard)
     const kf = SW ? Knight.frame(SW.fr.facing, SW.fr.pose, 0, 0, look) : look ? Knight.frame(h.facing, a.anim, a.i, h.reach, look) : h.frame;
     if (!LEVEL && !(ARENA && scene.tiles)) C.shadow(c, k.x, k.y, 7);   // (in a level the painter draws the shadow on the surface under the knight)
     // the dodge draws the walk frame with three fading afterimages; so does a lunge
@@ -1411,6 +1430,9 @@
     } else if (f.kind === "streak") {
       const ca = Math.cos(f.a), sa = Math.sin(f.a);
       for (const off of [-3, 0, 3]) for (let r = 6 + Math.abs(off) * 2; r < f.len - 2; r++) if (dith(r, off, 1 - q) && (r + off) % 2) px(f.x + ca * r - sa * off, f.y + sa * r + ca * off, off === 0 ? Rr[3] : Rr[2]);
+    } else if (f.kind === "shatter") {   // (design pass 38) a poise bar's six gold fragments flung off it, falling
+      const n = SIGS ? SIGS.poise.shatter.pieces : 6;
+      for (let i = 0; i < n; i++) { const a = -Math.PI * (0.15 + 0.7 * i / (n - 1)), v = 26 + ((f.seed + i * 7) % 5) * 4, x = f.x + Math.cos(a) * v * f.t, y = f.y + Math.sin(a) * v * f.t + 70 * f.t * f.t; if (q < 0.85 || (i & 1)) { px(x, y, i % 3 ? "#feae34" : "#fee761"); if (i % 2 === 0 && q < 0.5) px(x + 1, y, "#be4a2f"); } }
     } else if (f.kind === "star") {
       const c = f.c || Rr[3] || "#ffffff", s = f.big ? 3 : 2; if (q < 0.7) for (let i = -s; i <= s; i++) { px(f.x + i, f.y, c); px(f.x, f.y + i, c); }
     } else if (f.kind === "ring" || f.kind === "blast") {
@@ -1666,10 +1688,13 @@
     hpv.at = t;
     const IN = 54, fill = hp > 0 ? Math.max(1, Math.round(IN * hp / max)) : 0, chip = Math.max(0, Math.round(IN * hpv.chip / max) - fill);
     const grow = !down && !!(Combat.regrowing && Combat.regrowing(k)), low = !down && hp <= (SPEC.knight.lowHp || 30), blink = low && !reduce && (Math.floor(state.t * 4) & 1) === 1;
-    const key = fill + "|" + chip + "|" + (grow ? 1 : 0) + "|" + (blink ? 1 : 0) + "|" + (down ? 1 : 0) + "|" + (low ? 1 : 0);
+    // (design pass 38) the poise hairline under the bar: the fill from the left (dim while locked after a stagger), empty and dim while broken
+    const pm = k.poiseMax > 0 ? k.poiseMax : 0, pq = pm ? (k.critOpen ? 0 : Math.max(0, Math.min(1, k.poise / pm))) : -1, pfill = pq < 0 ? -1 : (pq > 0 ? Math.max(1, Math.round(IN * pq)) : 0), plock = !!(pm && !k.critOpen && k.poiseLock > fight.t);
+    const key = fill + "|" + chip + "|" + (grow ? 1 : 0) + "|" + (blink ? 1 : 0) + "|" + (down ? 1 : 0) + "|" + (low ? 1 : 0) + "|" + pfill + (plock ? "L" : "");
     if (key !== hpv.key) {
       hpv.key = key;
-      const g = $("hpBar").getContext("2d"); g.clearRect(0, 0, 56, 6); g.fillStyle = OUT; g.fillRect(0, 0, 56, 6);
+      const g = $("hpBar").getContext("2d"); g.clearRect(0, 0, 56, 9); g.fillStyle = OUT; g.fillRect(0, 0, 56, 6);
+      if (pfill >= 0) { g.fillRect(0, 7, 56, 2); for (let x = 0; x < IN; x++) { g.fillStyle = x < pfill ? (plock ? "#be4a2f" : "#feae34") : "#3e2731"; g.fillRect(x + 1, 7, 1, 1); } }
       for (let x = 0; x < IN; x++) for (let y = 1; y <= 4; y++) {
         let c = x < fill ? (y === 1 ? "#f6757a" : y === 4 ? "#a22633" : "#e43b44") : x < fill + chip ? "#ead4aa" : "#3e2731";
         if (x < fill && grow && x >= fill - 2) c = y === 1 ? "#b4e67a" : y === 4 ? "#3e8948" : "#63c74d";
@@ -1716,7 +1741,7 @@
     if (bossV.chip < hp) bossV.chip = hp; else if (bossV.chip > hp && t >= bossV.holdTo) bossV.chip = Math.max(hp, bossV.chip - max * 0.6 * Math.max(0, t - bossV.at));
     bossV.at = t;
     const IN = 118, fill = hp > 0 ? Math.max(1, Math.round(IN * hp / max)) : 0, chip = Math.max(0, Math.round(IN * bossV.chip / max) - fill), warded = !!b.ward, fury = !!b.fury, hatch = warded && !reduce ? (Math.floor(t * 6) & 1) : 0;
-    const key = fill + "|" + chip + "|" + (warded ? 1 : 0) + "|" + (fury ? 1 : 0) + "|" + hatch;
+    const key = fill + "|" + chip + "|" + (warded ? 1 : 0) + "|" + (fury ? 1 : 0) + "|" + hatch + "|" + (b.poiseMax > 0 ? Math.round((b.critOpen ? 0 : b.poise / b.poiseMax) * 40) + (b.poiseLock > fight.t ? "L" : "") : "");
     if (key !== bossV.key) {
       bossV.key = key;
       const g = $("bossBar").getContext("2d"); g.clearRect(0, 0, 120, 6); g.fillStyle = OUT; g.fillRect(0, 0, 120, 6);
@@ -1726,6 +1751,8 @@
         g.fillStyle = c; g.fillRect(x + 1, y, 1, 1);
       }
       g.fillStyle = OUT; for (const q of [0.7, 0.4]) g.fillRect(1 + Math.round(IN * q), 0, 1, 6);   // the notches at 70 and 40 %
+      // (design pass 38) his poise as a hairline on the bar's bottom row (gold, dim while locked, empty while broken)
+      if (b.poiseMax > 0) { const pq = b.critOpen ? 0 : b.poise / b.poiseMax, pf = pq > 0 ? Math.max(1, Math.round(IN * pq)) : 0, dim = !b.critOpen && b.poiseLock > fight.t; for (let x = 0; x < IN; x++) { g.fillStyle = x < pf ? (dim ? "#be4a2f" : "#feae34") : "#3e2731"; g.fillRect(x + 1, 5, 1, 1); } }
     }
     const pct = String(Math.round(100 * hp / max));
     if (pct !== bossV.pct) { bossV.pct = pct; plate.setAttribute("aria-label", said((PG.boss || {}).name, "Boss") + ": " + pct + " of 100"); }
@@ -2077,18 +2104,13 @@
   }
   if (ARENA) {
     game.classList.add("level", "arena");
-    // the Arena's own elements, added here so the cellar's and the levels' HUD keep their thirteen and two: Guard between Swap's column and Dodge,
-    // the poise bar under the health plate, the round plate at the top centre, the foe's plate top right in a duel, the Gate of Champions
+    // the Arena's own elements, added here so the cellar's and the levels' HUD keep their thirteen and two (Guard is the page's own button since
+    // design pass 38, the same one in the cellar and the levels; the arena shows and hides it with its plates): the poise bar under the health plate, the round plate at the top centre, the foe's plate top right in a duel, the Gate of Champions
     $("prompt").insertAdjacentHTML("beforebegin",
-      '<button class="hbtn f-iron" id="guardBtn" aria-label="Guard" hidden><canvas id="guardGlyph" width="16" height="16" aria-hidden="true"></canvas><i class="glow"></i></button>'
-      + '<div class="hp poise f-stone" id="poisePlate" hidden role="img" aria-label="Poise"><span class="pl">POISE</span><canvas id="poiseBar" width="54" height="4" aria-hidden="true"></canvas></div>'
+      '<div class="hp poise f-stone" id="poisePlate" hidden role="img" aria-label="Poise"><span class="pl">POISE</span><canvas id="poiseBar" width="54" height="4" aria-hidden="true"></canvas></div>'
       + '<div class="wplate round f-stone" id="roundPlate" hidden role="status" aria-live="off"><b></b></div>'
       + '<div class="obj foe f-stone" id="foePlate" hidden role="img" aria-label="Your foe"><b></b><canvas id="foeBar" width="56" height="9" aria-hidden="true"></canvas><b id="foeNum"></b></div>'
       + '<div class="lobby" id="lobby" hidden></div>');
-    // Guard: held, in the Arena; I and Left Shift on a keyboard (Dodge keeps L and Right Shift there)
-    holdButton($("guardBtn"), () => { input.guard = true; }, () => { input.guard = false; });
-    try { const gg = $("guardGlyph"); if (gg) { const g = gg.getContext("2d"), rows = ["....kkkkkkkk....", "...k33333333k...", "...k32222223k...", "...k32kkkk23k...", "...k32k44k23k...", "...k32k44k23k...", "...k32kkkk23k...", "...k32222223k...", "....k322223k....", "....k322223k....", ".....k3223k.....", ".....k3223k.....", "......k33k......", "......k33k......", ".......kk.......", "................"];
-      const pal = { k: OUT, "2": "#5a6988", "3": "#8b9bb4", "4": "#feae34" }; for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const c = pal[rows[y][x]]; if (c) { g.fillStyle = c; g.fillRect(x, y, 1, 1); } } } } catch (e) { /* a plain plate */ }
     const smithXp = handoff && handoff.smith && typeof handoff.smith.xp === "number" ? handoff.smith.xp : null;
     window.ArenaPage.mount({ $, state, input, STEP, reduce, coarse, harness, params, store, session, world, first, handoff, visiting: state.visiting,
       smith: { name: handoff && handoff.smith ? handoff.smith.name : null, level: smithXp !== null && window.Progress ? Progress.levelFor(smithXp) : 1, xp: smithXp },
@@ -2115,7 +2137,7 @@
   }
   if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = LEVEL ? "You came without weapons from the Forge: you carry the Sword and the Bow, and your finds cannot be carried home." : "You came without weapons from the Forge, so the rack holds the twenty class weapons and the world's forged weapons."; }
   const KL = PG.keys || {};
-  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Shift"; $("keyLine").textContent = LEVEL ? said(KL.fine, "E takes up what lies on the field and goes into the castle. Esc opens the menu.") : "E uses the rack and the stairs. U: a legend's ability. Esc opens the cellar's menu."; }
+  if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Right Shift"; if ($("keyGuard")) $("keyGuard").textContent = "I or Left Shift"; $("keyLine").textContent = LEVEL ? said(KL.fine, "E takes up what lies on the field and goes into the castle. Esc opens the menu.") : "E uses the rack and the stairs. U: a legend's ability. Esc opens the cellar's menu."; }
   else { $("keyLine").textContent = LEVEL ? said(KL.coarse, "Tap the prompt over your knight to take up what lies on the field, and to go into the castle.") : "Under the rack on the wall you can take any weapon you own. The stairs lead back up to the courtyard."; if (LEVEL) $("keyDodge").textContent = "a roll past a blow"; }   // (the cellar's "through the bag" is the cellar's)
   // (build 8) with the cellar's lessons running, his words take the first visit's place: the plank waits, and is marked seen when they end
   const lessons = lessonOn("boot") === true;

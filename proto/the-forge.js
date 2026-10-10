@@ -256,14 +256,13 @@
     if (state.room === "map" && map.pushed) { popMap(() => goHomeNow()); return { to: "menu", how: "popmap" }; }
     return goHomeNow();
   }
-  // (build 29, design pass 37: query is the menu's ?intro=1, the opening again from Settings' The story so far)
-  function goHomeNow(query) {
+  function goHomeNow() {
     if (state.forging || state.pouring || session.leaving) return null;
     gryHush(); closeFolk(); saveYardMark();
     session.equipped = session.equipped.filter(x => own.has(x) && world.has(x));
     save();
     writeHandoff(null);
-    const url = menuUrl() + (query || "");
+    const url = menuUrl();
     const went = window.Nav ? Nav.go("menu", url, { stay }) : { to: "menu", url, how: "push" };
     window.TheForge.wentTo = went;
     if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
@@ -344,7 +343,7 @@
       const n = {}; for (const t of (cleared ? things : res.banked || [])) n[t] = (n[t] || 0) + 1;
       const names = Object.keys(n).map(t => world.get(t).name + (n[t] > 1 ? " ×" + n[t] : "")).join(", ");
       if (cleared) toast(`Home with a clear${(res.replay === undefined ? replay : res.replay) ? " (a replay)" : ""}: ${res.pay.xp} XP, ${res.pay.coins} coins${res.pay.ember ? ", a Legend Ember" : ""}${names ? " · " + names : ""}`);
-      else toast("Home without a clear: " + (names ? names + " banked, no pay" : "nothing to bank"));
+      else { toast("Home without a clear: " + (names ? names + " banked, no pay" : "nothing to bank")); if (typeof run.by === "string") gryHint(run.by); }   // (design pass 38) the kind that ended the run: his hint
       last = { res, before, cleared, things, id };
     }
     write(list.slice(taken));
@@ -970,6 +969,16 @@
   // after a forge or a pour: which pool he will answer from when the plaque is continued (the count moves now)
   function gryAfter(o) { if (!GRY) return null; const a = GRY.after(gry.mem, o); gry.mem = a.mem; gry.pending = a.trigger; return a.trigger; }
   function gryRemark(delay) { const pool = gry.pending; gry.pending = null; if (!pool) return; setTimeout(() => { if (!gryQuiet()) grySay(pool); }, delay); }
+  // (design pass 38) his hint about a troll kind, after a run that kind ended ("Troll knights, kid? Bring a hammer. Or an axe."): said in
+  // his talking pose once nothing stands over the room (he waits up to a minute, as on opening), and remembered as the last hint for the checks
+  function gryHint(kind) {
+    const Sg = window.Signatures, line = GRY && Sg && Sg.on() ? Sg.words.hint(kind) : null;
+    if (!line) return false;
+    gry.hint = { kind, line };
+    const go = tries => { if (gryQuiet() || !$("grySay").hidden) { if (tries > 0) setTimeout(() => go(tries - 1), 1000); return; } gry.queue = [["talk", 2]]; gryNext(); gryShow(line, GRY.holdFor(line) + 1200); };
+    setTimeout(() => go(60), 1800);
+    return true;
+  }
   if (GRY) $("grycus").addEventListener("click", e => { e.stopPropagation(); gryTap(); });
   try { for (const cv of document.querySelectorAll("canvas[data-glyph]")) Smithy.glyph(cv, cv.getAttribute("data-glyph"), 1); } catch (e) { /* the plates stand without their glyphs */ }
   // the room fills its pane (design pass 14 section 3.3). Walls shut: as tall as the pane leaves after the state and price lines, and as
@@ -1442,7 +1451,7 @@
       : `<div class="pbtns">${isIng ? '<button class="f-ember primary" id="applyBtn">Apply to a weapon</button>' : equipBtnHTML(t)}<button class="f-iron" id="share">Share</button></div>${isIng ? "" : tryRow(t)}`;
     p.innerHTML = `${claim.status === "first" && !view ? '<div class="banners"><div class="banner f-ember">First forged</div></div>' : ""}
       <div class="side"><div class="art"></div>${rarityHTML(t)}</div>
-      <div class="main"><h2></h2><div class="kindline">${esc(recipeLine(t) || (isIng ? "" : "A class weapon"))}</div><div class="traits">${esc(traitLine(t))}</div>
+      <div class="main"><h2></h2><div class="kindline">${esc(recipeLine(t) || (isIng ? "" : "A class weapon"))}</div><div class="traits">${esc(traitLine(t))}</div><div class="sig">${esc(sigLine(t))}</div>
       ${isIng ? '<div class="line">An ingredient, not a weapon. Put it on the anvil beside a weapon to use it.</div>' : ""}</div>
       ${isIng ? "" : `<div class="stats">${bars(t)}</div>`}
       <div class="foot"><div class="btnrow">${btns}</div><div class="line disc">${discHTML(claim, t, view)}</div>${TAP_ON}</div>`;
@@ -1459,6 +1468,9 @@
     lessonOn("plaque", claim, view);   // (build 8) the lessons' F6: the plaque in lesson mode
   }
   function tryRow(t) { return `<button class="f-iron tryit" id="tryBtn">↓ Try it in the cellar${Progress.canEquip(t, profile, G) ? "" : "<small>practice only</small>"}</button>`; }
+  // (design pass 38) the plaque's third line: the weapon's class signature in words, from spec/signatures.json (a legend its body's; an
+  // ingredient none; nothing without the spec)
+  function sigLine(t) { const Sg = window.Signatures; if (!Sg || !t.weapon || !Sg.on()) return ""; const cls = Sg.classOfThing(t); return (cls && Sg.words.plaqueLine(cls)) || ""; }
   // (forge rules 3) an ingredient's hinted forms are not said: it never changes how a weapon attacks
   function hintText(t) { const h = t.hints || {}; const bits = []; if (h.element) bits.push(h.element); bits.push(...(h.modifiers || [])); if (h.status) bits.push(h.status); if (h.visual_part) bits.push("a " + h.visual_part); if (h.material) bits.push(h.material); return bits.join(", ") || "nothing yet"; }
   // To the anvil (a weapon opened from the Armory, pass 10 section 3.4.2): back through the door to the Forge, the station is the
@@ -1847,9 +1859,10 @@
     const eyebrow = o.first ? "Your first weapon" : "A new class" + (group ? " · " + group.name : "") + (o.free ? " · on the house" : o.cost ? " · " + o.cost + " coins" : "");
     let words = { damage: "", strengths: "" };
     try { words = DR.words(t); } catch (e) { (window.__errors || []).push("drill words " + c + ": " + (e && e.message || e)); }
-    el.innerHTML = '<div class="dhead"><div class="eyebrow"></div><h3></h3></div><div class="dstage" id="drillStage"><canvas id="drillCanvas" width="' + (DR.W || 160) + '" height="' + (DR.H || 64) + '" role="img"></canvas></div><div class="dfoot"><div class="dlines"><div class="dline" id="drillDamage"></div><div class="dline" id="drillStrengths"></div></div><div class="pbtns"><button class="f-ember primary" id="drillDone">Done</button></div></div>';
+    el.innerHTML = '<div class="dhead"><div class="eyebrow"></div><h3></h3></div><div class="dstage" id="drillStage"><canvas id="drillCanvas" width="' + (DR.W || 160) + '" height="' + (DR.H || 64) + '" role="img"></canvas></div><div class="dfoot"><div class="dlines"><div class="dline" id="drillDamage"></div><div class="dline" id="drillStrengths"></div><div class="dline sig" id="drillSig"></div></div><div class="pbtns"><button class="f-ember primary" id="drillDone">Done</button></div></div>';
     el.querySelector(".eyebrow").textContent = eyebrow; el.querySelector("h3").textContent = t.name;
-    const dmg = $("drillDamage"), str = $("drillStrengths");
+    const dmg = $("drillDamage"), str = $("drillStrengths"), sgl = $("drillSig");
+    if (sgl) sgl.textContent = words && words.signature ? words.signature : "";   // (design pass 38) the class's signature in words
     dmg.innerHTML = "<b>Damage:</b> "; dmg.appendChild(document.createTextNode(words.damage || ""));
     str.innerHTML = "<b>Strengths:</b> "; str.appendChild(document.createTextNode(words.strengths || "")); str.hidden = !words.strengths;
     $("drillCanvas").setAttribute("aria-label", t.name + ": the knight drilling with it against a straw dummy");
@@ -2408,7 +2421,7 @@
   function setHands(front, back) { session.equipped = [front, back].filter(Boolean); session.active = 0; save(); renderPegs(); }
   // ------------------------------------------------------------------ the Roll's plank (design pass 29 section 3.6, build 24)
   // The folk's plank headed by the Roll's crest: the board's title, a line saying where you stand, a bar (your ★, what counts, how
-  // fresh), the top 50 Outlanders as rows (the word for every player since design pass 37; a rank plate gold, silver and bronze for the first three, the name, when they last forged a
+  // fresh), the top 50 knights as rows (a rank plate gold, silver and bronze for the first three, the name, when they last forged a
   // first, a ★ tag with the count), your row lit and flashed once, and pinned under the list with your real rank when you are outside
   // it. Online: the copy kept from the last read at once under Reading the Roll…, the queue settled first (2.5 s at most), then the
   // answer; offline or signed out, the kept copy dimmed with its line. With the cloud off: the world of one's own Roll (Roll.local)
@@ -2687,10 +2700,12 @@
       return '<button type="button" data-id="' + esc(r.id) + '" class="' + r.state + (lit ? " off" : "") + '" aria-pressed="' + String(pick === r.id) + '"' + (pickable && !lit ? "" : " disabled") + '><span>' + r.n + '</span><span class="nm">' + esc(r.name) + (r.boss ? ' <span class="st">· ' + esc(r.boss) + '</span>' : "") + '</span><span class="st">' + esc(sTxt) + '</span></button>';
     }).join("");
     const shut = st === "shut";
-    el.innerHTML = '<button type="button" class="x' + (lit ? " off" : "") + '" id="plateBack" aria-label="Back to the map">✕</button><h5></h5><div class="line"></div><div class="lv">' + rows + '</div>'
+    el.innerHTML = '<button type="button" class="x' + (lit ? " off" : "") + '" id="plateBack" aria-label="Back to the map">✕</button><h5></h5><div class="line"></div><div class="lv">' + rows + '</div><div class="line2"></div>'
       + '<button type="button" class="f-ember alone" id="goAlone" aria-pressed="' + String(last === 0) + '"' + (shut || !pick ? " disabled" : "") + '>' + esc(W.alone) + '</button>'
       + '<div class="party"><span class="small">' + esc(W.brothers) + '</span>' + [1, 2, 3].map(n => '<button type="button" class="f-iron' + (lit ? " off" : "") + '" id="goB' + n + '" data-b="' + n + '" aria-pressed="' + String(last === n) + '"' + (shut || !pick ? " disabled" : "") + '>' + n + '</button>').join("") + '</div>';
     el.querySelector("h5").textContent = A.name; el.querySelector(".line").textContent = shut ? W.shut.replace("{name}", (MT.SPEC.areas.find(a => a.levels.some(l => l.id === A.opensAfter)) || {}).name || A.name) : A.line;
+    // (design pass 38) the picked level's line: what holds it and what answers it, from spec/signatures.json
+    { const pr = R.rows.find(r => r.id === pick), Sg = window.Signatures, ln = pr && pr.area && Sg && Sg.on() ? Sg.words.levelLine(pr.area) : null; el.querySelector(".line2").textContent = !shut && ln ? ln : ""; }
     el.hidden = false;
     el.querySelectorAll(".lv button").forEach(b => b.addEventListener("click", () => { if (b.disabled) return; mstore.set(KEY_PICK, b.dataset.id); renderPlate(); }));
     $("goAlone").addEventListener("click", () => goLevel(A, 0));
@@ -2982,7 +2997,6 @@
       rows: lessonOn("settingsRows") || [], onRename(r) { lessonOn("renamed", r); },   // (build 8: Skip the lessons while they run; Your name)
       onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); if (name === "forced") { turn.forced = on; fitTurn(); } },
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
-      onStory() { goStory(); },   // (build 29, design pass 37) The story so far: the opening again on the menu page
       onClose: closeSettings
     });
   }
@@ -2990,9 +3004,6 @@
     // (a player's page keeps the bench hidden, outside Settings: renderInfo writes into it, and in phase 1 the save is the phone's anyway)
     Cloud.ready.then(() => { const b = $("bench"); if (!b) return; if (benchOk() && settings && settings.addSection) { b.hidden = false; settings.addSection(b); } else b.hidden = true; });
   }
-  // (build 29, design pass 37) the opening again: out through the house's way with the menu's ?intro=1 (its last line comes back here)
-  function goStory() { if (state.forging || state.pouring || session.leaving) return null; closeSettings(); const went = goHomeNow("?intro=1"); window.TheForge.wentStory = went; return went; }
-  window.TheForge.goStory = goStory;
   $("setBtn").addEventListener("click", () => { if ($("setPlank").hidden) openSettings(false); else closeSettings(); });
   $("homeBtn").addEventListener("click", () => goHome());
   window.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setPlank").hidden) { e.preventDefault(); if (settings && settings.asking) settings.closeErase(); else closeSettings(); } });
