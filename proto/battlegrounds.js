@@ -139,6 +139,7 @@
   // ?combos=0 plays today's blows for the visit (the bench and the harness compare the two); a page without proto/combos.js does too
   if ((params.get("combos") === "0" || !Combos) && SPEC && SPEC.combos) SPEC.combos.on = false;
   const coarse = params.get("pointer") ? params.get("pointer") === "coarse" : media("(pointer: coarse)");
+  let T = null;   // turn.js's controller (design pass 40), mounted beside fit() below; null until then and without the script
   // the view is the stage: the area's own size in the cellar, 384 x 216 over a larger level (design pass 12, section 3.2)
   const VIEW = AREA.view || { w: AREA.w, h: AREA.h };
   const STEP = SPEC.step, W = VIEW.w, H = VIEW.h, OUT = C.OUT, TAU = Math.PI * 2, FEEL = SPEC.feel, CHEST = SPEC.knight.chest;
@@ -413,10 +414,15 @@
   // ------------------------------------------------------------------ the stage: a whole number of device pixels per world pixel
   function insets() { const cs = window.getComputedStyle($("probe")), n = v => parseFloat(v) || 0; return { t: n(cs.paddingTop), r: n(cs.paddingRight), b: n(cs.paddingBottom), l: n(cs.paddingLeft) }; }
   function viewport() { const vv = window.visualViewport; return { w: Math.round(vv ? vv.width : window.innerWidth), h: Math.round(vv ? vv.height : window.innerHeight) }; }
+  // (design pass 40, build 31) upright or sideways is turn.js's one answer: the phone's own word vetoes a stale upright size, and its
+  // controller keeps looking (a ResizeObserver, a settle series on every arrival or wake, a one-second check) and calls refit when the
+  // size or the answer changes; the layout below is unchanged. Without the script (an old cached page) the old reading stands
+  T = window.Turn && Turn.mount ? Turn.mount({ page: ARENA ? "arena" : LEVEL ? "level" : "cellar", coarse, forced: () => state.forced, fit: () => refit() }) : null;
+  function readTurn() { if (T) return T.apply(); const v = viewport(), portrait = v.h > v.w; return { w: v.w, h: v.h, upright: portrait, turned: state.forced && portrait, plate: portrait && coarse && !state.forced }; }
   function fit() {
-    const v = viewport(), portrait = v.h > v.w, s = insets();
+    const d = readTurn(), v = { w: d.w, h: d.h }, portrait = d.upright, s = insets();
     state.portrait = portrait;
-    state.turned = state.forced && portrait;   // forced landscape only turns a viewport that is upright
+    state.turned = d.turned;   // forced landscape only turns a viewport that is upright, and never a phone that says it is sideways
     let gw = v.w, gh = v.h, pl = s.l, pt = s.t, pr = s.r, pb = s.b;
     if (state.turned) {
       // the game is laid out at the viewport's height x width and turned 90 degrees clockwise; the player turns the phone anticlockwise
@@ -440,8 +446,8 @@
     game.classList.add("full");
     state.layout = { x: pl + (availW - cw) / 2, y: pt + (availH - ch) / 2, s: per, k, w: CW * per, h: CH * per, pl, pt, pr, pb, gw, gh, vw: v.w, vh: v.h, dpr, full: true, cw: CW, ch: CH };
     if (!LEVEL && !ARENA) roomWindow();
-    // a phone held upright gets the turn plate, and the game waits
-    const plate = portrait && coarse && !state.forced;
+    // a phone held upright gets the turn plate, and the game waits (never a phone that says it is sideways: turn.js's rule)
+    const plate = d.plate;
     $("turnPlate").hidden = !plate;
     state.plate = plate;
     const canFull = !!(document.documentElement.requestFullscreen && screen.orientation && screen.orientation.lock);
@@ -1980,10 +1986,8 @@
 
   // ------------------------------------------------------------------ boot
   function refit() { fit(); hud.x = -1; if (LEVEL) placeNote(); }
-  window.addEventListener("resize", refit);
-  window.addEventListener("orientationchange", refit);
-  if (window.visualViewport) window.visualViewport.addEventListener("resize", refit);
-  document.addEventListener("fullscreenchange", refit);
+  // (turn.js's controller calls refit for these since design pass 40; the four listeners stand only without it)
+  if (!T) { window.addEventListener("resize", refit); window.addEventListener("orientationchange", refit); if (window.visualViewport) window.visualViewport.addEventListener("resize", refit); document.addEventListener("fullscreenchange", refit); }
   document.addEventListener("visibilitychange", () => { last = window.performance.now(); acc = 0; if (document.hidden) { input.strike = false; input.keys = {}; stickUp(); } });
   // the harness's handle on the screen
   window.TheBattlegrounds = {

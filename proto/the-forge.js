@@ -1021,13 +1021,18 @@
   const viewport = () => { const vv = window.visualViewport; return { w: Math.max(1, Math.round(vv ? vv.width : window.innerWidth)), h: Math.max(1, Math.round(vv ? vv.height : window.innerHeight)) }; };
   // the phone's safe-area insets as the game sees them (design pass 30: #probe's padding is the four game insets, turned with the frame)
   function insets() { const p = $("probe"); if (!p) return { t: 0, r: 0, b: 0, l: 0 }; const cs = window.getComputedStyle(p), n = v => parseFloat(v) || 0; return { t: n(cs.paddingTop), r: n(cs.paddingRight), b: n(cs.paddingBottom), l: n(cs.paddingLeft) }; }
+  // (design pass 40, build 31) upright or sideways is turn.js's one answer: the phone's own word vetoes a stale upright size, and its
+  // controller keeps looking (a ResizeObserver, a settle series on every arrival or wake, a one-second check) and calls fitTurn when the
+  // size or the answer changes; the layout below is unchanged. Without the script (an old cached page) the old reading stands
+  const T = window.Turn && Turn.mount ? Turn.mount({ page: "castle", coarse, forced: () => turn.forced, fit: () => fitTurn() }) : null;
+  function readTurn() { if (T) return T.apply(); const v = viewport(), portrait = v.h > v.w; return { w: v.w, h: v.h, upright: portrait, turned: turn.forced && portrait, plate: portrait && coarse && !turn.forced }; }
   function fitTurn() {
-    const v = viewport(), portrait = v.h > v.w, el = $("phone");
-    turn.turned = turn.forced && portrait;   // forced landscape only turns a viewport that is upright
+    const d = readTurn(), v = { w: d.w, h: d.h }, el = $("phone");
+    turn.turned = d.turned;   // forced landscape only turns a viewport that is upright, and never a phone that says it is sideways
     if (turn.turned) { el.style.width = v.h + "px"; el.style.height = v.w + "px"; el.style.transform = "translateX(" + v.w + "px) rotate(90deg)"; }
     else { el.style.width = ""; el.style.height = ""; el.style.transform = ""; }
     el.classList.toggle("forced", turn.turned);
-    turn.plate = portrait && coarse && !turn.forced;
+    turn.plate = d.plate;   // (a phone held upright, a coarse pointer, the switch off; never a phone that says it is sideways)
     turn.v = v;   // (build 17: toGame turns a viewport point back when the frame is turned)
     $("turnPlate").hidden = !turn.plate;
     $("tFull").hidden = !(document.documentElement.requestFullscreen && screen.orientation && screen.orientation.lock);
@@ -3108,10 +3113,8 @@
   // the pour assist follows the shared Tap to pour switch; a save from before it (assist: true) sets the switch once
   function takeAssist() { if (!window.Settings) return; if (Settings.isOn("pour")) session.assistTap = true; else if (session.assistTap) { if (!Settings.setOn("pour", true)) session.assistTap = true; } }
   fitTurn();
-  window.addEventListener("resize", fitTurn);
-  window.addEventListener("orientationchange", fitTurn);
-  if (window.visualViewport) window.visualViewport.addEventListener("resize", fitTurn);
-  document.addEventListener("fullscreenchange", fitTurn);
+  // (turn.js's controller calls fitTurn for these since design pass 40; the four listeners stand only without it)
+  if (!T) { window.addEventListener("resize", fitTurn); window.addEventListener("orientationchange", fitTurn); if (window.visualViewport) window.visualViewport.addEventListener("resize", fitTurn); document.addEventListener("fullscreenchange", fitTurn); }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTurn);
   let bootFromCellar = false, bootFresh = false;
   const AREA_NAMES = { "castle-gate": "the Troll Gate" };

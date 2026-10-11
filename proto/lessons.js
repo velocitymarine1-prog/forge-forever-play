@@ -213,6 +213,7 @@
       "Screen: " + Math.round(sc.w || 0) + " × " + Math.round(sc.h || 0) + ", " + (o.touch === false ? "mouse" : "touch") + ", left-handed " + (o.lefty ? "on" : "off")
     ];
     if (o.intro !== undefined) lines.push(openingLine(o.intro, o));   // (build 29, design pass 37: the opening, when the caller gives its record or null)
+    if (Array.isArray(o.turn) && o.turn.length) for (const l of o.turn) lines.push(String(l));   // (build 31, design pass 40: the screen log's lines, Turn.notes(), when the caller gives them)
     return lines.join("\n");
   }
 
@@ -720,7 +721,7 @@
     // ---------------------------------------------------------------- the rest of the API
     L.pointIn = (el, x, y) => { const b = boxIn(el, rt); return b ? { x: b.x + x, y: b.y + y } : null; };
     L.boxOf = el => boxIn(el, rt);
-    L.notes = n => notes(rec, Object.assign({ build: o.build || (doc.body && doc.body.getAttribute("data-build")) || "dev", player: who, screen: { w: win.innerWidth, h: win.innerHeight }, touch: !desktop(), lefty: lefty() }, n || {}));
+    L.notes = n => notes(rec, Object.assign({ build: o.build || (doc.body && doc.body.getAttribute("data-build")) || "dev", player: who, screen: { w: win.innerWidth, h: win.innerHeight }, touch: !desktop(), lefty: lefty(), turn: win.Turn && win.Turn.notes ? win.Turn.notes() : undefined }, n || {}));   // (turn: the screen log, design pass 40)
     L.words = id => fill(wordsFor(step(id || (rec && rec.step)), { desktop: desktop(), lefty: lefty() }), who ? who.name : "");
     L.destroy = () => {
       destroyed = true; stopWatch(); for (const t of live.timers) win.clearTimeout(t);

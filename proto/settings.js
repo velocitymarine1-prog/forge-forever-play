@@ -151,7 +151,8 @@
     // Copy my playtest notes: the lines go to the clipboard and show, selected where a browser will not copy them for a page
     function notesText() {
       const p = Sm().read(), rec = p ? Ls().load(p.id) : null;
-      return Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty"), intro: Ls().opening && p ? Ls().opening.load(p.id) : undefined });
+      return Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty"), intro: Ls().opening && p ? Ls().opening.load(p.id) : undefined,
+        turn: root.Turn && root.Turn.notes ? root.Turn.notes() : undefined });   // (build 31, design pass 40: the screen log, so a screen that turns by itself can be read from the notes)
     }
     function copyNotes() {
       const ta = notesAsk.querySelector(".set-notes-text"), text = ta.value;

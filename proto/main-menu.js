@@ -51,9 +51,14 @@
 
   // ------------------------------------------------------------------ the game root: sideways, or turned a quarter (landscape only)
   const viewport = () => { const vv = window.visualViewport; return { w: Math.max(1, Math.round(vv ? vv.width : window.innerWidth)), h: Math.max(1, Math.round(vv ? vv.height : window.innerHeight)) }; };
+  // (design pass 40, build 31) upright or sideways is turn.js's one answer: the phone's own word vetoes a stale upright size, and its
+  // controller keeps looking (a ResizeObserver, a settle series on every arrival or wake, a one-second check) and calls fit when the size
+  // or the answer changes; the layout below is unchanged. Without the script (an old cached page) the old reading stands
+  const T = window.Turn && Turn.mount ? Turn.mount({ page: "menu", coarse, forced: () => turn.forced, fit: () => fit() }) : null;
+  function readTurn() { if (T) return T.apply(); const v = viewport(), portrait = v.h > v.w; return { w: v.w, h: v.h, upright: portrait, turned: turn.forced && portrait, plate: portrait && coarse && !turn.forced }; }
   function fitTurn() {
-    const v = viewport(), portrait = v.h > v.w;
-    turn.turned = turn.forced && portrait;   // forced landscape only turns a viewport that is upright
+    const d = readTurn(), v = { w: d.w, h: d.h };
+    turn.turned = d.turned;   // forced landscape only turns a viewport that is upright, and never a phone that says it is sideways
     let gw = v.w, gh = v.h;
     if (turn.turned) { gw = v.h; gh = v.w; game.style.width = gw + "px"; game.style.height = gh + "px"; game.style.transform = "translateX(" + v.w + "px) rotate(90deg)"; }
     else { game.style.width = ""; game.style.height = ""; game.style.transform = ""; }
@@ -62,8 +67,8 @@
     game.classList.toggle("tiny", gh <= 340);
     game.style.setProperty("--gw", gw + "px"); game.style.setProperty("--gh", gh + "px");
     sizeFace();
-    // a phone held upright gets the turn plate; a fine pointer never does
-    turn.plate = portrait && coarse && !turn.forced;
+    // a phone held upright gets the turn plate; a fine pointer never does, nor a phone that says it is sideways (turn.js's rule)
+    turn.plate = d.plate;
     $("turnPlate").hidden = !turn.plate;
     $("tFull").hidden = !(document.documentElement.requestFullscreen && screen.orientation && screen.orientation.lock);
     turn.layout = { vw: v.w, vh: v.h, gw, gh, turned: turn.turned, plate: turn.plate };
@@ -265,10 +270,8 @@
   lockLandscape();
   fitTurn();
   mountScene(still);
-  window.addEventListener("resize", fit);
-  window.addEventListener("orientationchange", fit);
-  if (window.visualViewport) window.visualViewport.addEventListener("resize", fit);
-  document.addEventListener("fullscreenchange", fit);
+  // (turn.js's controller calls fit for these since design pass 40; the four listeners stand only without it)
+  if (!T) { window.addEventListener("resize", fit); window.addEventListener("orientationchange", fit); if (window.visualViewport) window.visualViewport.addEventListener("resize", fit); document.addEventListener("fullscreenchange", fit); }
   // back from the castle page or the cellar, the browser may restore this page as it was left: lift the fade, read the switches again
   // (less motion changed on the castle page stills or wakes the fire), refit, and put the plank away if there is a player now
   window.addEventListener("pageshow", e => {
