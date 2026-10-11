@@ -146,7 +146,7 @@
     function openStory() {
       if (typeof o.onStory === "function") { o.onStory(); return; }
       const url = ((doc.body && doc.body.getAttribute("data-menu")) || "main-menu.html") + "?intro=1";
-      if (root.Nav && root.Nav.go) root.Nav.go("menu", url); else root.location.href = url;
+      if (root.Nav && root.Nav.go) root.Nav.go("menu", url, { fresh: true }); else root.location.href = url;   // (design pass 41: pushed even with the menu right behind)
     }
     // Copy my playtest notes: the lines go to the clipboard and show, selected where a browser will not copy them for a page
     function notesText() {

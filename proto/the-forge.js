@@ -257,6 +257,8 @@
     return goHomeNow();
   }
   // (build 29, design pass 37: query is the menu's ?intro=1, the opening again from Settings' The story so far)
+  // (build 32, design pass 41: a way home that carries a query is fresh to nav.js, pushed even with the menu right behind; going back
+  // restored the menu's old entry, without the query, and the story never played. The house, with no query, goes back as before)
   function goHomeNow(query) {
     if (state.forging || state.pouring || session.leaving) return null;
     gryHush(); closeFolk(); saveYardMark();
@@ -264,7 +266,7 @@
     save();
     writeHandoff(null);
     const url = menuUrl() + (query || "");
-    const went = window.Nav ? Nav.go("menu", url, { stay }) : { to: "menu", url, how: "push" };
+    const went = window.Nav ? Nav.go("menu", url, { stay, fresh: !!query }) : { to: "menu", url, how: "push" };
     window.TheForge.wentTo = went;
     if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
     return went;
@@ -3012,7 +3014,15 @@
     Cloud.ready.then(() => { const b = $("bench"); if (!b) return; if (benchOk() && settings && settings.addSection) { b.hidden = false; settings.addSection(b); } else b.hidden = true; });
   }
   // (build 29, design pass 37) the opening again: out through the house's way with the menu's ?intro=1 (its last line comes back here)
-  function goStory() { if (state.forging || state.pouring || session.leaving) return null; closeSettings(); const went = goHomeNow("?intro=1"); if (window.TheForge) window.TheForge.wentStory = went; return went; }
+  // (build 32, design pass 41: from the Map Table its history entry comes off first, as the house does, so the phone's back from the
+  // story lands on the castle page's own entry, not the map's; the trip itself is fresh to nav.js, see goHomeNow)
+  function goStory() {
+    if (state.forging || state.pouring || session.leaving) return null;
+    closeSettings();
+    const out = () => { const went = goHomeNow("?intro=1"); if (window.TheForge) window.TheForge.wentStory = went; return went; };
+    if (state.room === "map" && map.pushed) { popMap(out); return { to: "menu", how: "popmap" }; }
+    return out();
+  }
   $("setBtn").addEventListener("click", () => { if ($("setPlank").hidden) openSettings(false); else closeSettings(); });
   $("homeBtn").addEventListener("click", () => goHome());
   window.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setPlank").hidden) { e.preventDefault(); if (settings && settings.asking) settings.closeErase(); else closeSettings(); } });

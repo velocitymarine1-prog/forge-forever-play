@@ -10,6 +10,10 @@
 // opened by its own buttons), so a page reached from a level holds the note #from=level, that note matches no trip, and the trip is
 // pushed. Before this, a level signed itself "cellar": home from the Troll Gate, the Forge's door and Try it in the cellar (and the
 // menu's Battlegrounds) went back one entry in the history, onto the level, and the level started over.
+//
+// Since design pass 41 (card t103) a trip can be fresh: go(to, url, { fresh: true }) pushes even when `to` is the page right behind, for
+// a trip whose address carries something the entry behind lacks (the menu with ?intro=1, Settings' The story so far). Before this, that
+// trip went back onto the menu's old entry, whose address had no ?intro=1, and the menu showed its tap line instead of the story.
 (function (root) {
   "use strict";
   const PAGES = ["menu", "forge", "cellar", "level"];
@@ -28,10 +32,12 @@
     return from;
   }
   // go(to, url, o): back when `to` is right behind this page, else push `url` with the note. o.stay (the harness) records and stays.
+  // o.fresh (design pass 41): push even when `to` is right behind, for a trip whose address carries something the entry behind lacks
+  // (the menu with ?intro=1, Settings' The story so far); going back would restore that entry as it was, without it
   function go(to, url, o) {
     o = o || {};
-    const back = from === to && root.history.length > 1;
-    went = { to, url, how: back ? "back" : "push" };
+    const back = from === to && root.history.length > 1 && !o.fresh;
+    went = { to, url, how: back ? "back" : "push", fresh: !!o.fresh };
     if (o.stay) return went;
     const push = () => { root.location.href = url + (url.indexOf("#") >= 0 ? "&" : "#") + "from=" + me; };
     if (!back) { push(); return went; }

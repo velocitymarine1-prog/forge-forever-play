@@ -17,7 +17,8 @@
 // spec/intro.js: fourteen pictures at the hearth's pixel size, the words tapped through, the name asked inside the story), and the page
 // hands it the tap, the sign, the tap line, the fade and its own fire; the name beat does what the plank's submit did (the record, the
 // lessons, the adoption started), Into the castle awaits the adoption and goes; a player whose record is unfinished resumes the book;
-// Settings' The story so far (?intro=1) replays it without the name and ends on Back to the menu. The plank below stays as the fallback
+// Settings' The story so far (?intro=1) replays it without the name and ends on Back to the menu (which takes intro=1 out of the address
+// since design pass 41, the castle page's trip here being pushed, not gone back to). The plank below stays as the fallback
 // (?intro=skip, the harnesses; an old cached page without intro.js).
 // For the checks: ?stay=1 records where a tap would go and stays; ?motion=reduce stills the page (?motion=full plays it); ?nostore=1
 // makes storage act blocked; ?pointer=coarse|fine overrides the pointer; ?intro=skip|1|at:<picture> for the opening.
@@ -247,7 +248,7 @@
           return rec;
         },
         onDone() { (async () => { if (adopting) { try { await adopting; } catch (e) { /* offline: it goes later */ } } go("forge"); if (stay) { endBook(); renderWho(); } })(); },
-        onBack() { endBook(); renderWho(); },
+        onBack() { dropIntro(); endBook(); renderWho(); },   // (design pass 41) the replay's end: the address loses intro=1 first
         onSkip(id) { who.skipped = id; } });
     } catch (e) { window.__errors.push("intro: " + (e && e.message)); book = null; }
     if (!book) { game.classList.remove("book"); document.body.removeAttribute("data-book"); }
@@ -257,6 +258,16 @@
   function endBook() {
     if (book) { try { book.destroy(); } catch (e) { /* gone */ } book = null; }
     game.classList.remove("book"); document.body.removeAttribute("data-book"); $("sign").hidden = false;
+  }
+  // (build 32, design pass 41) the replay's end takes intro=1 out of the address, the entry's state kept (nav.js's ffFrom), so a reload
+  // or a later return to this entry shows the menu, not the story again. The page's own params were read at boot and stand; the other
+  // params keep their spelling. Since this pass the castle page pushes the menu with ?intro=1 even when the menu is right behind
+  // (nav.js's fresh), so the history reads [menu, castle page, menu?intro=1] and the tap after Back to the menu goes back to the castle page
+  function dropIntro() {
+    if (!/(^\?|&)intro=1(&|$)/.test(location.search)) return false;
+    const q = location.search.slice(1).split("&").filter(p => p && p !== "intro=1").join("&");
+    try { history.replaceState(history.state, "", location.pathname + (q ? "?" + q : "") + location.hash); } catch (e) { /* a sandboxed frame keeps its address */ }
+    return true;
   }
 
   // ------------------------------------------------------------------ boot
