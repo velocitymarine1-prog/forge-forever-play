@@ -18,7 +18,7 @@
 //                                     page's: nothing here reads fight.view)
 //   Duel.result(fight)                the bout's result once it has ended (null before)
 //   Duel.forfeit(fight, seat)         that seat leaves the bout
-//   Duel.tally(fight, seat)           the words of the tally plank for that seat
+//   Duel.tally(fight, seat)           the tally plank for that seat: its head (VICTORY 2–1) and the stat box's four cells (design pass 42)
 //   Duel.snapshot(fight) / restore(fight, s) / checksum(fight)   the lockstep's rollback (proto/wire.js)
 //
 // The rules, in short (the note's sections 4.5 and 4.6): a knight's blow meets the other team's standing knights only; damage is halved
@@ -612,14 +612,16 @@
     return { mode: A.mode, winner: w, score: A.score.slice(), rounds: A.rounds.map(r => Object.assign({}, r)), byseat: A.stats.map((s, i) => Object.assign({ seat: i, team: fight.knights[i].team, name: fight.knights[i].name, house: !!fight.knights[i].house }, s)),
       forfeited: A.forfeited, house: A.teams[1].every(s => fight.knights[s].house) || A.teams[0].slice(1).concat(A.teams[1]).every(s => fight.knights[s].house), checksum: checksum(fight), t: r3(fight.t), local: A.local };
   }
+  // the tally for a seat (design pass 42): the head is the result with the score from that seat's side (VICTORY 2–1), a forfeit's and a void's
+  // as they are; the cells are the stat box's four numbers (landed and taken are damage) with their labels
   function tally(fight, seat) {
     const A = fight.arena, S = A.spec, W = S.words.tally, res = A.result || result(fight);
     const k = fight.knights[seat === undefined ? A.local : seat], win = res.winner === k.team, st = A.stats[k.seat];
-    const title = res.forfeited === k.seat ? W.forfeited : res.winner === null ? W.void : win ? W.win : W.loss;
-    const fill = (s, o) => s.replace(/\{(\w+)\}/g, (m, key) => o[key] === undefined ? m : o[key]);
-    const lines = [fill(W.rounds, { a: res.score[k.team], b: res.score[k.team === 0 ? 1 : 0] }), fill(W.blows, { landed: Math.round(st.landed), taken: Math.round(st.taken) }), fill(W.biggest, { n: Math.round(st.biggest) }), fill(W.parries, { n: st.parries })];
-    if (res.house) lines.push(W.house);
-    return { title, lines, win, house: res.house, void: res.winner === null, forfeited: res.forfeited === k.seat };
+    const fill = (s, o) => String(s).replace(/\{(\w+)\}/g, (m, key) => o[key] === undefined ? m : o[key]);
+    const score = [res.score[k.team], res.score[k.team === 0 ? 1 : 0]];
+    const title = res.forfeited === k.seat ? W.forfeited : res.winner === null ? W.void : fill(W.score || "{title} {a}–{b}", { title: win ? W.win : W.loss, a: score[0], b: score[1] });
+    const L = W.stats || {}, cells = [["dealt", Math.round(st.landed)], ["taken", Math.round(st.taken)], ["biggest", Math.round(st.biggest)], ["parries", st.parries]].map(([key, n]) => ({ key, n, label: L[key] || key }));
+    return { title, score, cells, win, house: res.house, void: res.winner === null, forfeited: res.forfeited === k.seat };
   }
 
   // ------------------------------------------------------------------ the snapshot (the lockstep's rollback): everything Duel.step reads or writes

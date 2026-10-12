@@ -9,6 +9,10 @@
 // record (spec/arena.json record.key: wins and losses by mode, this phone's and no board's), the XP run sent home to the Forge, and the
 // way out (a forfeit mid-bout). The rules are proto/duel.js's, the painter proto/arena.js's, the wire proto/wire.js's; the numbers are
 // spec/arena.json's (window.FORGE_ARENA). Plain script, defines window.ArenaPage.
+// Since design pass 42 (Isaac, 12 October 2026) the Gate is plainer (each plate its mode's name over 1v1 to 4v4, the Drill's Learn how to
+// fight, Currently equipped over the weapons' names, Skill level), a bout begun by Spar is a practice round (P.spar: the record and the
+// streak untouched, a walk-out counts nothing), the band at a bout's end says VICTORY or DEFEAT, and the tally is the result with the
+// score, Practice round after a spar and a box of four numbers.
 (function (root) {
   "use strict";
   const A = () => root.FORGE_ARENA || {};
@@ -18,13 +22,16 @@
   const P = { lobby: true, mode: "1v1", skill: null, online: false, queue: null, session: null, bout: null, seats: null, seed: 0, heat: 0, trauma: 0, punch: { z: 1, t: 0, dur: 0, from: 1 },
     veil: 0, cam: null, ended: false, result: null, tallyAt: 0, lastView: null, lines: {}, banners: [], house: false, record: null, since: 0, forfeited: false, waiting: false, xpSent: null, loadoutIds: [],
     fallen: [], beatenFx: {},   // (design pass 39) the weapons lying on the sand this round, and what each beaten knight's fall has already thrown (the dust, the pool, the shards, the scorch)
-    drill: false };   // (design pass 39) this bout is the Drill (proto/arena-drill.js over a local bout against Mara)
+    drill: false,   // (design pass 39) this bout is the Drill (proto/arena-drill.js over a local bout against Mara)
+    spar: false };   // (design pass 42) this bout is a practice round (Spar, and Again after one): the record never hears of it
   const DR = () => root.ArenaDrill || null;
   const DW = () => ((A().drill || {}).words || {});
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const fill = (s, o) => String(s || "").replace(/\{(\w+)\}/g, (m, k) => (o && o[k] !== undefined ? o[k] : m));
   const mmss = s => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
   const $ = id => H.$(id);
+  // (design pass 42) what goes into the Gate's HTML as words (a weapon's name, a knight's name in the queue's line) goes in as text
+  const esc = s => String(s === undefined || s === null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   // ------------------------------------------------------------------ the record: this phone's own wins and losses by mode (no board)
   function readRecord() {
@@ -44,27 +51,31 @@
   function renderLobby() {
     const el = $("lobby"); if (!el) return;
     const L = W().lobby || {}, M = A().modes || {}, rec = P.record || (P.record = readRecord());
+    // (design pass 42) each mode's plate: the mode's name as its head, the mode itself in yellow under it (the queue's words on the lit
+    // plate while FIGHT looks), the record at the right
     const plates = modeList().map(m => {
       const md = M[m], r = rec.modes[m] || [0, 0], lit = P.mode === m, q = P.queue && P.queue.mode === m ? P.queue.line : null;
-      return '<button type="button" class="lplate f-iron' + (lit ? " lit" : "") + '" data-mode="' + m + '" aria-pressed="' + String(lit) + '"><b>' + m + ' · ' + (md.name || m) + '</b><span class="ln">' + (q || (L.modeLine || {})[m] || "") + '</span><span class="rc">' + fill(L.record || "{mode} {w}–{l}", { mode: "", w: r[0], l: r[1] }).trim() + '</span></button>';
+      return '<button type="button" class="lplate f-iron' + (lit ? " lit" : "") + '" data-mode="' + m + '" aria-pressed="' + String(lit) + '"><b>' + esc(md.name || m) + '</b><span class="ln">' + esc(q || m) + '</span><span class="rc">' + fill(L.record || "{mode} {w}–{l}", { mode: "", w: r[0], l: r[1] }).trim() + '</span></button>';
     }).join("");
     const skills = (A().house || {}).skills || {}, sk = P.skill || (P.skill = skillDefault());
     const chips = Object.keys(skills).map(s => '<button type="button" data-skill="' + s + '" aria-pressed="' + String(sk === s) + '">' + ((L.skills || {})[s] || s) + '</button>').join("");
-    const hands = (H.getFight() && H.getFight().hands || []).map(h => h.thing), lo = hands.length > 1 ? fill(L.loadout || "You carry {a} and {b}", { a: hands[0].name || hands[0].id, b: hands[1].name || hands[1].id }) : hands.length ? fill(L.loadoutOne || "You carry {a}", { a: hands[0].name || hands[0].id }) : "";
+    // (design pass 42) Currently equipped: the weapons in hand, a name to a row, no sentence
+    const hands = (H.getFight() && H.getFight().hands || []).map(h => h.thing).filter(Boolean).slice(0, 2);
+    const gear = hands.length ? '<div class="lgear"><p class="small">' + esc(L.equipped || "Currently equipped") + '</p>' + hands.map(t => '<b>' + esc(t.name || t.id) + '</b>').join("") + '</div>' : "";
     const online = !!(H.Wire && H.Wire.available && H.Wire.available());
-    // (design pass 39) the Drill's plate: Grycus teaches the sand; its line says when it was done
+    // (design pass 39) the Drill's plate: Grycus teaches the sand; its line says when it was done (design pass 42: Learn how to fight)
     const Dd = A().drill || {}, drillRec = DR() && Dd.on ? DR().record() : null;
-    const drillPlate = Dd.on && DR() ? '<button type="button" class="lplate f-iron drill" id="lobbyDrill"><b>' + (DW().plate || "The Drill") + '</b><span class="ln">' + (DW().plateLine || "Grycus teaches the sand") + '</span><span class="rc">' + (drillRec && drillRec.done ? (DW().plateDone || "done") : "") + '</span></button>' : "";
+    const drillPlate = Dd.on && DR() ? '<button type="button" class="lplate f-iron drill" id="lobbyDrill"><b>' + (DW().plate || "The Drill") + '</b><span class="ln">' + (DW().plateLine || "Learn how to fight") + '</span><span class="rc">' + (drillRec && drillRec.done ? (DW().plateDone || "done") : "") + '</span></button>' : "";
     el.innerHTML = '<div class="lhead"><h2>' + (L.title || "The Gate of Champions") + '</h2><p class="small">' + (online ? "" : (L.offline || "Your phone is offline: the house's knights will fight you")) + '</p></div>'
       + '<div class="lplates">' + plates + drillPlate + '</div>'
       + '<div class="lside"><div class="ltablet plank f-parch"><h2>' + (L.tablet || "CHAMPIONS") + '</h2><p class="small">' + (L.boardsOff || "The boards are not open yet. Your record is this phone's own.") + '</p>'
-      + '<p class="small lo">' + lo + '</p><p class="small">' + (L.skill || "The house's skill") + '</p><div class="chips lskill">' + chips + '</div>'
+      + gear + '<p class="small">' + (L.skill || "Skill level") + '</p><div class="chips lskill">' + chips + '</div>'
       + '<div class="pbtns"><button type="button" class="f-ember primary" id="lobbyFight">' + (L.fight || "FIGHT") + '</button><button type="button" class="f-iron" id="lobbySpar">' + (L.spar || "Spar") + '</button></div>'
-      + '<p class="small">' + (L.sparLine || "the house's knights, any time") + '</p></div></div>';
+      + '<p class="small">' + (L.sparLine || "Free practice does not affect records.") + '</p></div></div>';
     el.querySelectorAll(".lplate").forEach(b => b.addEventListener("click", () => { if (P.queue) return; P.mode = b.dataset.mode; renderLobby(); }));
     el.querySelectorAll(".lskill button").forEach(b => b.addEventListener("click", () => { P.skill = b.dataset.skill; renderLobby(); }));
     const fb = $("lobbyFight"); if (fb) fb.addEventListener("click", () => { if (P.queue) leaveQueue(); else if (!drillFirst()) start(P.mode); });
-    const sb = $("lobbySpar"); if (sb) sb.addEventListener("click", () => { if (P.queue) leaveQueue(); if (!drillFirst()) startBout({ online: false, mode: P.mode }); });
+    const sb = $("lobbySpar"); if (sb) sb.addEventListener("click", () => { if (P.queue) leaveQueue(); if (!drillFirst()) startBout({ online: false, mode: P.mode, spar: true }); });   // (design pass 42: a practice round)
     const db = $("lobbyDrill"); if (db) db.addEventListener("click", () => { if (P.queue) leaveQueue(); startBout({ online: false, mode: (A().drill || {}).mode || "1v1", drill: true }); });
     if (P.queue && fb) fb.textContent = L.leaveQueue || "Stop looking";
     el.hidden = false;
@@ -77,7 +88,7 @@
     return true;
   }
   function showLobby() {
-    P.lobby = true; P.ended = false; P.result = null; P.bout = null; P.drill = false;
+    P.lobby = true; P.ended = false; P.result = null; P.bout = null; P.drill = false; P.spar = false;
     const g = $("game"); if (g) { g.classList.remove("bout"); g.classList.add("lobbying"); }   // (design pass 39: the lobby hides the sand's buttons)
     for (const id of ["hpPlate", "poisePlate", "roundPlate", "foePlate", "guardBtn"]) { const e = $(id); if (e) e.hidden = true; }
     renderLobby();
@@ -132,7 +143,7 @@
   function startBout(o) {
     const Duel = H.Duel, mode = o.mode || P.mode, M = (A().modes || {})[mode] || {}, sandKey = M.sand || "pit", sand = (A().sands || {})[sandKey];
     P.mode = mode; P.online = !!o.online; P.ended = false; P.result = null; P.forfeited = false; P.waiting = false; P.xpSent = null; P.heat = (A().feel || {}).crowd ? (A().feel.crowd.start || 0) : 0; P.trauma = 0; P.veil = 0; P.punch = { z: 1, t: 0, dur: 0, from: 1 };
-    P.fallen = []; P.beatenFx = {}; P.drill = !!o.drill; if (!o.drill && DR() && DR().active) DR().end();
+    P.fallen = []; P.beatenFx = {}; P.drill = !!o.drill; P.spar = !!o.spar && !o.drill; if (!o.drill && DR() && DR().active) DR().end();
     const seed = o.seed !== undefined ? (o.seed >>> 0) : ((Date.now() ^ (Math.random() * 0x7fffffff)) >>> 0);
     P.seed = seed;
     let seats; try { seats = seatsFor(o); } catch (e) { (root.__errors || []).push("arena seats: " + (e && e.message)); return false; }
@@ -166,7 +177,9 @@
     const fp = $("foePlate"); if (fp) fp.hidden = (M.seats || 1) !== 1;
     P.cam = null; P.lastView = null; hud.key = ""; hud.foe = ""; hud.round = ""; hud.poise = -1; hud.guard = null; hud.parry = null;
     H.clearFx(); H.syncHud(); H.fit();
-    H.toast && (P.house && !P.drill ? H.toast((W().tally || {}).house || "Against the house's knights") : null);
+    // (design pass 42) a spar says it is a practice round as it starts; a FIGHT against the house says nothing here (the queue's line said the
+    // house's knights were coming, and offline the Gate's head says so)
+    if (P.spar && H.toast) H.toast((W().tally || {}).practice || "Practice round");
     return true;
   }
   // a session with no wire at all (proto/wire.js missing, or the Drill): the sim steps straight, the house seats driven by the rules, or
@@ -416,17 +429,19 @@
   // ------------------------------------------------------------------ the end: the record, the XP home, the tally
   function ended(result) {
     P.ended = true; P.result = result;
+    const S = W().sand || {};
     if (P.drill) {   // (design pass 39) the Drill's end: nothing counted, nothing paid; the record says done (the KO's), the tally says what was learned
       if (DR()) { try { DR().finish(); } catch (e) { /* done either way */ } }
-      const S = W().sand || {}; banner(DW().tally || S.yours || "THE SAND IS YOURS", null, false); kick(0.5);
+      banner(S.yours || "VICTORY", null, false); kick(0.5);   // (design pass 42: the band says VICTORY, as every bout's end does)
       const slow = ((A().bout || {}).slow || {}).last || [0.25, 1.0]; P.tallyAt = H.state.t + (slow[1] || 1.0) + 1.2; return;
     }
-    const fight = H.getFight(), win = result.winner === fight.k.team, rec = P.record || (P.record = readRecord());
+    const fight = H.getFight(), decided = result.winner === 0 || result.winner === 1, win = decided && result.winner === fight.k.team, rec = P.record || (P.record = readRecord());
     const r = rec.modes[P.mode] || (rec.modes[P.mode] = [0, 0]);
-    if (result.winner === 0 || result.winner === 1) { if (win) r[0]++; else r[1]++; rec.streak = win ? (rec.streak || 0) + 1 : 0; }
+    // (design pass 42) a spar is a practice round: its end leaves the record and the streak as they were (its XP is the house's, as before)
+    if (decided && !P.spar) { if (win) r[0]++; else r[1]++; rec.streak = win ? (rec.streak || 0) + 1 : 0; }
     const house = result.house !== undefined ? !!result.house : P.house;
     let xp = 0;
-    if (result.winner === 0 || result.winner === 1) {
+    if (decided) {
       const X = A().xp || {};
       if (house) { if (win) { if (rec.house.day !== today()) rec.house = { day: today(), wins: 0 }; if (rec.house.wins < ((X.house || {}).perDay || 10)) { xp = (X.house || {}).win || 5; rec.house.wins++; } } }
       else xp = win ? ((X.win || {})[P.mode] || 0) : Math.round(((X.win || {})[P.mode] || 0) * (X.lossShare || 0.25));
@@ -434,43 +449,57 @@
     writeRecord(rec);
     if (xp > 0 && H.runHome) { const run = { id: "arena-" + P.seed + "-" + Date.now(), area: "arena", level: 0, boss: false, replay: false, cleared: false, things: [], finds: {}, arena: { mode: P.mode, win, house, xp } }; P.xpSent = H.runHome(run); }
     try { if (P.session && P.session.result) P.session.result(result); } catch (e) { /* the wire has it or not */ }
-    const S = W().sand || {};
-    banner(win ? (S.yours || "THE SAND IS YOURS") : (S.theirs || "THE SAND IS THEIRS"), null, false);
+    // (design pass 42) the band says VICTORY or DEFEAT, and VOID when nobody won (it said THE SAND IS THEIRS before the tally's VOID)
+    banner(!decided ? (S.void || "VOID") : win ? (S.yours || "VICTORY") : (S.theirs || "DEFEAT"), null, false);
     kick(0.5); punch("ko");
     const slow = ((A().bout || {}).slow || {}).last || [0.25, 1.0];
     P.tallyAt = H.state.t + (slow[1] || 1.0) + 1.2;
   }
   function tallyDue() { if (P.ended && P.tallyAt && H.state.t >= P.tallyAt && H.state.plank !== "tally") { P.tallyAt = 0; renderTally(); H.openPlank("tally"); } }
+  // (design pass 42) the tally: the result with the score from this knight's side as its head (DEFEAT 1–2), Practice round under it after a
+  // spar (The Drill after the Drill, nothing after a FIGHT), a box of four numbers, the pay line only when it has something to say, The Gate
+  // and Again. The sentences (1–2 in rounds · 1v1, blows landed, Against the house's knights, No XP this time.) are gone
   function renderTally() {
-    const T = W().tally || {}, fight = H.getFight(), res = P.result || {}, win = res.winner === fight.k.team, mine = (res.byseat || []).find(b => b.seat === fight.k.seat) || {};
-    const put = (id, text, hide) => { const e = $(id); if (!e) return; e.hidden = !!hide; if (!hide) e.textContent = text; };
-    if (P.drill) {   // (design pass 39) the Drill's tally
-      put("tallyTitle", DW().tally || "YOU KNOW THE SAND"); put("tallyTime", DW().tallyLine || ""); put("tallyFelled", fill(T.blows || "{landed} blows landed, {taken} taken", { landed: mine.landed | 0, taken: mine.taken | 0 }) + (mine.parries ? " · " + fill(T.parries || "{n} parries", { n: mine.parries }) : ""));
-      put("tallyWith", DW().against || "Mara of the house, the Drill"); put("tallyFindsLine", "", true); const f = $("tallyFinds"); if (f) { f.hidden = true; f.replaceChildren(); } put("tallyPay", "", true); put("tallyLevel", "", true);
-      const tf = $("tallyForge"); if (tf) tf.textContent = T.gate || "The Gate"; const tn = $("tallyNext"); if (tn) tn.hidden = true; const ta = $("tallyAgain"); if (ta) { ta.textContent = DW().again || "The Drill again"; ta.hidden = false; }
-      return;
-    }
-    put("tallyTitle", P.forfeited ? (T.forfeited || "DEFEAT · forfeited") : res.winner === null || res.winner === undefined ? (T.void || "VOID") : win ? (T.win || "VICTORY") : (T.loss || "DEFEAT"));
-    put("tallyTime", fill(T.rounds || "{a}–{b} in rounds", { a: res.score ? res.score[0] : 0, b: res.score ? res.score[1] : 0 }) + (P.mode ? " · " + P.mode : ""));
-    put("tallyFelled", fill(T.blows || "{landed} blows landed, {taken} taken", { landed: mine.landed | 0, taken: mine.taken | 0 }) + (mine.biggest ? " · " + fill(T.biggest || "Biggest blow {n}", { n: Math.round(mine.biggest) }) : "") + (mine.parries ? " · " + fill(T.parries || "{n} parries", { n: mine.parries }) : ""));
-    put("tallyWith", (res.house ? (T.house || "Against the house's knights") : "") + (P.record && P.record.streak >= 2 && win ? (res.house ? " · " : "") + fill(T.streak || "{n} in a row", { n: P.record.streak }) : ""), !(res.house || (P.record && P.record.streak >= 2 && win)));
-    put("tallyFindsLine", "", true); const f = $("tallyFinds"); if (f) { f.hidden = true; f.replaceChildren(); }
-    const xp = P.xpSent && P.xpSent.run && P.xpSent.run.arena ? P.xpSent.run.arena.xp : 0;
-    put("tallyPay", xp > 0 ? fill(T.xp || "+{n} XP", { n: xp }) + (P.xpSent && P.xpSent.ok === false ? " (waits for the Forge)" : "") : (H.visiting ? "You came without the Forge, so nothing is paid." : "No XP this time."));
-    put("tallyLevel", "", true);
+    const T = W().tally || {}, fight = H.getFight(), res = P.result || {}, me = fight.k, decided = res.winner === 0 || res.winner === 1, win = decided && res.winner === me.team, mine = (res.byseat || []).find(b => b.seat === me.seat) || {};
+    const put = (id, text) => { const e = $(id); if (!e) return; e.hidden = !text; if (text) e.textContent = text; };
+    // the score is read from this knight's side: online a knight can sit on team 1
+    const sc = Array.isArray(res.score) ? res.score : [0, 0], a = sc[me.team === 1 ? 1 : 0] | 0, b = sc[me.team === 1 ? 0 : 1] | 0;
+    put("tallyTitle", P.drill ? (T.win || "VICTORY") : P.forfeited ? (T.forfeited || "DEFEAT · forfeited") : !decided ? (T.void || "VOID") : fill(T.score || "{title} {a}–{b}", { title: win ? (T.win || "VICTORY") : (T.loss || "DEFEAT"), a, b }));
+    put("tallyTime", P.drill ? (DW().against || "The Drill") : P.spar ? (T.practice || "Practice round") : "");
+    statBox(mine);
+    for (const id of ["tallyFelled", "tallyWith", "tallyFindsLine", "tallyLevel"]) put(id, "");
+    const f = $("tallyFinds"); if (f) { f.hidden = true; f.replaceChildren(); }
+    // the pay line: the XP sent home (a house's win pays a spar too, as before), a FIGHT's streak; a visit without the Forge pays nothing and says so
+    const xp = !P.drill && P.xpSent && P.xpSent.run && P.xpSent.run.arena ? P.xpSent.run.arena.xp : 0;
+    const pay = xp > 0 ? fill(T.xp || "+{n} XP", { n: xp }) + (P.xpSent && P.xpSent.ok === false ? " (waits for the Forge)" : "") : !P.drill && decided && H.visiting ? "You came without the Forge, so nothing is paid." : "";
+    const streak = !P.drill && !P.spar && win && P.record && P.record.streak >= 2 ? fill(T.streak || "{n} in a row", { n: P.record.streak }) : "";
+    put("tallyPay", [pay, streak].filter(Boolean).join(" · "));
     const tf = $("tallyForge"); if (tf) tf.textContent = T.gate || "The Gate";
     const tn = $("tallyNext"); if (tn) tn.hidden = true;
-    const ta = $("tallyAgain"); if (ta) { ta.textContent = T.again || "Again"; ta.hidden = false; }
+    const ta = $("tallyAgain"); if (ta) { ta.textContent = P.drill ? (DW().again || "The Drill again") : (T.again || "Again"); ta.hidden = false; }
   }
-  // Again: the same mode (online: the queue again; offline: the same seats with a new seed); The Gate: back to the lobby
+  // (design pass 42) the stat box: four iron cells in the tally plank, this knight's numbers (duel.js counts landed and taken as the HP the blows
+  // took, so the box names them damage); a page of the build before has no box, and its tally goes on without one
+  function statBox(mine) {
+    const box = $("tallyStats"); if (!box) return false;
+    const L = (W().tally || {}).stats || {}, doc = root.document;
+    box.replaceChildren(...[["dealt", mine.landed], ["taken", mine.taken], ["biggest", mine.biggest], ["parries", mine.parries]].map(([key, n]) => {
+      const c = doc.createElement("div"), v = doc.createElement("b"), l = doc.createElement("span");
+      c.className = "f-iron"; c.dataset.stat = key; v.textContent = String(Math.max(0, Math.round(+n || 0))); l.textContent = L[key] || key; c.append(v, l); return c;
+    }));
+    box.hidden = false;
+    return true;
+  }
+  // Again: the same mode (online: the queue again; offline: the same seats with a new seed; design pass 42: a spar's Again is practice too);
+  // The Gate: back to the lobby
   function again() {
     if (!P.ended) return;
-    const online = P.online, drill = P.drill;
+    const online = P.online, drill = P.drill, spar = P.spar;
     endSession();
     H.closePlankForce();
     if (drill) { startBout({ online: false, mode: (A().drill || {}).mode || "1v1", drill: true }); return; }
     if (online) { showLobby(); start(P.mode); return; }
-    startBout({ online: false, mode: P.mode });
+    startBout({ online: false, mode: P.mode, spar });
   }
   function gate() { if (DR() && DR().active) DR().end(); endSession(); H.closePlankForce(); showLobby(); H.syncHud(); H.fit(); }
   // (design pass 39) the Drill ends: its KO (done) takes the tally's road; Skip goes straight back to the Gate
@@ -490,10 +519,15 @@
     if (P.drill) { if (DR()) DR().end(); endSession(); return; }   // (design pass 39) leaving the Drill forfeits nothing
     P.forfeited = !P.ended;
     try { if (P.session.forfeit) P.session.forfeit(); } catch (e) { /* the wire's forfeit by silence */ }
-    if (!P.ended) { const rec = P.record || (P.record = readRecord()); const r = rec.modes[P.mode] || (rec.modes[P.mode] = [0, 0]); r[1]++; rec.streak = 0; writeRecord(rec); }
+    if (!P.ended && !P.spar) { const rec = P.record || (P.record = readRecord()); const r = rec.modes[P.mode] || (rec.modes[P.mode] = [0, 0]); r[1]++; rec.streak = 0; writeRecord(rec); }   // (design pass 42: a practice round left counts nothing)
     endSession();
   }
-  function askText() { const S = W().sand || {}; if (P.drill) return { title: DW().leave || "Leave the Drill?", go: DW().leaveGo || "Leave", stay: S.stay || "Stay" }; return { title: S.leave || "Leave the sand? You forfeit the bout.", go: S.go || "Forfeit", stay: S.stay || "Stay" }; }
+  function askText() {
+    const S = W().sand || {};
+    if (P.drill) return { title: DW().leave || "Leave the Drill?", go: DW().leaveGo || "Leave", stay: S.stay || "Stay" };
+    if (P.spar) return { title: S.leavePractice || "Leave the practice round?", go: S.leaveGo || "Leave", stay: S.stay || "Stay" };   // (design pass 42: nothing to forfeit)
+    return { title: S.leave || "Leave the sand? You forfeit the bout.", go: S.go || "Forfeit", stay: S.stay || "Stay" };
+  }
 
   // ------------------------------------------------------------------ mount: the page hands its hooks; the lobby shows
   function mount(hooks) {
@@ -510,6 +544,6 @@
     return api;
   }
   const api = { mount, step, drawOver, frameFx, syncLive, tallyDue, again, gate, onLeave, askText, renderTally, start, startBout, showLobby, fallFrame, drawFallen,
-    get lobby() { return P.lobby; }, get inBout() { return !P.lobby && !!P.session; }, get ended() { return P.ended; }, get state() { return P; }, get heat() { return P.heat; }, get mode() { return P.mode; }, get drill() { return P.drill; } };
+    get lobby() { return P.lobby; }, get inBout() { return !P.lobby && !!P.session; }, get ended() { return P.ended; }, get state() { return P; }, get heat() { return P.heat; }, get mode() { return P.mode; }, get drill() { return P.drill; }, get spar() { return P.spar; } };
   root.ArenaPage = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -1663,7 +1663,7 @@
     const tag = !ram && practice(t) ? "practice" : "";
     if (hud.tag !== tag) { hud.tag = tag; $("wTag").hidden = !tag; $("wTag").textContent = tag ? "⛓ practice only" : ""; }
     $("wSlow").hidden = !state.slow;
-    const note = $("note"), text = LEVEL ? levelNote() : state.empty && state.loadout.length === 0 ? "Bring weapons from the Forge, or take one from the rack" : state.noteUntil > state.t ? state.noteText : "";
+    const note = $("note"), text = LEVEL ? levelNote() : !ARENA && state.empty && state.loadout.length === 0 ? "Bring weapons from the Forge, or take one from the rack" : state.noteUntil > state.t ? state.noteText : "";   // (design pass 42: the Arena has no rack)
     note.hidden = !text; if (text) note.textContent = text;
     if (LEVEL) placeNote();
   }

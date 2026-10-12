@@ -2747,7 +2747,9 @@
     window.TheForge.wentDown = { url, sent, try: null, how: "push", level: "arena", brothers: 0 };
     lessonOn("go", "arena", 0);
     const quick = reduce || params.get("harness") === "1";
-    const leave = () => { if (stay) return; popMap(() => { session.leaving = true; window.location.href = url + "#from=forge"; }); };
+    // (design pass 42) the mark again once the map's entry is off: it is the castle page's own entry the area comes back to (the mark above
+    // went with the map's entry, and a page shown again from the cache read none, and stood in the Map Table with its curtain down)
+    const leave = () => { if (stay) return; popMap(() => { markWent("road"); session.leaving = true; window.location.href = url + "#from=forge"; }); };
     setTimeout(() => { $("mapCurtain").classList.add("on"); setTimeout(leave, quick ? 0 : 320); }, quick ? 0 : 250);
     return url;
   }
@@ -2768,7 +2770,9 @@
     window.TheForge.wentDown = { url, sent, try: null, how: "push", level: row.area, brothers: n };
     lessonOn("go", row.id, n);
     const quick = reduce || params.get("harness") === "1";
-    const leave = () => { if (stay) return; popMap(() => { session.leaving = true; window.location.href = url + "#from=forge"; }); };
+    // (design pass 42) the mark again once the map's entry is off: it is the castle page's own entry the area comes back to (the mark above
+    // went with the map's entry, and a page shown again from the cache read none, and stood in the Map Table with its curtain down)
+    const leave = () => { if (stay) return; popMap(() => { markWent("road"); session.leaving = true; window.location.href = url + "#from=forge"; }); };
     setTimeout(() => { $("mapCurtain").classList.add("on"); setTimeout(leave, quick ? 0 : 320); }, quick ? 0 : 250);
     return url;
   }
@@ -3191,8 +3195,12 @@
     if (window.Settings) { session.assistTap = Settings.isOn("pour"); turn.forced = Settings.isOn("forced"); }
     lockLandscape(); fitTurn();
     const took = takeLoadoutBack(), ran = await takeRunBack();
-    // (build 17) back from the cellar or a level by the back gesture: the courtyard at the top of the stairs, or walking in through the gate
-    { const st = histState(); if ((st.ffWent === "cellar" || st.ffWent === "road") && !noyard) { enter("yard", { at: st.ffWent, cut: true }); clearWent(); } }
+    // (build 17) back from the cellar or a level by the back gesture: the courtyard at the top of the stairs, or walking in through the gate.
+    // (design pass 42, Isaac's house rule: leaving any area lands in the Courtyard) and never the Map Table: every way out of it takes its
+    // entry off first, so a page shown again in the map room was left from there: for an area (map.going: walking in through the gate) or
+    // for the menu by the house (the yard at the table, as a reload of that entry opens it). The room change lifts the soot curtain
+    { const st = histState(), went = st.ffWent === "cellar" || st.ffWent === "road" ? st.ffWent : null;
+      if (!noyard && (went || state.room === "map")) { enter("yard", { at: went || (map.going ? "road" : "table"), cut: true }); clearWent(); } }
     lessonOn("shown", { fromCellar: took });   // (build 8) the lessons as the other pages left them (the cellar moves them on)
     if (!took && !ran) return;
     renderAll();
