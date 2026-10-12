@@ -441,13 +441,16 @@
     if (decided && !P.spar) { if (win) r[0]++; else r[1]++; rec.streak = win ? (rec.streak || 0) + 1 : 0; }
     const house = result.house !== undefined ? !!result.house : P.house;
     let xp = 0;
-    if (decided) {
-      const X = A().xp || {};
+    const X = A().xp || {};
+    // (design pass 42 revision 1, Isaac: "10 XP per practice round, whether the player wins or loses") a practice round fought to its end
+    // pays xp.practice, a win or a loss alike, and never counts against the house's ten paid wins a day (that count is FIGHT's)
+    if (P.spar) xp = typeof X.practice === "number" ? X.practice : 10;
+    else if (decided) {
       if (house) { if (win) { if (rec.house.day !== today()) rec.house = { day: today(), wins: 0 }; if (rec.house.wins < ((X.house || {}).perDay || 10)) { xp = (X.house || {}).win || 5; rec.house.wins++; } } }
       else xp = win ? ((X.win || {})[P.mode] || 0) : Math.round(((X.win || {})[P.mode] || 0) * (X.lossShare || 0.25));
     }
-    writeRecord(rec);
-    if (xp > 0 && H.runHome) { const run = { id: "arena-" + P.seed + "-" + Date.now(), area: "arena", level: 0, boss: false, replay: false, cleared: false, things: [], finds: {}, arena: { mode: P.mode, win, house, xp } }; P.xpSent = H.runHome(run); }
+    if (!P.spar) writeRecord(rec);   // (a practice round changes nothing in the record: nothing is written)
+    if (xp > 0 && H.runHome) { const run = { id: "arena-" + P.seed + "-" + Date.now(), area: "arena", level: 0, boss: false, replay: false, cleared: false, things: [], finds: {}, arena: { mode: P.mode, win, house, xp, practice: P.spar } }; P.xpSent = H.runHome(run); }
     try { if (P.session && P.session.result) P.session.result(result); } catch (e) { /* the wire has it or not */ }
     // (design pass 42) the band says VICTORY or DEFEAT, and VOID when nobody won (it said THE SAND IS THEIRS before the tally's VOID)
     banner(!decided ? (S.void || "VOID") : win ? (S.yours || "VICTORY") : (S.theirs || "DEFEAT"), null, false);
@@ -469,23 +472,25 @@
     statBox(mine);
     for (const id of ["tallyFelled", "tallyWith", "tallyFindsLine", "tallyLevel"]) put(id, "");
     const f = $("tallyFinds"); if (f) { f.hidden = true; f.replaceChildren(); }
-    // the pay line: the XP sent home (a house's win pays a spar too, as before), a FIGHT's streak; a visit without the Forge pays nothing and says so
-    const xp = !P.drill && P.xpSent && P.xpSent.run && P.xpSent.run.arena ? P.xpSent.run.arena.xp : 0;
-    const pay = xp > 0 ? fill(T.xp || "+{n} XP", { n: xp }) + (P.xpSent && P.xpSent.ok === false ? " (waits for the Forge)" : "") : !P.drill && decided && H.visiting ? "You came without the Forge, so nothing is paid." : "";
+    // the pay line: the XP sent home (a practice round's 10, win or lose: revision 1), a FIGHT's streak; a visit without the Forge pays
+    // nothing and says so (revision 1: it said "+N XP (waits for the Forge)" for XP that went nowhere)
+    const xp = !P.drill && P.xpSent && P.xpSent.run && P.xpSent.run.arena ? P.xpSent.run.arena.xp : 0, visit = H.visiting || (P.xpSent && P.xpSent.why === "visiting");
+    const pay = visit ? (!P.drill && (decided || P.spar) ? "You came without the Forge, so nothing is paid." : "") : xp > 0 ? fill(T.xp || "+{n} XP", { n: xp }) + (P.xpSent && P.xpSent.ok === false ? " (waits for the Forge)" : "") : "";
     const streak = !P.drill && !P.spar && win && P.record && P.record.streak >= 2 ? fill(T.streak || "{n} in a row", { n: P.record.streak }) : "";
     put("tallyPay", [pay, streak].filter(Boolean).join(" · "));
     const tf = $("tallyForge"); if (tf) tf.textContent = T.gate || "The Gate";
     const tn = $("tallyNext"); if (tn) tn.hidden = true;
     const ta = $("tallyAgain"); if (ta) { ta.textContent = P.drill ? (DW().again || "The Drill again") : (T.again || "Again"); ta.hidden = false; }
   }
-  // (design pass 42) the stat box: four iron cells in the tally plank, this knight's numbers (duel.js counts landed and taken as the HP the blows
-  // took, so the box names them damage); a page of the build before has no box, and its tally goes on without one
+  // (design pass 42) the stat box: four cells in the tally plank, this knight's numbers (duel.js counts landed and taken as the HP the blows
+  // took, so the box names them damage); a page of the build before has no box, and its tally goes on without one. (Revision 1: the cells
+  // are static panels sunk into the parchment, styled by the page's .stats rules, not the iron frame the buttons wear)
   function statBox(mine) {
     const box = $("tallyStats"); if (!box) return false;
     const L = (W().tally || {}).stats || {}, doc = root.document;
     box.replaceChildren(...[["dealt", mine.landed], ["taken", mine.taken], ["biggest", mine.biggest], ["parries", mine.parries]].map(([key, n]) => {
       const c = doc.createElement("div"), v = doc.createElement("b"), l = doc.createElement("span");
-      c.className = "f-iron"; c.dataset.stat = key; v.textContent = String(Math.max(0, Math.round(+n || 0))); l.textContent = L[key] || key; c.append(v, l); return c;
+      c.dataset.stat = key; v.textContent = String(Math.max(0, Math.round(+n || 0))); l.textContent = L[key] || key; c.append(v, l); return c;
     }));
     box.hidden = false;
     return true;
