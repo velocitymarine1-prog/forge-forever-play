@@ -14,8 +14,9 @@
 //   It keeps looking (mount()): a ResizeObserver on the probe (the layout viewport changing, with or without a resize event); every
 //   resize, orientationchange, visual-viewport resize, fullscreenchange, pageshow, visibilitychange to visible, focus and
 //   screen.orientation change starts a settle series (a look now, the next frame, 150, 300, 600 and 1,200 ms); a one-second check while the
-//   page is visible. A look refits (the page's fit) only when the size or the answer changed; a change found by anything but the native
-//   resize event itself fires a synthetic resize on window and on visualViewport, so the lessons' planks and the scenes follow.
+//   page is visible. A look refits (the page's fit) only when the size, the box's size (the probe, since build 34) or the answer changed;
+//   a change found by anything but the native resize event itself fires a synthetic resize on window and on visualViewport, so the
+//   lessons' planks and the scenes follow.
 //   The log: the last 30 decisions that changed something, in localStorage forge-forever:turn-log (the time, the page, what woke it,
 //   every reading, the phone's word, the display mode, the switch, and plate or turn), notes() as lines for Settings' Copy my playtest
 //   notes; a disagreement between the phone's word and the size that lasts more than 3 s is logged once a minute.
@@ -86,7 +87,10 @@
     const plate = wants && (w !== null || settled);   // on the size alone the plate waits for a second look
     return { upright, plate, turned: forced && upright, stale, held: wants && !plate, word: w };
   }
-  const keyOf = d => d.w + "x" + d.h + "|" + (d.upright ? "U" : "S") + (d.plate ? "P" : "-") + (d.turned ? "T" : "-");
+  // (build 34) the key holds the box too (the probe: the layout viewport, which the game roots and the menu's fire fill): on Isaac's iPhone
+  // the app opened upright and turned, the visible area read sideways at once while the box kept the upright height (874 x 812) a moment
+  // longer, and its correction, with the visible size and the answer unchanged, refitted nothing: the fire stayed laid out 812 tall
+  const keyOf = d => d.w + "x" + d.h + (d.probe ? "/" + d.probe[0] + "x" + d.probe[1] : "") + "|" + (d.upright ? "U" : "S") + (d.plate ? "P" : "-") + (d.turned ? "T" : "-");
 
   // ------------------------------------------------------------------ the log (pure where it can be)
   const trim = entries => (Array.isArray(entries) ? entries : []).slice(-KEEP);
@@ -125,7 +129,7 @@
 
   // ------------------------------------------------------------------ the controller
   // mount({ page, coarse, forced: () => bool, fit: (d, why) => void }) → T. The page's fit calls T.apply() for its reading and lays out
-  // from it; the controller's looks call fit only when the size or the answer changed. Nothing looks until the page's script has run:
+  // from it; the controller's looks call fit only when the size, the box or the answer changed. Nothing looks until the page's script has run:
   // the arrival series starts on the next frame
   const Turn = { version: 1, KEEP, read, decide, wordOf, keyOf, trim, line, notes, log, clear, word, firing: false, mounted: null };
   function mount(o) {
@@ -158,7 +162,7 @@
       if (!disagreeSince) disagreeSince = t;
       if (t - disagreeSince >= DISAGREE_MS && t - disagreeSaid >= DISAGREE_EVERY) { disagreeSaid = t; remember(entryOf(page, "disagree", d, d, d)); }
     }
-    // look(why): read, and refit only when the size or the answer changed
+    // look(why): read, and refit only when the size, the box or the answer changed
     function look(why) {
       T.looks++;
       const d = current(why);

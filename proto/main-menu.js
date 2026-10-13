@@ -284,9 +284,13 @@
   // (turn.js's controller calls fit for these since design pass 40; the four listeners stand only without it)
   if (!T) { window.addEventListener("resize", fit); window.addEventListener("orientationchange", fit); if (window.visualViewport) window.visualViewport.addEventListener("resize", fit); document.addEventListener("fullscreenchange", fit); }
   // back from the castle page or the cellar, the browser may restore this page as it was left: lift the fade, read the switches again
-  // (less motion changed on the castle page stills or wakes the fire), refit, and put the plank away if there is a player now
+  // (less motion changed on the castle page stills or wakes the fire), refit, and put the plank away if there is a player now.
+  // (build 34) and ask for landscape again, as the castle page does on its pageshow: WebKit drops a page's orientation lock on every
+  // main-frame navigation, this restore included, and the menu asked only at its boot, so where the app honours the lock the menu came
+  // back upright (Isaac's iPhone, 12 October 2026: the menu turned a quarter in an upright app after a trip into the game)
   window.addEventListener("pageshow", e => {
     if (!e.persisted) return;
+    lockLandscape();
     leaving = false; $("fade").classList.remove("on");
     if (S) turn.forced = S.isOn("forced");
     const now = reduce(); if (now !== still) { still = now; document.documentElement.classList.toggle("still", still); mountScene(still); }

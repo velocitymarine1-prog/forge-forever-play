@@ -367,7 +367,9 @@
     if (LEVEL) sendHome(lv.done);   // a quit banks the satchel and pays nothing (section 3.11.5); after a clear the run has gone home already, and goes as a clear if it has not
     if (ARENA && window.ArenaPage) { try { window.ArenaPage.onLeave(); } catch (e) { /* the bout is left either way */ } }   // (design pass 36) mid-bout, a forfeit
     writeBack();
-    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* nothing was locked */ }
+    // (build 34) the landscape lock is kept on the way out: every page is landscape only, and an unlock here let an app that honours the
+    // lock turn upright before the next page showed (the menu, shown again from the back-forward cache, then stayed upright). Leaving full
+    // screen releases a lock taken in it by itself
     try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {}); } catch (e) { /* not full screen */ }
     $("fade").classList.remove("wipe"); $("fade").classList.add("on");
     const go = () => {
