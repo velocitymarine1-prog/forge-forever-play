@@ -13,6 +13,9 @@
 // Since build 29 (design pass 37, the opening): the row The story so far (Watch the opening again) after Your name while there is a
 // player, which replays the opening on the menu page (o.onStory, or the menu with ?intro=1 through nav.js); the playtest notes carry
 // the opening's line; Erase my smithy forgets the opening's record with the lessons'.
+// Since build 35 (design pass 45, card t107): the row Main menu (The game's front door · Go) after the notes and before Erase, on a page that
+// passes o.onMenu (the castle page, whose sign's house went: the sign's left is the way back to the courtyard now); a page's own rows
+// (o.rows, addRow) go before it.
 (function (root) {
   "use strict";
   const KEYS = { lefty: "forge-forever:left-handed", forced: "forge-forever:forced-landscape", motion: "forge-forever:less-motion", pour: "forge-forever:tap-to-pour",
@@ -86,7 +89,9 @@
     // (build 9) the Cloudflare copy's three rows: a key for another phone, a key typed here, and the game deleted for good
     const cloud = Cl() ? `<button type="button" class="set-row f-iron" data-key="1"><b>Play on another phone</b><i>A key to type there</i><span>Key</span></button><button type="button" class="set-row f-iron" data-claim="1"><b>Bring a game here</b><i>The key from your other phone</i><span>Enter</span></button>` : "";
     const gone = Cl() ? `<button type="button" class="set-row f-iron set-danger" data-delete="1"><b>Delete my game</b><i>Your name, game and key, online and here</i><span></span></button>` : "";
-    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}${you}${story}${cloud}${copy}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your name, weapons, level and coins here</i><span></span></button>${gone}</div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Your name and your lessons, everything you own, your level, coins and embers, and all you forged in this browser${Cl() ? ", and your place on the Roll of First Forges" : ""}. Grycus will ask who you are again. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>` +
+    // (build 35, design pass 45) Main menu: the house's way, on a page that gives one (the castle page, whose sign lost the house; the menu page draws no row)
+    const menu = typeof o.onMenu === "function" ? `<button type="button" class="set-row f-iron" data-menu="1"><b>Main menu</b><i>The game's front door</i><span>Go</span></button>` : "";
+    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}${you}${story}${cloud}${copy}${menu}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your name, weapons, level and coins here</i><span></span></button>${gone}</div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Your name and your lessons, everything you own, your level, coins and embers, and all you forged in this browser${Cl() ? ", and your place on the Roll of First Forges" : ""}. Grycus will ask who you are again. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>` +
       (you ? `<form class="set-ask set-you f-parch" hidden role="dialog" aria-label="Your name" novalidate autocomplete="off"><h3>Your name</h3><input class="set-field" type="text" maxlength="16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="Your name" aria-label="Your name"><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="submit" class="f-ember set-rename" disabled>Rename</button><button type="button" class="f-iron set-unrename">Keep it</button></div></form>` : "") +
       (copy ? `<div class="set-ask set-notes f-parch" hidden role="dialog" aria-label="Your playtest notes"><h3>Your playtest notes</h3><textarea class="set-notes-text" readonly rows="6" aria-label="Your playtest notes"></textarea><div class="set-btns"><button type="button" class="f-ember set-copy">Copy</button><button type="button" class="f-iron set-notes-done">Done</button></div></div>` : "") +
       (cloud ? `<div class="set-ask set-keyask f-parch" hidden role="dialog" aria-label="Your key"><h3>Your key</h3><p>On your other phone, open Settings, then Bring a game here, and type it. A new key replaces the last one.</p><output class="set-key" aria-live="polite"></output><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="button" class="f-ember set-keycopy" disabled>Copy</button><button type="button" class="f-iron set-keydone">Done</button></div></div>` +
@@ -96,7 +101,8 @@
     const youAsk = host.querySelector(".set-you"), notesAsk = host.querySelector(".set-notes");
     const keyAsk = host.querySelector(".set-keyask"), claimAsk = host.querySelector(".set-claim"), goneAsk = host.querySelector(".set-gone");
     const eraseRow = rows.querySelector("[data-erase]");
-    for (const el of (o.rows || [])) if (el) rows.insertBefore(el, eraseRow);
+    const lastRow = () => rows.querySelector("[data-menu]") || eraseRow;   // (build 35) a page's own rows go before Main menu, which stays last before Erase
+    for (const el of (o.rows || [])) if (el) rows.insertBefore(el, lastRow());
     if (o.section) { extra.appendChild(o.section); extra.hidden = false; }
     let saidBlocked = false;
     const blocked = () => { if (!saidBlocked) say("This browser won't keep settings"); saidBlocked = true; };
@@ -218,6 +224,7 @@
       if (b.hasAttribute("data-delete")) { goneAsk.querySelector(".set-why").textContent = ""; openAsk(goneAsk); return; }
       if (b.hasAttribute("data-you")) { openRename(); return; }
       if (b.hasAttribute("data-story")) { openStory(); return; }
+      if (b.hasAttribute("data-menu")) { o.onMenu(); return; }   // (build 35, design pass 45) Main menu: the page's own way there
       if (b.hasAttribute("data-notes")) { notesAsk.querySelector(".set-notes-text").value = notesText(); openAsk(notesAsk); copyNotes(); return; }
       const name = b.getAttribute("data-switch"); if (!name) return;
       if (name === "motion" && phoneStill()) { say("Your phone's settings ask for less motion"); return; }
@@ -237,7 +244,7 @@
     render();
     if (Cl()) Cl().ready.then(render);   // (build 9) the foot says where the game is saved once the server has answered
     // (build 9) addRow(el): a row placed before Erase; addSection(el): an element placed after the rows (the bench, once allowed)
-    function addRow(el) { if (el) rows.insertBefore(el, eraseRow); }
+    function addRow(el) { if (el) rows.insertBefore(el, lastRow()); }
     function addSection(el) { if (!el) return; extra.appendChild(el); if (!asking) extra.hidden = false; }
     return { render, openErase, closeErase, addRow, addSection, openRename: youAsk ? openRename : null, notes: copy ? notesText : null, get asking() { return asking; }, host };
   }

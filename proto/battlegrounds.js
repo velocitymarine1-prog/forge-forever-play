@@ -112,7 +112,7 @@
     if (document.body.getAttribute("data-booted") === "1") return;
     try {
       const up = () => { spend(); window.location.href = document.body.getAttribute("data-forge") || "the-forge.html"; };
-      for (const id of ["shutForge", "upBtn", "homeBtn", "tForge", "tHome"]) { const b = $(id); if (b) b.addEventListener("click", up); }
+      for (const id of ["shutForge", "upBtn", "tForge", "tHome"]) { const b = $(id); if (b) b.addEventListener("click", up); }
       $("shutVeil").hidden = false; $("fade").classList.remove("on");
       if (!window.TheBattlegrounds) window.TheBattlegrounds = { state: { booted: true, shut: true, left: false }, AREA: null, LEVEL: false, shut: true, bootError: true, toasts: [], fit() {}, get paused() { return true; }, step() { return 0; } };
       document.body.setAttribute("data-booted", "1");
@@ -336,7 +336,7 @@
     fit();
     $("shutVeil").hidden = false; state.plank = "shut"; state.shut = true;
     const up = () => { if (state.left) return; state.left = true; spend(); $("fade").classList.add("on"); const url = document.body.getAttribute("data-forge") || "the-forge.html"; state.leftTo = url; state.went = window.Nav ? Nav.go("forge", url, { stay }) : { to: "forge", url, how: "push" }; if (!stay && !window.Nav) window.location.href = url; };
-    $("shutForge").addEventListener("click", up); $("upBtn").addEventListener("click", up); $("homeBtn").addEventListener("click", up); $("tForge").addEventListener("click", up); $("tHome").addEventListener("click", up);
+    $("shutForge").addEventListener("click", up); $("upBtn").addEventListener("click", up); $("tForge").addEventListener("click", up); $("tHome").addEventListener("click", up);
     window.TheBattlegrounds = { state, world, toasts: [], AREA, LEVEL: false, shut: true, fit, get paused() { return true; }, step() { return 0; } };
     state.booted = true;
     document.body.setAttribute("data-booted", "1");
@@ -1905,7 +1905,7 @@
   $("mHome").addEventListener("click", () => askLeave("menu"));
   $("mClose").addEventListener("click", closePlank);
   $("upBtn").addEventListener("click", () => askLeave("forge"));
-  $("homeBtn").addEventListener("click", () => askLeave("menu"));
+  // (the house left the HUD's row with design pass 45, build 35: the main menu is the cog's plank's row, mHome, and the turn plate's, tHome)
   function clearFx() { state.fx = []; state.nums = []; state.parts = []; state.rings = []; state.sums = {}; state.heal = { n: 0, at: state.t }; state.hold = 0; state.shake = { t: 0, amp: 0 }; state.trail = []; state.swings = []; }
   function reset() { Combat.reset(fight); clearFx(); }
   // (The castle plate stood here until design pass 24 section 4.12, build 17: opened from the door on the cellar's left wall, it listed

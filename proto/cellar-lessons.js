@@ -63,8 +63,8 @@
   }
   // live, and no tap on them counts: the cog, and the planks (the menu, the rack, the gate plate, the turn plate)
   const allowed = () => ["menuBtn", "menuVeil", "rackVeil", "gateVeil", "askVeil", "firstVeil", "tallyVeil", "turnPlate"].map($).filter(Boolean);
-  // dimmed and inert until C7: ↑ Forge and the house, and the menu's two ways out
-  const blockedEls = id => id === "c.up" ? [] : ["upBtn", "homeBtn", "mForge", "mHome"].map($).filter(Boolean);
+  // dimmed and inert until C7: ↑ Courtyard and the menu's two ways out (the house too, until it left the row: design pass 45, build 35)
+  const blockedEls = id => id === "c.up" ? [] : ["upBtn", "mForge", "mHome"].map($).filter(Boolean);
   // the ribbon's place (design pass 34, build 26): over the back wall under the HUD's top row (the stage's top 17 world pixels), from
   // 12 px right of the stairs (where the knight comes down and goes up), of the rack while his beat glances at it, and of anything that
   // glows on the room's left half (C7's ↑ Courtyard), to 6 px short of the room's right wall. (Until build 26 it was centred and as

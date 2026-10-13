@@ -15,7 +15,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@600;700;800&family=Alegreya:ital,wght@0,400;0,700;1,400&family=Pixelify+Sans:wght@400;600&display=swap">
 <style>
 /* Forge Forever: The Battlegrounds (design pass 7, built by card t65; the house and the way to the main menu from design pass 9, built
-   by card t69). Landscape, two thumbs. One dark look on purpose, the Forge's:
+   by card t69; since build 35, design pass 45, the house is gone from the row and the main menu is the cog's plank's row and the turn
+   plate's). Landscape, two thumbs. One dark look on purpose, the Forge's:
    its frames, its three typefaces, its palette. The stage is one canvas at a whole number of device pixels per world pixel, covering
    the whole screen (design pass 30, build 19: the cellar's room and a level's view are drawn through a window as big as the glass, so
    no brick and no frame shows); the HUD is HTML over it, inside the phone's safe-area insets; planks and plates lie above both. */
@@ -64,12 +65,13 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 .hudin>*{pointer-events:auto;position:absolute}
 /* the top row: 36 px high, so at 844 x 390 it ends inside the stage's top 16 world pixels and never covers a torch, the rack or the board */
 .top{top:4px;height:36px;border-width:6px;display:flex;align-items:center;justify-content:center;padding:0 6px;background-color:transparent;cursor:pointer;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--parch);white-space:nowrap}
-#homeBtn{left:8px;width:44px;padding:0}
-#upBtn{left:56px}
+/* (design pass 45, build 35) the house left the row: ↑ Courtyard (↑ Home in a level) stands at 8 px where it stood; #homeBtn is an unseen
+   stub outside the row for the script of the build before */
+#upBtn{left:8px}
 #menuBtn{right:8px;width:44px;padding:0}
+#homeBtn{display:none!important}
 .top canvas{width:16px;height:16px}
-.lefty #homeBtn{left:auto;right:8px}
-.lefty #upBtn{left:auto;right:56px}
+.lefty #upBtn{left:auto;right:8px}
 .lefty #menuBtn{right:auto;left:8px}
 .wplate{left:50%;top:4px;height:36px;border-width:6px;transform:translateX(-50%);max-width:46%;min-width:132px;padding:0 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;white-space:nowrap;pointer-events:none!important}
 .wplate b{display:block;max-width:100%;height:14px;font-family:var(--display);font-weight:800;font-size:16px;line-height:14px;color:var(--parch);overflow:hidden;text-overflow:ellipsis}
@@ -294,10 +296,10 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <div id="probe"></div>
 <div class="game" id="game">
   <div class="stagewrap"><canvas id="stage" width="384" height="216" role="img" aria-label="The Training Cellar: a stone cellar with stairs, three torches, a weapon rack and a tally board; a knight among training dummies"></canvas></div>
+  <span id="homeBtn" hidden></span>
   <div class="hud" id="hud"><div class="hudin">
     <div id="stickZone" aria-hidden="true"></div>
     <div class="stick rest" id="stick" aria-hidden="true"><i id="knob"></i></div>
-    <button class="top f-iron" id="homeBtn" aria-label="Main menu" title="Main menu"><canvas data-glyph="house" aria-hidden="true"></canvas></button>
     <button class="top f-iron" id="upBtn">↑ Courtyard</button>
     <div class="wplate f-stone" id="wplate" role="status" aria-live="off"><b id="wName"></b><div class="line"><span class="pips" id="pips" hidden><i></i><i></i><i class="gold"></i></span><span id="wLine"></span><span class="tagp" id="wTag" hidden></span><span class="slow" id="wSlow" hidden>SLOW</span></div></div>
     <button class="top f-iron" id="menuBtn" aria-label="The cellar's menu" title="The cellar's menu"><canvas data-glyph="cog" aria-hidden="true"></canvas></button>

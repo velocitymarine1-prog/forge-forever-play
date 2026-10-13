@@ -131,8 +131,9 @@
   }
   // the plank on the map: top right while the castle on the left is to tap, top left once its plate is open on the right
   function mapBox(id) { const app = $("app"), B = bounds(), W = app.clientWidth, w = Math.floor(Math.min(Ls.widest("plank", W), W * 0.5 - 16)); return { x: id === "y.go" ? 8 : W - w - 8, y: B.y + 4, w }; }
-  // the house is dim until the gate (y.wild), as in pass 16 (pass 24 section 4.14)
-  function dimmed(id) { const i = Ls.index(id), w = Ls.index("y.wild"); return i >= 0 && w >= 0 && i < w ? [$("homeBtn")].filter(Boolean) : []; }
+  // (until build 35 the sign's house was dim until the gate, y.wild, as in pass 16 (pass 24 section 4.14); since design pass 45 the sign's
+  // left is the way back, ← Courtyard, hidden in the yard and the door's twin in the Forge, so it takes the door's treatment: under a
+  // step's veil a tap on it is off the glow, and on a step with no veil it is live, as the door out is)
   // y.go: the plate's other buttons are dimmed and inert, Go alone alone lit
   function plateBlocked() { return Array.from(document.querySelectorAll("#areaPlate button")).filter(b => b.id !== "goAlone"); }
   // F6: his words hang small from the plaque's top edge, over the empty parchment above the name (the plaque's middle column), and
@@ -186,16 +187,16 @@
         // (design pass 34) her plank open: the layer over it (z 8, over the planks' 7), her words inside it, across its head away from Fire
         if (F.folkOpen() && F.folk.who === "nell") {
           const fb = L.boxOf($("folkPlank")), nb = fb ? { x: fb.x + 6, y: fb.y + 6, w: fb.w - 12, h: fb.h - 12 } : B;
-          return { target: fireRow() || [], veil: true, z: 8, bounds: nb, maxW: nb.w, who: whoLabel, face, manual: true, pointer: "left", block: dimmed(id) };
+          return { target: fireRow() || [], veil: true, z: 8, bounds: nb, maxW: nb.w, who: whoLabel, face, manual: true, pointer: "left", block: [] };
         }
-        return { target: [], kind: "ribbon", veil: false, box: yardBox("nell"), who: whoLabel, face, manual: true, block: dimmed(id) };   // (her plank closed: back to her cart)
+        return { target: [], kind: "ribbon", veil: false, box: yardBox("nell"), who: whoLabel, face, manual: true, block: [] };   // (her plank closed: back to her cart)
       }
-      return { target: [], kind: "ribbon", veil: false, box: yardBox(typeof st.target === "string" ? st.target : null), who: whoLabel, face, manual: true, block: dimmed(id) };
+      return { target: [], kind: "ribbon", veil: false, box: yardBox(typeof st.target === "string" ? st.target : null), who: whoLabel, face, manual: true, block: [] };
     }
     if (mapStep(id)) {
       if (room !== "map") return null;
       if (id === "y.go") { const g = $("goAlone"), open = !!g && !!F.map.plate; return { target: open ? g : [], veil: open, bounds: B, kind: "plank", box: mapBox(id), manual: true, pointer: "left", block: open ? plateBlocked() : [] }; }
-      return { target: [], kind: "plank", veil: false, box: mapBox(id), who: WORDS().forge || "Grycus · from the Forge", manual: true, block: dimmed(id) };   // (the page veils the map and rings the castle on its canvas)
+      return { target: [], kind: "plank", veil: false, box: mapBox(id), who: WORDS().forge || "Grycus · from the Forge", manual: true, block: [] };   // (the page veils the map and rings the castle on its canvas)
     }
     if (room !== "forge") return null;
     if (id === "f.forging") return null;

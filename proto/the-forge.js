@@ -247,8 +247,9 @@
     if (!stay) { session.leaving = true; if (!window.Nav) window.location.href = url; }
     return sent;
   }
-  // the house on the sign: back to the main menu (design pass 9 section 3.4), the handoff written so Battlegrounds from the menu
-  // carries the smith's weapons; nothing while forging or pouring, like the door
+  // the way to the main menu (design pass 9 section 3.4; the house on the sign until build 35, Settings' Main menu row and the turn
+  // plate's since design pass 45): the handoff written so Battlegrounds from the menu carries the smith's weapons; nothing while forging
+  // or pouring, like the door
   const menuUrl = () => document.body.getAttribute("data-menu") || "main-menu.html";
   // (build 17: from the Map Table its history entry comes off first, so the menu is right behind as nav.js expects)
   function goHome() {
@@ -2019,7 +2020,7 @@
     const app = $("app");
     app.classList.toggle("in-armory", room === "armory"); app.classList.toggle("in-yard", room === "yard"); app.classList.toggle("in-map", room === "map");
     $("signName").textContent = ROOMS[room];
-    $("armoryBtn").hidden = room !== "map";
+    { const bb = $("backBtn"); if (bb) bb.hidden = room === "yard" || (room === "forge" && noyard); }   // (design pass 45) the way back, in every room with somewhere to go back to; guarded for the build before's page
     if (room === "armory") { if (o.page === "armory" || o.page === "legends") state.page = o.page; const at = state.hallX[state.page] || 0; fitArmory(); renderArmory(false); if (hall) hall.x = at; }   // (the hall opens where that wall was left: hallX is kept per wall by onScroll, which the re-render also fires with the scroll at 0 once the room is named, so the place is read before it, as the tabs do; card t83)
     if (room === "forge") { fitRoom(); renderPegs(); }
     if (room === "yard") yardEnter(o);
@@ -2627,7 +2628,17 @@
     else if (state.room !== "map" && st.ffRoom === "map" && hasMap && !noyard) { enter("map", { noPush: true }); map.pushed = true; }   // (forward onto the entry: it is the room's again)
   });
   function leaveMap() { if (state.room !== "map") return false; closeLegend(); popMap(() => enter("yard", { at: "table" })); return true; }
-  $("armoryBtn").addEventListener("click", () => leaveMap());
+  // (build 35, design pass 45, card t107) the way back on the sign's left, where the house stood: ← Courtyard, the room's own way out to the
+  // courtyard each time (the Map Table's plate and Esc, the Armory's door, the Forge's door), so every rule those ways keep is kept;
+  // nothing while forging, pouring or leaving, like the door. (Until build 35 ← Courtyard stood at the sign's right, in the Map Table only.)
+  function goBack() {
+    if (state.forging || state.pouring || session.leaving) return false;
+    if (state.room === "map") return leaveMap();
+    if (state.room === "armory") return armoryOut();
+    if (state.room === "forge" && !noyard) return enter("yard", { at: "forge" });
+    return false;
+  }
+  { const bb = $("backBtn"); if (bb) bb.addEventListener("click", () => goBack()); }   // (guarded: the build before's page has no way back on its sign)
   // sheet pixels to the pane's CSS pixels (the canvas is centred in the pane)
   function toCss(x, y) { const L = map.L, cv = $("map"), SX = map.M.SX, SY = map.M.SY; return { x: cv.offsetLeft + (SX + x - L.cx0) * L.per, y: cv.offsetTop + (SY + y - L.cy0) * L.per }; }
   function pipsOf(A) { return MT.levelRows(A, clearedNow()).rows.map(r => r.state === "cleared" ? "●" : r.state === "soon" ? "·" : "○").join(""); }
@@ -3010,6 +3021,7 @@
       onChange(name, on) { if (name === "pour") session.assistTap = on; if (name === "motion") setMotion(Settings.reduce()); if (name === "forced") { turn.forced = on; fitTurn(); } },
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
       onStory() { goStory(); },   // (build 29, design pass 37) The story so far: the opening again on the menu page
+      onMenu() { goHome(); },   // (build 35, design pass 45) Main menu: the house's way, since the house left the sign
       onClose: closeSettings
     });
   }
@@ -3028,7 +3040,7 @@
     return out();
   }
   $("setBtn").addEventListener("click", () => { if ($("setPlank").hidden) openSettings(false); else closeSettings(); });
-  $("homeBtn").addEventListener("click", () => goHome());
+  // (the house on the sign went with design pass 45, build 35: the main menu is Settings' row and the turn plate's button, both goHome)
   window.addEventListener("keydown", e => { if (e.key === "Escape" && !$("setPlank").hidden) { e.preventDefault(); if (settings && settings.asking) settings.closeErase(); else closeSettings(); } });
   const bootAt = Date.now();
   const erasedSinceBoot = () => { if (!window.Settings) return false; const t = Date.parse(Settings.store.get(Settings.KEYS.erased) || ""); return !isNaN(t) && t >= bootAt - 1000; };
@@ -3107,7 +3119,7 @@
       say: grySay, tap: gryTap, hush: gryHush, figure: gryFigure, place: gryPlace, open: gryOpen, meet: gryMeet, quiet: gryQuiet } };
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderArmory(); renderInfo(); }
   // (build 8, design pass 16) what forge-lessons.js reaches besides the above
-  Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, plural, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, goStory, lessons: null });   // (build 29: goStory, the opening again)
+  Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, plural, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, goStory, goBack, lessons: null });   // (build 29: goStory, the opening again; build 35: goBack, the way back on the sign)
   // (build 17, design pass 26 section 3.3) where the page opens: ?room= for the checks; else the note in the address (menu, cellar, a
   // level), read here before nav.js takes it out, so a reload never looks like a new arrival; else the mark of where the page went
   // (ffWent: the cellar, the road); else the room and spot it last saved (ffYard); else the courtyard at the menu's spot
