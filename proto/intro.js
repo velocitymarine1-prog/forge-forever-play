@@ -14,6 +14,13 @@
 //     IntroArt.kFor, PAN, BEAT, BAND, sprite, faces (the two 16 x 16 face crops), Pic, panels.
 //   Intro, the controller: Intro.wanted({ player, params, store }) says whether a phone sees the book and from where; Intro.mount(game, o)
 //     runs it on the menu page (the layer, the clock, the taps, the name beat, Skip, the record through Lessons.opening). See below.
+// Since build 36 (design pass 46, the heroes): the book has a first picture, look (What are you?): the cave as the story's first picture
+// paints it before anyone walks into it, with the chooser plank over it (proto/hero-pick.js); That's me keeps the look, and from the cave
+// on every picture with the player in it (the walk into the dark, the hand that reaches for the ember, waking, found, the name, your
+// ember, the call) and the talk box's "you" face are the chosen hero's (IntroArt.paint's o.look; without one the pictures are build
+// 29's, pixel for pixel: the knight with seat 0's plume). Grycus's third line of the name beat says what he sees: {plain} is the hero's
+// own line from spec/heroes.js. A replay, a resumed book and ?intro=at:<picture> never show the choice; without hero-pick.js the book
+// starts at the cave and the record is made without a hero (the menu asks later).
 (function (root) {
   "use strict";
   const OUT = "#181425", SOOT = "#0d0a14", N = 32;
@@ -110,7 +117,10 @@
 
   // ------------------------------------------------------------------ the sprites: the game's own, when their scripts are here
   const SPR = {};
-  function knight(facing, anim, i) { const K = root.Knight; const key = "k" + facing + anim + i; if (SPR[key] !== undefined) return SPR[key]; let px = null; try { px = K ? K.frame(facing, anim, i | 0, 0, { seat: 0, kit: "knight" }).px : null; } catch (e) { px = null; } px = px || stand(IRON); px.who = "knight"; return (SPR[key] = px); }
+  // (build 36) the player's hero in its colour when the book has a look; without one build 29's knight, seat 0's white plume
+  const lookArg = look => (look && look.hero ? { hero: look.hero, colour: look.colour || "red" } : { seat: 0, kit: "knight" });
+  const lookKey = look => (look && look.hero ? "|" + look.hero + "|" + (look.colour || "red") : "");
+  function knight(facing, anim, i, look) { const K = root.Knight; const key = "k" + facing + anim + i + lookKey(look); if (SPR[key] !== undefined) return SPR[key]; let px = null; try { px = K ? K.frame(facing, anim, i | 0, 0, lookArg(look)).px : null; } catch (e) { px = null; } px = px || stand(IRON); px.who = "knight"; return (SPR[key] = px); }
   function grycus(pose, i) { const G = root.Grycus; const key = "g" + pose + i; if (SPR[key] !== undefined) return SPR[key]; let px = null; try { px = G ? G.frame(pose, i | 0).px : null; } catch (e) { px = null; } px = px || stand(OAK); px.who = "grycus"; return (SPR[key] = px); }
   // without the game's scripts: a plain standing figure, so the pictures still compose
   function stand(ramp) { const px = new Array(N * N).fill(null); for (let y = 6; y < 32; y++) for (let x = 11; x < 21; x++) px[y * N + x] = y < 12 ? ramp[2] : ramp[1]; return px; }
@@ -175,16 +185,21 @@
     for (const [dx, dy, lvl] of coal) { const l = o.still ? lvl : Math.max(0, Math.min(4, lvl + ((b + dx * 3 + dy) % 7 === 0 ? -1 : 0))); p.set(x + dx - 2, y + dy - 1, EMBER[l]); }
     if (!o.still && !o.noMotes) { const r = rng(1000 + b); for (let i = 0; i < 5; i++) { const age = (b + i * 3) % 14, mx = x + Math.round((r() - 0.5) * 6) + Math.round(Math.sin((b + i * 5) * 0.8) * 1.5), my = y - 2 - age; if (age > 0) p.set(mx, my, EMBER[age < 4 ? 4 : age < 8 ? 3 : age < 11 ? 2 : 1]); } }
   }
-  // the gauntlet: the knight's hand reaching in from the left, palm down, big (a close-up), lit by the ember on its right
+  // the gauntlet: the knight's hand reaching in from the left, palm down, big (a close-up), lit by the ember on its right. (build 36)
+  // another hero's hand is proto/heroes.js's paintHand at the same places, in its own ramps (the knight keeps its steel plates)
   function gauntlet(p, x, y, o) {
-    o = o || {}; const s = o.s || 1;
+    o = o || {}; const s = o.s || 1, look = o.look;
+    if (look && look.hero && look.hero !== "knight" && root.Heroes && typeof root.Heroes.paintHand === "function") {
+      let inPart = null; try { inPart = root.Heroes.paintHand((xx, yy, c) => p.set(xx, yy, c), x, y, look.hero, look.colour, s); } catch (e) { inPart = null; }
+      if (inPart) { p.outline(inPart, x - 28 * s, y - 9 * s, x + 14 * s, y + 10 * s); return; }
+    }
     const parts = [];   // [x0, y0, x1, y1, ramp index base]
     parts.push([x - 26 * s, y - 7 * s, x - 14 * s, y + 6 * s, 1]);   // the cuff
     parts.push([x - 15 * s, y - 5 * s, x - 1, y + 4 * s, 2]);        // the back of the hand
     const fingers = [[-5, 9], [-2, 11], [1, 10], [4, 8]];              // [y, length]
     for (const [fy, len] of fingers) parts.push([x - 2, y + fy * s, x - 2 + len * s, y + (fy + 2) * s, 2]);
     parts.push([x - 10 * s, y + 5 * s, x - 3 * s, y + 8 * s, 1]);     // the thumb, under
-    const inPart = (xx, yy) => parts.some(q => xx >= q[0] && xx <= q[3 - 2] && yy >= q[1] && yy <= q[3]);
+    const inPart = (xx, yy) => parts.some(q => xx >= q[0] && xx <= q[2] && yy >= q[1] && yy <= q[3]);   // (build 36: q[2], the right edge; it read q[3 - 2], the top row, since build 29: design pass 46's found-on-the-way)
     for (const q of parts) for (let yy = q[1]; yy <= q[3]; yy++) for (let xx = q[0]; xx <= q[2]; xx++) {
       const top = yy === q[1], left = xx === q[0], bottom = yy === q[3], right = xx === q[2];
       let c = STEEL[q[4]]; if (top || right) c = STEEL[Math.min(3, q[4] + 1)]; if (bottom || left) c = STEEL[Math.max(0, q[4] - 1)]; if ((top && right)) c = STEEL[3];
@@ -291,13 +306,17 @@
 
   // ------------------------------------------------------------------ the panels
   const P = {};
+  // 0. (build 36, design pass 46 section 3.7) the look: the cave as the story's first picture paints it, before anyone walks into it (the
+  // chooser plank stands over it, in HTML); painted at the cave's own width and held at its first frame (paint() below)
+  P.look = (p, t, o) => { P.cave(p, 0, Object.assign({}, o, { nobody: true, still: true })); return { pan: false }; };
   // 1. the cave: the tunnel, the knight walking away from us toward a glow at its far end; a slow pan right
   P.cave = (p, t, o) => {
     const r = rng(361), fy = Math.round(p.H * 0.8); cave(p, r, fy);
     const ex = p.W - 3, ey = Math.round(p.H * 0.52);
     p.light(ex, ey, p.H * 1.0 * (o.still ? 1 : 1 + 0.05 * Math.sin(t * 2.3)), { strength: 1, dark: 1.6 });
+    if (o.nobody) return { pan: true };
     const b = beatOf(t), step = o.still ? 0 : Math.min(Math.round(p.W * 0.16), Math.floor(b / 3));
-    const kx = Math.round(p.W * 0.3) + step, box = p.blit(knight("away", "walk", o.still ? 0 : Math.floor(b / 3) % 4), N, kx, fy + 1, { anchor: "bc" });
+    const kx = Math.round(p.W * 0.3) + step, box = p.blit(knight("away", "walk", o.still ? 0 : Math.floor(b / 3) % 4, o.look), N, kx, fy + 1, { anchor: "bc" });
     if (box) p.light(ex, ey, p.H * 0.9, { strength: 0.7, dark: 1.6, only: (x, y) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 });
     return { pan: true };
   };
@@ -311,7 +330,7 @@
     p.outline(inShelf, sx - sw - 3, sy - 3, sx + sw + 3, fy + 3);
     const ex = sx - 2, ey = sy - 1;
     const b = beatOf(t), reach = o.still ? 6 : Math.min(6, Math.floor(b / 4));
-    gauntlet(p, Math.round(p.W * 0.2) + reach + Math.max(0, Math.round((sx - sw) - p.W * 0.2 - 16)), sy - 4);
+    gauntlet(p, Math.round(p.W * 0.2) + reach + Math.max(0, Math.round((sx - sw) - p.W * 0.2 - 16)), sy - 4, { look: o.look });
     ember(p, ex, ey, t, { R: p.H * 0.8, still: o.still, strength: 1.25 });
     void sh;
     return { pan: false };
@@ -325,7 +344,7 @@
     p.outline(inShelf, sx - sw - 3, sy - 3, sx + sw + 3, fy + 3);
     const ex = sx - 2, ey = sy - 1, b = o.still ? 12 : beatOf(t), line = o.line | 0, lt = o.still ? 2 : (o.lineT || 0);
     // the hand flung back
-    gauntlet(p, Math.round(p.W * 0.2) + 6 + Math.max(0, Math.round((sx - sw) - p.W * 0.2 - 16)) - Math.min(10, b), sy - 4 - Math.min(3, b >> 2));
+    gauntlet(p, Math.round(p.W * 0.2) + 6 + Math.max(0, Math.round((sx - sw) - p.W * 0.2 - 16)) - Math.min(10, b), sy - 4 - Math.min(3, b >> 2), { look: o.look });
     // the whole cave lit, more every beat
     const grow = Math.min(1, b / 8);
     p.light(ex, ey, p.H * (0.6 + 1.6 * grow), { strength: 1, colour: "#feae34" });
@@ -347,7 +366,7 @@
   // 6. waking: the knight flat on the flagstones, Grycus bent over them
   P.wake = (p, t, o) => {
     const L = hearth(p, p.W, p.H, t, o), q = places(L, p.W);
-    const kb = p.blit(knight("right", "idle", 0), N, q.kx, q.floor, { rot: 3 });
+    const kb = p.blit(knight("right", "idle", 0, o.look), N, q.kx, q.floor, { rot: 3 });
     const gb = p.blit(grycus("watch", o.still ? 0 : Math.floor(beatOf(t) / 4) % 4), N, q.gx, q.floor);
     firelight(p, kb, L, o.still ? 0 : t); firelight(p, gb, L, o.still ? 0 : t);
     return { pan: false };
@@ -369,7 +388,7 @@
     p.fill(mx - mw - 1, my - mh - 1, mx + mw + 1, my, (x, y) => inMouth(x, y) ? SOOT : null);
     p.outline(inMouth, mx - mw - 2, my - mh - 2, mx + mw + 2, my + 1, "#3a4466");
     // the knight lying in the mouth, boots toward us, mostly in the dark; Grycus at the mouth with the lantern's light on him
-    const kb = p.blit(knight("right", "idle", 0), N, mx - mw + 6, my - 1, { rot: 3 });
+    const kb = p.blit(knight("right", "idle", 0, o.look), N, mx - mw + 6, my - 1, { rot: 3 });
     const gb = p.blit(grycus("watch", 0), N, mx + mw - 4, my, { flip: true });
     const lx = mx + mw - 10, ly = my - 11;
     p.set(lx, ly, "#fee761"); p.set(lx, ly - 1, "#feae34"); p.set(lx, ly + 1, "#feae34"); p.set(lx, ly - 2, OUT);
@@ -381,7 +400,7 @@
   // 8. the name: the knight sitting up, Grycus talking; the name field comes in the words
   P.name = (p, t, o) => {
     const L = hearth(p, p.W, p.H, t, o), q = places(L, p.W), b = beatOf(t), line = o.line | 0;
-    const kb = p.blit(knight("left", "down", 0), N, q.kx + 4, q.floor);
+    const kb = p.blit(knight("left", "down", 0, o.look), N, q.kx + 4, q.floor);
     const pose = line === 1 ? "idle" : line === 2 ? "shake" : "talk";
     const gb = p.blit(grycus(pose, o.still ? 0 : Math.floor(b / 2) % 4), N, q.gx, q.floor);
     firelight(p, kb, L, o.still ? 0 : t); firelight(p, gb, L, o.still ? 0 : t);
@@ -422,7 +441,7 @@
   // 13. your ember: the knight sitting up with the ember's trace glowing in the open gauntlet; Grycus marvels on the second line
   P.yours = (p, t, o) => {
     const L = hearth(p, p.W, p.H, t, o), q = places(L, p.W), b = beatOf(t), line = o.line | 0;
-    const kb = p.blit(knight("left", "down", 0), N, q.kx + 4, q.floor);
+    const kb = p.blit(knight("left", "down", 0, o.look), N, q.kx + 4, q.floor);
     const gb = p.blit(grycus(line >= 1 ? "marvel" : "watch", o.still ? 0 : Math.floor(b / 3) % 4), N, q.gx, q.floor);
     firelight(p, kb, L, o.still ? 0 : t); firelight(p, gb, L, o.still ? 0 : t);
     if (kb) { const hx = kb.x0 + 2, hy = kb.y0 + Math.round((kb.y1 - kb.y0) * 0.55); p.light(hx, hy, 9 * (o.still ? 1 : 1 + 0.1 * Math.sin(t * 3)), { colour: "#fee761", strength: 1.2 }); p.set(hx, hy, "#fff6c8"); p.set(hx - 1, hy, "#fee761"); p.set(hx + 1, hy, "#fee761"); }
@@ -431,17 +450,19 @@
   // 14. the call: both standing, Grycus straighter than he has stood in years
   P.call = (p, t, o) => {
     const L = hearth(p, p.W, p.H, t, o), q = places(L, p.W), b = beatOf(t), line = o.line | 0;
-    const kb = p.blit(knight("left", "idle", o.still ? 0 : Math.floor(b / 6) % 2), N, q.kx + 6, q.floor);
+    const kb = p.blit(knight("left", "idle", o.still ? 0 : Math.floor(b / 6) % 2, o.look), N, q.kx + 6, q.floor);
     const gb = p.blit(grycus(line >= 1 ? "talk" : "marvel", o.still ? 0 : Math.floor(b / 3) % 4), N, q.gx, q.floor);
     firelight(p, kb, L, o.still ? 0 : t); firelight(p, gb, L, o.still ? 0 : t);
     return { pan: false };
   };
 
   // ------------------------------------------------------------------ paint(id, W, H, t, o)
+  // (build 36) o.look: { hero, colour }, the player's hero in every picture with the player; the look picture is painted at the cave's
+  // width (its first frame, nobody in it) and never pans
   function paint(id, W, H, t, o) {
     o = o || {}; W = Math.max(8, W | 0); H = Math.max(8, H | 0); t = Math.max(0, +t || 0);
     const panel = (data().panels || []).find(q => q.id === id), fn = P[id] || P.black;
-    const pans = panel ? !!panel.pan : false, pw = pans ? W + Math.round(W * PAN) : W;
+    const pans = panel ? !!panel.pan : false, pw = pans || id === "look" ? W + Math.round(W * PAN) : W;
     const p = new Pic(pw, H, SOOT); p.boxes = [];
     fn(p, t, o);
     if (o.band > 0) p.band(o.band);
@@ -465,14 +486,20 @@
   // ------------------------------------------------------------------ the faces: the lessons' crop of Grycus's idle frame (x 13 to 28, y 6 to 21),
   // and the same crop of the knight's front frame (columns 8 to 23, rows 0 to 15: the helm, the visor, the plume, the shoulders)
   function crop(px, x0, y0) { if (!px) return null; const out = []; for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) out.push(px[(y0 + y) * N + x0 + x] || null); return out; }
-  function faces() {
+  function faces(look) {
     let g = null, k = null;
     try { g = root.Grycus ? crop(root.Grycus.frame("idle", 0).px, 13, 6) : null; } catch (e) { g = null; }
-    try { k = root.Knight ? crop(root.Knight.frame("toward", "idle", 0, 0, { seat: 0, kit: "knight" }).px, 8, 0) : null; } catch (e) { k = null; }
+    try { k = root.Knight ? crop(root.Knight.frame("toward", "idle", 0, 0, lookArg(look)).px, 8, 0) : null; } catch (e) { k = null; }   // (build 36: the hero's face with a look)
     return { grycus: g, you: k };
   }
 
-  const IntroArt = { get DATA() { return data(); }, PAN, BEAT, BAND, kFor, paint, sprite, faces, Pic, panels: Object.keys(P) };
+  // (build 36) plainOf(look): Grycus's line about what he sees in the name beat ({plain}), the hero's own from spec/heroes.js
+  function plainOf(look) {
+    const D = root.FORGE_HEROES, id = look && look.hero ? look.hero : "knight", list = D && Array.isArray(D.heroes) ? D.heroes : [];
+    const h = list.find(x => x.id === id) || list.find(x => x.id === "knight");
+    return h && h.plain ? h.plain : "Your steel's wrong. Your boots are wrong.";
+  }
+  const IntroArt = { get DATA() { return data(); }, PAN, BEAT, BAND, kFor, paint, sprite, faces, plainOf, Pic, panels: Object.keys(P) };
 
   // ================================================================== the controller: Intro (design pass 37 section 3.7)
   // The book on the menu page. wanted() says whether a phone sees it and from where; mount() builds the opening's layer in the game
@@ -534,6 +561,9 @@
 .intro .lsn-plank.lifted .lsn-name .go{grid-column:2;grid-row:1;width:auto;min-height:38px;padding:0 14px;font-size:19px}
 .intro .lsn-plank.lifted .lsn-name .why{grid-column:1/-1;grid-row:2;min-height:0}
 .intro .lsn-plank.lifted .lsn-name .why:empty{display:none}
+.intro-look{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;pointer-events:auto;max-width:calc(100% - 32px - var(--sl) - var(--sr));color:var(--ink,#3e2731)}
+.game.forced .intro-look{max-width:calc(100% - 32px - var(--st) - var(--sb))}
+.intro-look.rise{animation:intro-rise .3s steps(4,end)}
 .intro-skip{position:absolute;right:calc(12px + var(--sr));top:calc(10px + var(--st));z-index:5;pointer-events:auto;border:0;margin:0;padding:3px 7px;background:rgba(13,10,20,.55);font-family:var(--data,"Pixelify Sans",monospace);font-size:11.25px;letter-spacing:.06em;color:var(--parch,#ead4aa);text-decoration:underline;cursor:pointer;touch-action:manipulation}
 .game.forced .intro-skip{right:calc(12px + var(--sb));top:calc(10px + var(--sr))}
 .game.book .menu{pointer-events:none}
@@ -542,13 +572,14 @@
 `;
   function addCSS(doc) { if (!doc || doc.getElementById("intro-css")) return; const st = doc.createElement("style"); st.id = "intro-css"; st.textContent = CSS.trim(); (doc.head || doc.documentElement).appendChild(st); }
   const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const rich = (s, name) => esc(s || "").replace(/&lt;(\/?)(em|b)&gt;/g, "<$1$2>").replace(/\{name\}/g, esc(name || "Outlander"));
+  const rich = (s, name, look) => esc(s || "").replace(/&lt;(\/?)(em|b)&gt;/g, "<$1$2>").replace(/\{name\}/g, esc(name || "Outlander")).replace(/\{plain\}/g, esc(plainOf(look)));
   const plain = s => String(s || "").replace(/<[^>]+>/g, "");
   const isoNow = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 
   // mount(game, o): o = { still (bool or fn), size() -> { w, h } (CSS px of the game root), desktop, player, at, named, replay, scene (a
   // Hearth.Scene or a function giving one: the menu's own fire), sign, tapLine, fade (the page's elements), band() (what the keyboard
-  // leaves, the menu's own measure), store, onName(name) -> record, onDone(), onBack(), onSkip(panelId, label) }
+  // leaves, the menu's own measure), store, look ({ hero, colour }: the player's, build 36), small() (the chooser's small size),
+  // onName(name, look) -> record, onDone(), onBack(), onSkip(panelId, label) }
   function mount(game, o) {
     if (!game || !game.ownerDocument) return null;
     o = o || {};
@@ -570,21 +601,30 @@
     const box = doc.createElement("div"); box.className = "lsn-plank talk intro-box"; box.hidden = true; box.setAttribute("role", "status"); box.setAttribute("aria-live", "polite");
     box.innerHTML = `<div class="lsn-body"><canvas class="lsn-face" width="16" height="16" aria-hidden="true"></canvas><h2 class="lsn-heading"></h2><span class="lsn-who"></span><p class="lsn-words"></p><div class="lsn-foot"><span class="lsn-tap"></span></div><div class="lsn-name" hidden><input class="fld" type="text" maxlength="16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="go"><div class="why" aria-live="polite"></div><button type="button" class="go f-ember" disabled></button></div><button type="button" class="lsn-btn f-ember" hidden></button></div>`;
     const skipBtn = doc.createElement("button"); skipBtn.type = "button"; skipBtn.className = "intro-skip lsn-skip"; skipBtn.hidden = true; skipBtn.textContent = WORDS.skip || "Skip the story";
-    layer.append(canvas, story, box, skipBtn);
+    // (build 36) the chooser's host on the look picture (the plank is proto/hero-pick.js's, built when the picture shows)
+    const pickHost = doc.createElement("div"); pickHost.className = "intro-look f-parch"; pickHost.hidden = true; pickHost.setAttribute("role", "dialog"); pickHost.setAttribute("aria-label", "What are you?");
+    layer.append(canvas, story, box, skipBtn, pickHost);
+    const HP = root.HeroPick || null, FH = root.FORGE_HEROES || null;
+    let pick = null;
     const menuEl = game.querySelector(".menu");
     if (menuEl && menuEl.parentNode === game) game.insertBefore(layer, menuEl); else game.appendChild(layer);
     const ctx = canvas.getContext("2d");
     const faceCv = box.querySelector(".lsn-face"), heading = box.querySelector(".lsn-heading"), whoEl = box.querySelector(".lsn-who"), wordsEl = box.querySelector(".lsn-words"), foot = box.querySelector(".lsn-foot"), tapEl = box.querySelector(".lsn-tap");
     const nameRow = box.querySelector(".lsn-name"), field = nameRow.querySelector(".fld"), why = nameRow.querySelector(".why"), go = nameRow.querySelector(".go"), btn = box.querySelector(".lsn-btn");
     field.placeholder = WORDS.field || "A name"; field.setAttribute("aria-label", WORDS.field || "A name"); go.textContent = WORDS.button || "Call me that"; heading.textContent = WORDS.heading || "What do I call you?";
-    const FACES = faces();
+    let FACES = faces(o.look);
     function drawFace(who) { const px = FACES[who === "you" ? "you" : "grycus"], g = faceCv.getContext("2d"); g.clearRect(0, 0, 16, 16); g.fillStyle = "#2c2540"; g.fillRect(0, 0, 16, 16); if (!px) return; px.forEach((c, i) => { if (c) { g.fillStyle = c; g.fillRect(i % 16, Math.floor(i / 16), 1, 1); } }); }
     const tapWas = o.tapLine ? o.tapLine.textContent : "";
 
     // ---------------------------------------------------------------- the state
+    // (build 36) the look picture opens the book for a new phone that has the chooser; a replay, a resumed book, a picture asked for by
+    // name and a page without hero-pick.js start at the first picture of the story (the cave)
+    const LOOK_I = PANELS.findIndex(p => p.kind === "look"), FIRST = Math.max(0, PANELS.findIndex(p => p.kind !== "look"));
     const at0 = o.at ? PANELS.findIndex(p => p.id === o.at) : -1;
-    const st = { i: at0 >= 0 ? at0 : 0, line: 0, beat: 0, lineBeat: 0, panelBeat: 0, tapAt: TAP_AFTER, guard: 0, fading: false, done: false, destroyed: false, paused: false, busy: false, lifted: false,
+    const choose = at0 < 0 && LOOK_I >= 0 && !o.replay && !(o.named && o.player) && !!HP;
+    const st = { i: at0 >= 0 ? at0 : choose ? LOOK_I : FIRST, line: 0, beat: 0, lineBeat: 0, panelBeat: 0, tapAt: TAP_AFTER, guard: 0, fading: false, done: false, destroyed: false, paused: false, busy: false, lifted: false,
       name: o.named && o.player ? o.player.name : "", named: !!(o.named && o.player), replay: !!o.replay, player: o.player || null,
+      look: o.look && o.look.hero ? { hero: o.look.hero, colour: o.look.colour || "red" } : null,
       started: isoNow(), namedAt: null, skipped: null, skipLabel: null, k: 1, W: 1, H: 1, dpr: 1, cw: 1, ch: 1, boxes: [], skipTaps: 0, taps: 0 };
     const panel = () => PANELS[st.i], line = () => panel().lines[st.line] || { who: "narrator", words: "" };
     let img = null, own = null, timer = 0;
@@ -605,7 +645,7 @@
       try {
         // the band under the narration; on a line in ink (the burst's white-out) it dissolves with the wash, so the words stand on the pale picture
         const l = p.lines[st.line] || {}, band = p.kind !== "story" ? 0 : l.ink ? (s ? 0 : BAND * (1 - Math.min(1, lineT / 1.1))) : BAND;
-        const f = paint(p.id, st.W, st.H, t, { line: st.line, lineT, still: s, scene, band });
+        const f = paint(p.id, st.W, st.H, p.kind === "look" ? 0 : t, { line: st.line, lineT, still: s, scene, band, look: st.look });   // (build 36: the look picture held at its first frame, the hero in the rest)
         if (!img || img.width !== st.W || img.height !== st.H) img = ctx.createImageData(st.W, st.H);
         img.data.set(f.rgba); ctx.putImageData(img, 0, 0);
         st.boxes = f.boxes || [];
@@ -622,6 +662,7 @@
       layer.classList.toggle("tiny", ch <= 340);
       sizeFace();
       paintNow(false);
+      if (pick) { try { pick.refit(); } catch (e) { /* kept */ } }
       lift();
     }
     // (the tiny game, 340 px or less: the lesson plank's face and 16 px words, so the longest lines keep to four)
@@ -644,19 +685,34 @@
     const fieldLine = l => !!l.field && !st.named && !st.replay;
     // (build 29) a narration line marked ink (It answered., on the burst's white-out) turns to soot words on the pale picture six beats in
     function inkCheck() { const l = line(); const on = !!l.ink && panel().kind === "story" && (still() || st.beat >= st.lineBeat + 6); if (story.classList.contains("ink") !== on) story.classList.toggle("ink", on); }
+    // (build 36) the chooser on the look picture: built when the picture shows, That's me keeps the look and fades to the cave
+    function showPick(entering) {
+      if (!HP) return;
+      if (!pick) {
+        pickHost.innerHTML = "";
+        try {
+          pick = HP.mount(pickHost, { look: st.look, words: FH && FH.words ? FH.words : null, still, small: typeof o.small === "function" ? o.small : () => game.clientWidth < 720 || game.clientHeight < 360,
+            onOk(l) { if (st.destroyed || st.fading) return; st.look = { hero: l.hero, colour: l.colour }; FACES = faces(st.look); hidePick(); fadeTo(FIRST, 0); } });
+        } catch (e) { pick = null; report(e); }
+      }
+      pickHost.hidden = !pick;
+      if (pick && entering && !still()) rise(pickHost);
+    }
+    function hidePick() { if (pick) { try { pick.destroy(); } catch (e) { /* gone */ } pick = null; } pickHost.hidden = true; pickHost.innerHTML = ""; }
     function render(entering) {
       const p = panel(), l = line(), kind = p.kind, hasField = fieldLine(l), hasBtn = !!l.button;
       if (o.sign) { const show = kind === "title"; o.sign.hidden = !show; if (show && entering && !still()) rise(o.sign); else o.sign.classList.remove("rise"); }
       story.hidden = kind !== "story";
       if (kind === "story") { story.textContent = l.words || ""; if (entering && !still()) rise(story); }
       inkCheck();
+      if (kind === "look") showPick(entering); else if (pick || !pickHost.hidden) hidePick();
       const talk = kind === "talk" || kind === "name";
       box.hidden = !talk;
       if (talk) {
         const you = l.who === "you";
         whoEl.textContent = you ? (st.name || WORDS.you || "You") : (WORDS.grycus || "Grycus");
         drawFace(you ? "you" : "grycus");
-        wordsEl.innerHTML = rich(l.words, st.name);
+        wordsEl.innerHTML = rich(l.words, st.name, st.look);
         nameRow.hidden = !hasField; btn.hidden = !hasBtn; foot.hidden = hasField || hasBtn;
         tapEl.textContent = (WORDS.continue || {})[desktop ? "desktop" : "touch"] || "TAP TO CONTINUE";
         if (hasBtn) btn.textContent = st.replay ? (WORDS.back || "Back to the menu") : (WORDS.into || "Into the castle");
@@ -665,7 +721,7 @@
         if (entering && desktop && hasField) { try { field.focus({ preventScroll: true }); } catch (e) { /* not now */ } }
         if (entering && desktop && hasBtn) { try { btn.focus({ preventScroll: true }); } catch (e) { /* not now */ } }
       }
-      skipBtn.hidden = st.i < 1 || hasField || st.done || (st.i === PANELS.length - 1 && st.line === p.lines.length - 1);
+      skipBtn.hidden = st.i <= FIRST || hasField || st.done || (st.i === PANELS.length - 1 && st.line === p.lines.length - 1);   // (build 36: never on the look picture, nor on the cave, as before)
       tapLine();
       lift();
     }
@@ -697,6 +753,7 @@
     function tap() {
       if (st.destroyed || st.done) return "done";
       if (st.fading) return "fading";
+      if (panel().kind === "look") return "look";   // (build 36) the choice is the plank's: a tap on the picture does nothing
       st.taps++;
       if (now() < st.guard) return "guard";
       const l = line();
@@ -727,7 +784,7 @@
       if (st.destroyed || st.busy || st.fading || !fieldLine(line()) || !checkName()) return false;
       const name = Sm ? Sm.cleanName(field.value) : field.value.replace(/\s+/g, " ").trim();
       let rec = null;
-      try { rec = typeof o.onName === "function" ? o.onName(name) : null; } catch (e) { report(e); }
+      try { rec = typeof o.onName === "function" ? o.onName(name, st.look) : null; } catch (e) { report(e); }   // (build 36: the record is made with the look)
       st.player = rec && rec.id ? rec : st.player; st.name = (rec && rec.name) || name; st.named = true; st.namedAt = isoNow();
       try { field.blur(); } catch (e) { /* gone */ }
       lift();
@@ -779,19 +836,21 @@
       pause(on) { st.paused = !!on; },
       destroy() {
         if (st.destroyed) return; st.destroyed = true;
+        hidePick();
         if (timer) win.clearInterval(timer);
         if (win.visualViewport) { win.visualViewport.removeEventListener("resize", liftSoon); win.visualViewport.removeEventListener("scroll", liftSoon); }
         layer.remove();
         if (o.sign) { o.sign.hidden = false; o.sign.classList.remove("rise"); }
         if (o.tapLine) o.tapLine.textContent = tapWas;
       },
-      get layer() { return layer; }, get field() { return field; }, get button() { return btn; }, get skipLink() { return skipBtn; },
+      get layer() { return layer; }, get field() { return field; }, get button() { return btn; }, get skipLink() { return skipBtn; }, get pick() { return pick; }, get pickHost() { return pickHost; },
       get state() {
         const p = panel(), l = line();
         return { panel: p.id, index: st.i, line: st.line, lines: p.lines.length, kind: p.kind, label: p.label, who: box.hidden ? (story.hidden ? "" : "narrator") : whoEl.textContent, words: box.hidden ? (story.hidden ? "" : story.textContent) : plain(wordsEl.innerHTML).replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"'),
           speaker: l.who, name: st.name, named: st.named, replay: st.replay, done: st.done, fading: st.fading, paused: st.paused, beat: st.beat, t: (st.beat - st.panelBeat) * BEAT, lineT: (st.beat - st.lineBeat) * BEAT,
           k: st.k, W: st.W, H: st.H, cw: st.cw, ch: st.ch, dpr: st.dpr, still: still(), box: box.hidden ? null : boxIn(box), story: story.hidden ? null : boxIn(story), figures: st.boxes.map(toCss),
-          skip: !skipBtn.hidden, tapLine: !!(o.tapLine && !o.tapLine.hidden), ink: story.classList.contains("ink"), field: !nameRow.hidden, button: !btn.hidden, buttonText: btn.hidden ? "" : btn.textContent, lifted: st.lifted, sign: !!(o.sign && !o.sign.hidden), skipped: st.skipped, taps: st.taps, player: st.player };
+          skip: !skipBtn.hidden, tapLine: !!(o.tapLine && !o.tapLine.hidden), ink: story.classList.contains("ink"), field: !nameRow.hidden, button: !btn.hidden, buttonText: btn.hidden ? "" : btn.textContent, lifted: st.lifted, sign: !!(o.sign && !o.sign.hidden), skipped: st.skipped, taps: st.taps, player: st.player,
+          look: st.look, pick: !!pick && !pickHost.hidden };
       }
     };
     // ---------------------------------------------------------------- go

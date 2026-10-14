@@ -1337,15 +1337,20 @@
     if (k.teeter) return { anim: "teeter", i: 0 };
     return Combat.animOf(fight, k);
   }
-  // the look of a knight: the cellar's for the solo player's knight, the brothers' steel-grey kit with their seat's colour, the carried ram
+  // the look of a knight: the cellar's for the solo player's knight, the brothers' steel-grey kit with their seat's colour, the carried ram.
+  // (build 36, design pass 46) the player is its own hero in its colour (the record's look at boot: ME); the sword-brothers and the bench's
+  // bots stay knights; on the sand every seat is its own hero (the Herald's seats, or Duel.seatsFor's house heroes) in the side's colour
+  const ME = (() => { try { return window.Heroes && window.Smith ? window.Heroes.of(window.Smith.read()) : { hero: "knight", colour: "red", chosen: false }; } catch (e) { return { hero: "knight", colour: "red", chosen: false }; } })();
+  state.look = ME;
+  const seatHero = k => { const s = fight && fight.arena && Array.isArray(fight.arena.seats) ? fight.arena.seats[k.seat] : null; return s && typeof s.hero === "string" ? s.hero : "knight"; };
   const lookOf = k => {
     // (design pass 36) on the sand the player's own knight is the cellar's; an ally wears the gold seat kit, a foe the far side's (spec sides.kits)
-    if (ARENA) { if (k === fight.k) return k.carry ? { carry: "ram" } : null; return k.team === fight.k.team ? { kit: "arena", side: "red", ally: true } : { kit: "arena", side: "blue" }; }   // (proto/knight.js's arena kit: the far side blue)
-    const L = {}; if (k.kind === "brother") { L.seat = k.seat; L.kit = "brother"; } else if (k.seat && fight.knights.length > 1) L.seat = k.seat; if (k.carry) L.carry = "ram"; return Object.keys(L).length ? L : null; };
+    if (ARENA) { if (k === fight.k) return Object.assign({ hero: ME.hero, kit: "arena", side: "red" }, k.carry ? { carry: "ram" } : {}); return k.team === fight.k.team ? { hero: seatHero(k), kit: "arena", side: "red", ally: true } : { hero: seatHero(k), kit: "arena", side: "blue" }; }   // (proto/knight.js's arena kit: the far side blue)
+    const L = {}; if (k.kind === "brother") { L.seat = k.seat; L.kit = "brother"; } else { if (k === fight.k) { L.hero = ME.hero; L.colour = ME.colour; } if (k.seat && fight.knights.length > 1) L.seat = k.seat; } if (k.carry) L.carry = "ram"; return Object.keys(L).length ? L : null; };
   // the knight (c: a context in world coordinates; the painter lifts a knight by its height before calling this in a level)
   function drawKnight(fxf, k, c) {
     k = k || fight.k; c = c || ctx;
-    const a0 = LEVEL || ARENA ? levelAnim(k) : Combat.animOf(fight), a = !ARENA && k.guarding && !k.strike && !k.knock && !(k.reelT > 0) && (a0.anim === "idle" || a0.anim === "walk") ? { anim: "guard", i: 0 } : a0, h = Combat.hold(fight, a.anim, a.i, k), look = LEVEL || ARENA ? lookOf(k) : null, SW = swingFrame(k, a);   // (the Guard's pose, design pass 38; the arena draws its own guard)
+    const a0 = LEVEL || ARENA ? levelAnim(k) : Combat.animOf(fight), a = !ARENA && k.guarding && !k.strike && !k.knock && !(k.reelT > 0) && (a0.anim === "idle" || a0.anim === "walk") ? { anim: "guard", i: 0 } : a0, h = Combat.hold(fight, a.anim, a.i, k), look = lookOf(k), SW = swingFrame(k, a);   // (the Guard's pose, design pass 38; the arena draws its own guard; build 36: the cellar's knight is the player's hero too)
     const kf = SW ? Knight.frame(SW.fr.facing, SW.fr.pose, 0, 0, look) : look ? Knight.frame(h.facing, a.anim, a.i, h.reach, look) : h.frame;
     if (!LEVEL && !(ARENA && scene.tiles)) C.shadow(c, k.x, k.y, 7);   // (in a level the painter draws the shadow on the surface under the knight)
     // the dodge draws the walk frame with three fading afterimages; so does a lunge
@@ -2133,7 +2138,7 @@
       + '<div class="lobby" id="lobby" hidden></div>');
     const smithXp = handoff && handoff.smith && typeof handoff.smith.xp === "number" ? handoff.smith.xp : null;
     window.ArenaPage.mount({ $, state, input, STEP, reduce, coarse, harness, params, store, session, world, first, handoff, visiting: state.visiting,
-      smith: { name: handoff && handoff.smith ? handoff.smith.name : null, level: smithXp !== null && window.Progress ? Progress.levelFor(smithXp) : 1, xp: smithXp },
+      smith: { name: handoff && handoff.smith ? handoff.smith.name : null, level: smithXp !== null && window.Progress ? Progress.levelFor(smithXp) : 1, xp: smithXp, hero: ME.hero },   // (build 36: the queue carries the hero)
       AREA, getFight: () => fight, setFight: (f, sc) => { fight = f; if (sc) scene = sc; syncHand(); hud.held = null; hud.other = null; state.trail = []; state.swings = []; state.warmed = new Set(); state.warm = []; warmSwings(); },
       gather, take, say, addFx, hold: s => { if (!reduce) state.hold = Math.max(state.hold, s || 0); }, shake: (amp, time) => { if (!reduce) state.shake = { t: time, amp }; },
       toast, openPlank, closePlank, closePlankForce, leave, askLeave, fit: refit, clearFx, syncHud, banner: arenaBanner, runHome: run => sendRun(run), setView: (x, y) => Combat.setView(fight, x, y),
@@ -2160,7 +2165,7 @@
   if (state.visiting) { const v = $("visitLine"); v.hidden = false; v.textContent = LEVEL ? "You came without weapons from the Forge: you carry the Sword and the Bow, and your finds cannot be carried home." : "You came without weapons from the Forge, so the rack holds the twenty class weapons and the world's forged weapons."; }
   const KL = PG.keys || {};
   if (!coarse) { $("keyWalk").textContent = "W A S D or the arrows"; $("keyStrike").textContent = "J or Space"; $("keySwap").textContent = "K"; $("keyDodge").textContent = "L or Right Shift"; if ($("keyGuard")) $("keyGuard").textContent = "I or Left Shift"; $("keyLine").textContent = LEVEL ? said(KL.fine, "E takes up what lies on the field and goes into the castle. Esc opens the menu.") : "E uses the rack and the stairs. U: a legend's ability. Esc opens the cellar's menu."; }
-  else { $("keyLine").textContent = LEVEL ? said(KL.coarse, "Tap the prompt over your knight to take up what lies on the field, and to go into the castle.") : "Under the rack on the wall you can take any weapon you own. The stairs lead back up to the courtyard."; if (LEVEL) $("keyDodge").textContent = "a roll past a blow"; }   // (the cellar's "through the bag" is the cellar's)
+  else { $("keyLine").textContent = LEVEL ? said(KL.coarse, "Tap the prompt above you to take up what lies on the field, and to go into the castle.") : "Under the rack on the wall you can take any weapon you own. The stairs lead back up to the courtyard."; if (LEVEL) $("keyDodge").textContent = "a roll past a blow"; }   // (the cellar's "through the bag" is the cellar's)
   // (build 8) with the cellar's lessons running, his words take the first visit's place: the plank waits, and is marked seen when they end
   const lessons = lessonOn("boot") === true;
   if (!lessons && !ARENA && params.get("seen") !== "1" && (store.get(SEEN) !== "1" || params.get("fresh") === "1")) openPlank("first");

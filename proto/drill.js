@@ -22,7 +22,8 @@
 // A hit is the cellar's: the dummy white for 0.06 s, then its wobble by spec/combat.json's spring (a kick of (kick + knockback x
 // perPush) x gain, the spring and damp, the tilt capped at max), summed over the hits of the last second (the spring is linear).
 //   Drill.plan(thing)            the play: { form, melee, dummyX, cycle, hits: [t...], segs, still } (still: the first hit's moment)
-//   Drill.frameAt(thing, t)      { px, W, H } the stage at t seconds (px: W x H colours or null), pure
+//   Drill.frameAt(thing, t, look)   { px, W, H } the stage at t seconds (px: W x H colours or null), pure; look (build 36, design pass 46):
+//                                the player's hero on the stage ({ hero, colour }; the knight without one)
 //   Drill.words(thing)           { damage, strengths, signature }: "steel, in a slow, heavy arc. Stuns.", "knocks back, hits hard." from
 //                                the weapon's record and spec/folk.json's drill word tables, and (design pass 38) the class's signature
 //                                line from spec/signatures.json ("HAMMER · STAGGER. 45 poise a blow: ...")
@@ -160,13 +161,14 @@
   }
   // the knight's frame and where the weapon's grip goes: in a combo blow the move's pose and step with the swing drawing (as
   // battlegrounds.js drawKnight places it); else the hold, the weapon posed on the hand with the form's offsets
-  function knightAt(thing, P, s, u, t) {
+  function knightAt(thing, P, s, u, t, look) {
     const { K, C, PF } = mods(), base = baseOf(thing), reach = holdOut(base), ho = holdOffset(base);
+    look = look || null;
     const x0 = KX - 16, y0 = FEET - 31;
     if (s.kind === "blow") {
       const fr = C.frameAt(s.move, "right", u, s.T);
       if (fr) {
-        const kf = K.frame(fr.facing, fr.pose, 0, 0), up = !!(PF.UPRIGHT && PF.UPRIGHT[base]), mirror = C.mirrorOf ? C.mirrorOf(fr.facing, up) : fr.mirror;
+        const kf = K.frame(fr.facing, fr.pose, 0, 0, look), up = !!(PF.UPRIGHT && PF.UPRIGHT[base]), mirror = C.mirrorOf ? C.mirrorOf(fr.facing, up) : fr.mirror;
         const sp = swingOf(thing, fr.dir, fr.lead), n = sp.n || N, grip = sp.grip || [n / 2, n / 2];
         const gx = mirror ? n - 1 - grip[0] : grip[0];
         return { kf, kx: x0 + fr.dx, ky: y0 + fr.dy, weapon: { sp, n, mirror, x: x0 + fr.dx + kf.hand[0] - gx, y: y0 + fr.dy + kf.hand[1] - grip[1] }, behind: !!fr.behind, swing: true, frame: fr };
@@ -179,14 +181,14 @@
     } else if (s.kind === "stream") { anim = "strike"; i = 0; }
     else if (s.kind === "wisp" && u < WISP.rise) { anim = "strike"; i = 0; }
     const noWeapon = P.form === "orbit";
-    const kf = K.frame("right", anim, i, noWeapon ? 0 : reach);
+    const kf = K.frame("right", anim, i, noWeapon ? 0 : reach, look);
     if (noWeapon) return { kf, kx: x0, ky: y0, weapon: null, behind: false, swing: false };
     const sp = PF.poseFor(thing, "right", 0), grip = sp.grip || [6, 25];
     return { kf, kx: x0, ky: y0, weapon: { sp, n: sp.n || N, mirror: false, x: x0 + kf.hand[0] + off[0] + ho[0] - grip[0], y: y0 + kf.hand[1] + off[1] + ho[1] - grip[1], tip: sp.tip || grip }, behind: false, swing: false };
   }
 
   // ------------------------------------------------------------------ the frame
-  function frameAt(thing, t) {
+  function frameAt(thing, t, look) {
     const { K, C, CE, PF } = mods();
     if (!K || !PF || !CE) throw new Error("drill.js needs proto/knight.js, proto/pixel-forge.js and proto/cellar.js");
     const P = plan(thing), [s, u, uu] = segAt(P, t), px = ground().slice();
@@ -194,7 +196,7 @@
     const blit = (sp, n, x0, y0, mirror, tint) => { for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const c = sp[y * n + x]; if (!c) continue; put(x0 + (mirror ? n - 1 - x : x), y0 + y, tint && c !== OUT ? tint : c); } };
     const shadow = (cx, cy, w) => { for (let dx = -w; dx <= w; dx++) { const h = Math.max(1, Math.round(Math.sqrt(1 - (dx / (w + 0.5)) ** 2) * 2)); for (let y = cy - h + 1; y < cy + h; y++) { const x = Math.round(cx) + dx; if (x >= 0 && y >= 0 && x < W && y < H) px[y * W + x] = shade(px[y * W + x]); } } };
     // the ground's shadows, the dummy (tilted by its wobble, white on a hit)
-    const kn = knightAt(thing, P, s, u, t);
+    const kn = knightAt(thing, P, s, u, t, look);
     shadow(KX + (kn.frame ? kn.frame.dx : 0), FEET, SHADOW_W); shadow(P.dummyX, FEET, SHADOW_W);
     const tilt = Math.round(wobbleAt(thing, P, uu)), d = CE.dummyPixels("straw", tilt);
     blit(d.px, d.size, P.dummyX - DUMMY / 2, FEET - (DUMMY - 2), false, flashAt(P, uu) ? "#ffffff" : null);
@@ -296,14 +298,14 @@
   // ------------------------------------------------------------------ the page's loop
   function mount(canvas, thing, o) {
     o = o || {};
-    const P = plan(thing);
+    const P = plan(thing), look = o.look || null;
     canvas.width = W; canvas.height = H;
     const g = canvas.getContext("2d"), img = g.createImageData(W, H), data = img.data, rgb = new Map();
     const hex = c => { let v = rgb.get(c); if (!v) { v = mods().S.hex(c); rgb.set(c, v); } return v; };
     let t = 0, raf = 0, t0 = 0, stopped = false;
     const draw = at => {
       t = at;
-      const f = frameAt(thing, at);
+      const f = frameAt(thing, at, look);
       for (let i = 0; i < W * H; i++) { const c = f.px[i]; if (c) { const v = hex(c); data[i * 4] = v[0]; data[i * 4 + 1] = v[1]; data[i * 4 + 2] = v[2]; data[i * 4 + 3] = 255; } else data[i * 4 + 3] = 0; }
       g.putImageData(img, 0, 0);
     };

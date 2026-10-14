@@ -21,6 +21,13 @@
 // over the head), chop (driven down in front), cock (drawn back behind the body), sweep (swept out in front), crouch (low, for the
 // rising cut), rise (stretched up on the toes), draw (the thrust's draw), lunge (the thrust), leap (in the air, tucked) and land (the
 // slam), from the side and the front; from behind each is the front's mirror with no face. Every other frame is unchanged.
+// Since build 36 (card t110, design pass 46: the six heroes) the knight is one skin on a skeleton it shares: Knight.skeleton(drawing,
+// anim, i, reach) gives the parts of any frame (the twenty part-placed animations' lists, the crawl's and the lying body's markers, and
+// the six basic animations as a parts list in exactly draw()'s places, with their pose), and a look names a hero and a colour: the
+// knight in a colour has the colour's ramp on its plume and tabard (COLOURS; red is the crimson above, so the red knight is the cellar's
+// knight to the pixel; on orange and yellow the gold mark turns red, MARK), and any other hero is handed to proto/heroes.js
+// (window.Heroes.draw) with the skeleton's parts and this look, inside a try/catch: a painter that fails is logged once and the knight
+// is drawn. The hand of every hero frame is the skeleton's, the knight's. On the sand (the arena kit) the colour is the side's.
 (function (root) {
   "use strict";
   const N = 32, OUT = "#181425";
@@ -42,6 +49,15 @@
   const KITS = ["knight", "brother", "arena"];
   const ARENA_BLUE = ["#0b2f55", "#124e89", "#0099db", "#2ce8f5"];   // the far side's blue (design pass 36 revision 1: seat 1's cyan is the brothers', pinned)
   const CARRY = ["ram"];
+  // (build 36, design pass 46 section 3.3) the six colours a hero may take, red to purple, each a ramp (dark, the colour, lit, glint) in
+  // ENDESGA 32 or the Things' ramps: on the knight's plume and tabard here, on the wretch's cloak and the wizard's robe in heroes.js. Red is
+  // the cellar's crimson. SIDE is the sand's two colours (the player's side red, the far side blue); MARK the gold mark's ramp by colour
+  // (red where the cloth is gold, so the mark never vanishes)
+  const COLOURS = { red: R.red, orange: ["#be4a2f", "#f77622", "#feae34", "#fee761"], yellow: ["#feae34", "#fee761", "#fffaf0", "#ffffff"], green: ["#265c42", "#3e8948", "#63c74d", "#b4e67a"], blue: ["#124e89", "#0099db", "#2ce8f5", "#b8f4ff"], purple: ["#2f2a45", "#68386c", "#b55088", "#f6757a"] };
+  const SIDE = { red: R.red, blue: ARENA_BLUE };
+  const MARK_RED = ["#a22633", "#a22633", "#e43b44", "#f6757a"];
+  const MARK = { red: R.gold, orange: MARK_RED, yellow: MARK_RED, green: R.gold, blue: R.gold, purple: R.gold };
+  const heroWord = s => (typeof s === "string" && /^[a-z]{2,16}$/.test(s) ? s : null);
   // the overlays (design pass 12 section 3.12), each still under reduced motion: burning on two frames, chill and frozen on one
   const OVERLAYS = { burning: 2, chill: 1, frozen: 1, ash: 1, sick: 1, shards: 1 };   // (ash, sick, shards: pass 39, the beaten body)
   const ASH = ["#181425", "#262b44", "#3a4466", "#5a6988"], SICK = ["#193c3e", "#265c42", "#3e8948", "#63c74d"], ICE = ["#c0cbdc", "#ffffff", "#2ce8f5"];
@@ -70,24 +86,31 @@
   function outline(sp) { const add = []; for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!sp.get(x, y) && (sp.get(x - 1, y) || sp.get(x + 1, y) || sp.get(x, y - 1) || sp.get(x, y + 1))) add.push([x, y]); for (const [x, y] of add) sp.set(x, y, OUT); }
 
   // ------------------------------------------------------------------ the look: whose knight it is
-  // L: { plume, tabard (ramps), band (a ramp or null: the seat's band across the tabard's hem), mark (the gold mark), carry }. The
-  // cellar's knight is a red plume on a crimson tabard with the gold mark and no band; a seat puts its colour on the plume and the band;
-  // a sword-brother wears it on a plain steel-grey tabard with no mark
+  // L: { plume, tabard (ramps), band (a ramp or null: the seat's band across the tabard's hem), mark (the gold mark), markRamp, carry,
+  // hero, colour, side }. The cellar's knight is a red plume on a crimson tabard with the gold mark and no band; a seat puts its colour
+  // on the plume and the band; a sword-brother wears it on a plain steel-grey tabard with no mark. (build 36) hero is the hero's id
+  // (any short word: heroes.js knows which it draws, an unknown one is the knight), colour one of the six (else red: the knight's tabard
+  // and plume take its ramp; a hero in heroes.js its own parts); the brothers are knights in their kit whatever the look; on the sand
+  // the colour is the side's (side: "red" or "blue"), and an ally's band the gold
   function lookOf(o) {
     o = o || {};
-    const seat = o.seat === 0 || o.seat === 1 || o.seat === 2 || o.seat === 3 ? o.seat : null, brother = o.kit === "brother";
+    const seat = o.seat === 0 || o.seat === 1 || o.seat === 2 || o.seat === 3 ? o.seat : null, brother = o.kit === "brother", arena = o.kit === "arena";
     const carry = CARRY.includes(o.carry) ? o.carry : null;
+    const hero = brother ? "knight" : (heroWord(o.hero) || "knight"), colour = brother || arena || !COLOURS[o.colour] ? "red" : o.colour;
+    const hk = (hero !== "knight" ? "|h" + hero : "") + (colour !== "red" ? "|c" + colour : "");   // (the key is "" for the cellar's knight, as before)
+    const base = { hero, colour, side: null, markRamp: MARK[colour] };
     // the arena's kit (design pass 36, build 27): the player's own side wears the cellar's red (the player the cellar's knight itself, an
     // ally a gold plume and band on the red tabard), the far side a blue plume, tabard and band; no seat colour, no gold mark but the player's
-    if (o.kit === "arena") {
+    if (arena) {
       const blue = o.side === "blue", ally = !blue && !!o.ally;
-      if (!blue && !ally) return { key: carry ? "|" + carry : "", plume: R.red, tabard: R.red, band: null, mark: true, carry, seat: null, kit: "arena" };
+      if (!blue && !ally) return Object.assign(base, { key: (carry ? "|" + carry : "") + hk + (hero !== "knight" ? "|ar" : ""), plume: R.red, tabard: R.red, band: null, mark: true, carry, seat: null, kit: "arena", side: "red" });   // (a hero's own side wears the tournament tabard: another frame than its cellar look's)
       const ramp = blue ? ARENA_BLUE : SEAT_RAMP[2];
-      return { key: "|a" + (blue ? "b" : "y") + (carry ? carry : ""), plume: ramp, tabard: blue ? ARENA_BLUE : R.red, band: ramp, mark: false, carry, seat: null, kit: "arena" };
+      return Object.assign(base, { key: "|a" + (blue ? "b" : "y") + (carry ? carry : "") + hk, plume: ramp, tabard: blue ? ARENA_BLUE : R.red, band: ramp, mark: false, carry, seat: null, kit: "arena", side: blue ? "blue" : "red" });
     }
-    if (seat === null && !brother) return { key: carry ? "|" + carry : "", plume: R.red, tabard: R.red, band: null, mark: true, carry, seat: null, kit: "knight" };
+    const cloth = COLOURS[colour];
+    if (seat === null && !brother) return Object.assign(base, { key: (carry ? "|" + carry : "") + hk, plume: cloth, tabard: cloth, band: null, mark: true, carry, seat: null, kit: "knight" });
     const s = seat === null ? 0 : seat;
-    return { key: "|" + s + (brother ? "b" : "k") + (carry ? carry : ""), plume: SEAT_RAMP[s], tabard: brother ? R.iron : R.red, band: SEAT_RAMP[s], mark: !brother, carry, seat: s, kit: brother ? "brother" : "knight" };
+    return Object.assign(base, { key: "|" + s + (brother ? "b" : "k") + (carry ? carry : "") + hk, plume: SEAT_RAMP[s], tabard: brother ? R.iron : cloth, band: SEAT_RAMP[s], mark: !brother, carry, seat: s, kit: brother ? "brother" : "knight" });
   }
   const CELLAR = lookOf(null);
 
@@ -95,7 +118,7 @@
   // pose: { step (-1, 0, 1: which leg leads), bob (0 or 1), lean (side only), arm ([dx, dy] of the weapon arm), reach (0, 1, 2) }
   function draw(drawing, pose, L) {
     pose = pose || {}; L = L || CELLAR; const sp = new Grid(), step = pose.step || 0, B = pose.bob || 0, X = drawing === "side" ? (pose.lean || 0) : 0;
-    const STEEL = R.steel, DARK = R.iron, LEATHER = R.leather, GOLD = R.gold, CLOTH = L.tabard, PLUME = L.plume;
+    const STEEL = R.steel, DARK = R.iron, LEATHER = R.leather, GOLD = L.markRamp || R.gold, CLOTH = L.tabard, PLUME = L.plume;
     let hand;
     if (drawing === "down" || drawing === "up") {
       const lA = step > 0 ? -1 : 0, lB = step < 0 ? -1 : 0;
@@ -198,7 +221,7 @@
   // ("up" streams it up), back (the drawing has no face) }. The torso is the hip's 7 rows above it, the skirt the 4 below.
   function drawParts(drawing, P, L) {
     if (P.prone !== undefined) return drawProne(P.prone, L);
-    const sp = new Grid(), STEEL = R.steel, DARK = R.iron, LEATHER = R.leather, GOLD = R.gold, CLOTH = L.tabard, PLUME = L.plume;
+    const sp = new Grid(), STEEL = R.steel, DARK = R.iron, LEATHER = R.leather, GOLD = L.markRamp || R.gold, CLOTH = L.tabard, PLUME = L.plume;
     const side = drawing === "side", hip = P.hip, X = P.lean || 0, hx = (P.head || [0, 0])[0], hy = (P.head || [0, 0])[1];
     const limb = (a, ramp) => { region(sp, a.seg ? cap(a.seg[0], a.seg[1], a.seg[2], a.seg[3], a.w || 1.3) : rect(a.x0, a.y0, a.x1, a.y1), ramp); if (a.fist) region(sp, rect(a.fist[0], a.fist[1], a.fist[2], a.fist[3]), DARK); };   // (pass 20: a.seg, an arm on the slant)
     for (const a of P.arms) if (a.behind) limb(a, a.far ? DARK : STEEL);   // an arm behind the body, drawn first
@@ -403,6 +426,33 @@
       back: drawing === "up", hand: drawing === "down" ? [29, 16] : [2, 13] };
   }
   const MORE = { hurt: 1, down: 1, crawl: 1, climb: 1, fall: 1, teeter: 1, raise: 1, chop: 1, cock: 1, sweep: 1, crouch: 1, rise: 1, draw: 1, lunge: 1, leap: 1, land: 1, guard: 1, reel: 1, topple: 1, lie: 1 };   // (pass 20: the combo's poses; pass 38: guard and reel; pass 39: topple and lie)
+  // (build 36, design pass 46 section 3.1) the skeleton: the parts of any frame, for another skin to paint. basicParts gives draw()'s six
+  // animations as a parts list with every part where draw() puts it (the side drawing's legs unbobbed, its torso, skirt and head moved by
+  // the lean, its one arm drawn over the body, the reach arm held out with its fist at the end; from the front and behind the two hanging
+  // arms with their fists), the pose kept on it (the ram is placed by its numbers); the hand is draw()'s hand. skeleton() adds the twenty
+  // part-placed animations (partsOf), the side crawl ({ prone: r }) and the lying body ({ lying: true }), each with its hand
+  function basicParts(drawing, anim, i, reach) {
+    const pose = poseOf(drawing, anim, i), step = pose.step || 0, B = pose.bob || 0, X = drawing === "side" ? (pose.lean || 0) : 0;
+    if (drawing !== "side") {
+      const lA = step > 0 ? -1 : 0, lB = step < 0 ? -1 : 0;
+      const aL = pose.arm && drawing === "up" ? pose.arm : [0, 0], aR = pose.arm && drawing === "down" ? pose.arm : [0, 0];
+      const box = (x, a) => ({ x0: x + a[0], y0: 15 + B + a[1], x1: x + 2 + a[0], y1: 20 + B + a[1], fist: [x + a[0], 20 + B + a[1], x + 2 + a[0], 22 + B + a[1]] });
+      return { basic: true, pose, hip: 20 + B, skirt: 5, back: drawing === "up", legs: [{ x: 12, y0: 24 + lA, y1: 29 + lA, boot: [11, 14] }, { x: 17, y0: 24 + lB, y1: 29 + lB, boot: [17, 20] }],
+        arms: [box(7, aL), box(22, aR)], hand: drawing === "down" ? [23 + aR[0], 21 + B + aR[1]] : [8 + aL[0], 21 + B + aL[1]] };
+    }
+    const bk = step > 0 ? -2 : step < 0 ? 2 : 0, fw = -bk, arm = pose.arm || [0, 0];
+    let A, hand;
+    if (reach) { const sx = 17 + X + (arm[0] > 0 ? 1 : 0), sy = 16 + B + (arm[1] < 0 ? -1 : 0), len = reach === 2 ? 10 : 7; A = { x0: sx, y0: sy, x1: sx + len - 2, y1: sy + 2, fist: [sx + len - 2, sy, sx + len, sy + 2], over: true, out: true }; hand = [sx + len, sy + 1]; }
+    else { const ax = 18 + X + arm[0], ay = 15 + B + arm[1]; A = { x0: ax, y0: ay, x1: ax + 2, y1: ay + 5, fist: [ax, ay + 5, ax + 2, ay + 7], over: true }; hand = [ax + 1, ay + 6]; }
+    return { basic: true, pose, hip: 20 + B, lean: X, skirt: 5, legs: [{ x: 13 + bk, y0: 24, y1: 29, boot: [12 + bk, 16 + bk], far: true }, { x: 15 + fw, y0: 24, y1: 29, boot: [15 + fw, 19 + fw] }], arms: [A], hand };
+  }
+  function skeleton(drawing, anim, i, reach) {
+    if (!ANIMS[anim]) anim = "idle";
+    i = (i | 0) % ANIMS[anim];
+    if (anim === "lie") return { lying: true, hand: [21, 27] };
+    if (MORE[anim]) { const P = partsOf(drawing, anim, i); return P.prone !== undefined ? { prone: P.prone, hand: P.prone ? [24, 28] : [20, 28] } : P; }
+    return basicParts(drawing, anim, i, reach === true ? 1 : Math.max(0, Math.min(2, reach | 0)));
+  }
   // (pass 39) the beaten knight flat on the ground, from the side (every facing: left mirrors it, so the head lies away from the blow):
   // the helm at the left on its side, the plume along the ground past it, the torso and the skirt on their back, the legs out to the
   // right with the boots at the end, the near arm lying along the torso with its hand on the skirt, 11 rows on the feet's line
@@ -464,14 +514,15 @@
   }
 
   // ------------------------------------------------------------------ the frames
-  const cache = new Map();
-  // Knight.frame(facing, anim, i, reach, look) -> { px, hand, facing, anim, i, reach, seat, kit, carry, canvas(), white(), over(kind, i) }
+  const cache = new Map(), failed = new Set();
+  // Knight.frame(facing, anim, i, reach, look) -> { px, hand, facing, anim, i, reach, seat, kit, carry, hero, colour, canvas(), white(), over(kind, i) }
   //   facing: right | left | away | toward (anything else is drawn as right); anim: idle | walk | wind | strike | recover | bonk | hurt |
   //   down | crawl | climb | fall | teeter (anything else is idle); climb is the back view whatever the facing
   //   reach: 0 the hanging arm, 1 the arm held out, 2 the straight bow arm (right and left only; away and toward keep the hanging arm;
   //   the new frames of design pass 12 and a carried ram keep their own arms)
-  //   look (optional): { seat: 0 to 3, kit: "knight" | "brother", carry: "ram" }; without one the frame is the cellar's knight. A carried
-  //   ram is drawn on idle, walk, wind, strike, recover and hurt (a knight who goes down, climbs or falls has put it down)
+  //   look (optional): { seat: 0 to 3, kit: "knight" | "brother", carry: "ram", hero, colour }; without one the frame is the cellar's knight,
+  //   and so is { hero: "knight", colour: "red" }. A carried ram is drawn on idle, walk, wind, strike, recover and hurt (a knight who goes
+  //   down, climbs or falls has put it down)
   function frame(facing, anim, i, reach, look) {
     if (!DRAWING[facing]) facing = "right";
     if (!ANIMS[anim]) anim = "idle";
@@ -484,14 +535,21 @@
     reach = drawing === "side" && !MORE[anim] && !carry ? (reach === true ? 1 : Math.max(0, Math.min(2, reach | 0))) : 0;
     const key = facing + "|" + anim + "|" + i + "|" + reach + L.key;   // the key names the arm, so the book never takes the bow's
     if (cache.has(key)) return cache.get(key);
-    let sp;
-    if (carry && anim === "hurt") sp = draw(drawing, poseOf(drawing, "bonk", 0), L);   // hurt with the ram: thrown back, the log still held
+    let sp = null;
+    // (build 36, design pass 46) another hero: heroes.js paints the skeleton's parts in its own skin; its hand is the skeleton's. A painter
+    // that fails (or a hero it does not know) leaves the knight to draw
+    if (L.hero !== "knight" && root.Heroes && typeof root.Heroes.draw === "function") {
+      try { sp = root.Heroes.draw(L.hero, drawing, skeleton(drawing, carry && anim === "hurt" ? "bonk" : anim, i, reach), L, carry) || null; }
+      catch (e) { sp = null; if (!failed.has(L.hero)) { failed.add(L.hero); try { (root.__errors || (root.__errors = [])).push("heroes " + L.hero + ": " + (e && e.message || e)); } catch (x) { /* no list to tell */ } } }
+    }
+    if (sp) { /* the hero's */ }
+    else if (carry && anim === "hurt") sp = draw(drawing, poseOf(drawing, "bonk", 0), L);   // hurt with the ram: thrown back, the log still held
     else if (anim === "lie") sp = drawLying(L);   // (pass 39)
     else if (MORE[anim]) sp = drawParts(drawing, partsOf(drawing, anim, i), L);
     else { const pose = poseOf(drawing, anim, i); pose.reach = reach; sp = draw(drawing, pose, L); }
     let px = sp.px, hand = sp.hand.slice();
     if (flip) { px = new Array(N * N).fill(null); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) px[y * N + (N - 1 - x)] = sp.px[y * N + x]; hand = [N - 1 - hand[0], hand[1]]; }
-    const out = { px, hand, facing, anim, i, reach, seat: L.seat, kit: L.kit, carry, w: N, h: N, _c: null, _w: null, _o: null,
+    const out = { px, hand, facing, anim, i, reach, seat: L.seat, kit: L.kit, carry, hero: L.hero, colour: L.colour, w: N, h: N, _c: null, _w: null, _o: null,
       canvas() { return this._c || (this._c = toCanvas(px, null)); },
       white() { return this._w || (this._w = toCanvas(px, "#ffffff")); },
       // a status overlay over this frame: { px, canvas() }
@@ -513,6 +571,8 @@
   // the weapon hand's pixel in a frame
   function hand(facing, anim, i, reach, look) { return frame(facing, anim, i, reach, look).hand.slice(); }
 
-  root.Knight = { N, OUT, FACINGS, DRAWING, ANIMS, SEATS, SEAT_RAMP, KITS, CARRY, OVERLAYS, frame, hand, poseOf, overlayPx };
+  // (build 36) COLOURS, SIDE and MARK, skeleton and lookOf, and the painter's kit, for heroes.js and the checks
+  root.Knight = { N, OUT, FACINGS, DRAWING, ANIMS, SEATS, SEAT_RAMP, KITS, CARRY, OVERLAYS, COLOURS, SIDE, MARK, frame, hand, poseOf, overlayPx, skeleton, lookOf,
+    kit: { Grid, rect, ell, or, cap, region, outline, R, OUT, N } };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Knight;
 })(typeof window !== "undefined" ? window : globalThis);

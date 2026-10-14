@@ -9,10 +9,15 @@
 // in window.name, which the tab keeps from one page of the game to the next, so the menu, the Forge and the cellar still agree. The
 // next visit asks again. Plain script: window.Smith in the page, module.exports in node (tools/test-rules.js). Needs naming.js for
 // the filter (window.Naming, or require in node) and the filter itself (window.FORGE_NAME_FILTER, or the caller's).
+// Since build 36 (design pass 46, the heroes) the record also keeps the player's look, { hero, colour }: two short lower-case words,
+// kept as they are when they are words (their meaning is proto/heroes.js's: an id it does not know is drawn as the knight, a colour it
+// does not know as red, so a newer version's hero still rides) and dropped otherwise; a record from before has neither, and the menu
+// asks once (proto/main-menu.js).
 //
 //   Smith.read()                      the record, or null (none, or one that is not a record)
-//   Smith.make(name, { id, now })     writes a new record (the name cleaned, not checked: check it first); returns it
+//   Smith.make(name, { id, now, hero, colour })   writes a new record (the name cleaned, not checked: check it first); returns it
 //   Smith.rename(name)                the record with its new name (cleaned), or null when there is none
+//   Smith.setLook(hero, colour)       (build 36, design pass 46) the record with its look, written; null when there is none
 //   Smith.clear()                     the record goes (Erase my smithy)
 //   Smith.newId(rand), isId(s), code(id)   a new id, whether a string is one, the code shown for it (XXXX-XXXX)
 //   Smith.cleanName(s)                curly apostrophes made straight, runs of spaces one, the ends trimmed: the name as it is kept
@@ -112,21 +117,26 @@
 
   // ------------------------------------------------------------------ the record
   const nowIso = d => (d ? new Date(d) : new Date()).toISOString().replace(/\.\d+Z$/, "Z");
+  const LOOK_WORD = /^[a-z]{2,16}$/;   // (build 36) a hero or colour id as the record keeps it
+  const lookWord = s => (typeof s === "string" && LOOK_WORD.test(s) ? s : null);
+  const withLook = (r, hero, colour) => { const h = lookWord(hero), c = lookWord(colour); if (h) r.hero = h; if (c) r.colour = c; return r; };
   function read() {
     let r = null; try { r = JSON.parse(store.get(KEY) || "null"); } catch (e) { r = null; }
     if (!r || typeof r !== "object" || r.v !== 1 || !okId(r.id) || typeof r.name !== "string" || !cleanName(r.name)) return null;
-    return { v: 1, id: r.id, name: cleanName(r.name), joined: typeof r.joined === "string" ? r.joined : null };
+    return withLook({ v: 1, id: r.id, name: cleanName(r.name), joined: typeof r.joined === "string" ? r.joined : null }, r.hero, r.colour);
   }
   // (build 9) on the Cloudflare copy a new name, or a rename, goes online too (proto/cloud.js)
   function write(r) { const kept = store.set(KEY, JSON.stringify(r)); api.kept = kept; try { if (root.Cloud) root.Cloud.touch(); } catch (e) { /* kept here */ } return r; }
   function make(name, o) {
     o = o || {};
-    return write({ v: 1, id: okId(o.id) ? o.id : newId(o.rand), name: cleanName(name), joined: nowIso(o.now) });
+    return write(withLook({ v: 1, id: okId(o.id) ? o.id : newId(o.rand), name: cleanName(name), joined: nowIso(o.now) }, o.hero, o.colour));
   }
   function rename(name) { const r = read(); if (!r) return null; r.name = cleanName(name); return write(r); }
+  // (build 36) setLook(hero, colour): the record with its look (each word kept only when it is one), written; null with no record
+  function setLook(hero, colour) { const r = read(); if (!r) return null; return write(withLook(r, hero, colour)); }
   function clear() { store.del(KEY); }
 
-  const api = { KEY, LINES, MIN, MAX, ALPHABET, store, use, newId, isId, code, cleanName, fold, checkSmithName, read, make, rename, clear, kept: true, version: 1 };
+  const api = { KEY, LINES, MIN, MAX, ALPHABET, LOOK_WORD, store, use, newId, isId, code, cleanName, fold, checkSmithName, read, make, rename, setLook, clear, kept: true, version: 1 };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Smith = api;
 })(typeof window !== "undefined" ? window : globalThis);

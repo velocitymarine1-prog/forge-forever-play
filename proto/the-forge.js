@@ -58,6 +58,11 @@
   // (build 17) the castle's rooms and the modules the Courtyard and the Map Table need (the section "the castle" below says the rest)
   const ROOMS = { yard: "The Courtyard", forge: "The Forge", armory: "The Armory", map: "The Map Table" };
   const Y = window.Courtyard || null, FK = window.Folk || null, MT = window.MapTable || null, KN = window.Knight || null, ST = window.Stick || null, TR = window.Trolls || null;
+  // (build 36, design pass 46) the player's hero: the record's look (the knight in red by default), drawn in the Courtyard, on the Map
+  // Table and on the drill plaque; Settings' Your look changes it in place (onLook); Nell's first line names it
+  const HE = window.Heroes || null;
+  function myLook() { try { return HE && window.Smith ? HE.of(window.Smith.read()) : { hero: "knight", colour: "red", chosen: false }; } catch (e) { return { hero: "knight", colour: "red", chosen: false }; } }
+  function heroWord() { const D = window.FORGE_HEROES, l = myLook(); const h = D && Array.isArray(D.heroes) ? D.heroes.find(x => x.id === l.hero) : null; return h && h.name ? String(h.name).toLowerCase() : "knight"; }
   const hasYard = !!(Y && FK && KN && ST && window.Physics && window.FORGE_COMBAT && window.FORGE_COURTYARD && window.FORGE_FOLK);
   const hasMap = !!(MT && KN && TR && window.FORGE_MAP);
   const noyard = params.get("noyard") === "1" || !hasYard;
@@ -1878,7 +1883,7 @@
     $("drillDone").addEventListener("click", closeDrill);
     el.hidden = false; drill.cls = c; drill.toast = o.toast || null;
     fitDrill();
-    try { drill.run = DR.mount($("drillCanvas"), t, { reduce }); } catch (e) { (window.__errors || []).push("drill " + c + ": " + (e && e.message || e)); drill.run = null; }
+    try { drill.run = DR.mount($("drillCanvas"), t, { reduce, look: myLook() }); } catch (e) { (window.__errors || []).push("drill " + c + ": " + (e && e.message || e)); drill.run = null; }   // (build 36: the player's hero drills)
     window.addEventListener("keydown", drillKey);
     syncYardPrompt();
     return true;
@@ -2054,12 +2059,12 @@
   // and its fit at the cellar's scale, the baked ground, the frame loop, the stick, the keys, the taps, the prompt over the knight, what a
   // place does when used, the arrivals, and what the page draws over the yard (the lessons' ring, arrow and chevron, the "!" over Vorn,
   // the well's purse)
-  const yard = { Y: null, ground: [], bakeId: 0, pieces: [], knCache: new Map(), folkCache: new Map(), kn: null, cam: { x: 0, y: 0 }, L: null, stick: null, t0: 0, last: 0, t: 0, raf: 0, zone: null, promptText: "", keys: {},
+  const yard = { Y: null, ground: [], bakeId: 0, pieces: [], knCache: new Map(), folkCache: new Map(), kn: null, look: null, cam: { x: 0, y: 0 }, L: null, stick: null, t0: 0, last: 0, t: 0, raf: 0, zone: null, promptText: "", keys: {},
     fx: { purse: null, flick: 0, lit: null }, toastedWell: false, bakeMs: null, arrows: null };
   const yardPaused = () => !!(state.room !== "yard" || plaqueOpen() || plankOpen() || folkOpen() || !$("setPlank").hidden || document.hidden || session.leaving || turn.plate || !$("firstWeapon").hidden || drillOpen());
   function canvasOf(fr) { const c = document.createElement("canvas"); c.width = fr.w; c.height = fr.h; const g = c.getContext("2d"), id = g.createImageData(fr.w, fr.h); id.data.set(fr.d); g.putImageData(id, 0, 0); return c; }
   function pxCanvas(px, w, h, flip) { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d"); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const col = px[y * w + x]; if (col) { g.fillStyle = col; g.fillRect(flip ? w - 1 - x : x, y, 1, 1); } } return c; }
-  function knightSprite(facing, anim, i) { const key = facing + anim + i; let c = yard.knCache.get(key); if (!c) { c = pxCanvas(KN.frame(facing, anim, i).px, 32, 32); yard.knCache.set(key, c); } return c; }
+  function knightSprite(facing, anim, i) { if (!yard.look) yard.look = myLook(); const key = facing + anim + i + "|" + yard.look.hero + "|" + yard.look.colour; let c = yard.knCache.get(key); if (!c) { c = pxCanvas(KN.frame(facing, anim, i, 0, yard.look).px, 32, 32); yard.knCache.set(key, c); } return c; }   // (build 36: the player's hero)
   function folkSprite(who, pose, i, flip) { const key = who + pose + i + (flip ? "f" : ""); let s = yard.folkCache.get(key); if (!s) { const fr = FK.frame(who, pose, i); s = fr ? { c: pxCanvas(fr.layer.px, fr.layer.w, fr.layer.h, flip), ox: fr.ox, oy: fr.oy } : null; yard.folkCache.set(key, s); } return s; }
   function yardBoot() {
     if (yard.Y || !hasYard) return !!yard.Y;
@@ -2311,7 +2316,7 @@
     try { if (window.Lessons && Lessons.faceSize) cv.style.width = cv.style.height = Lessons.faceSize(Lessons.FACE.plank) + "px"; } catch (e) { /* the CSS's size */ }
     return cv;
   }
-  function folkSay(who, pool, o) { if (!FK || !folk.mem) return ""; const r = FK.say(folk.mem, who, pool, o); folk.mem = r.mem; save(); return r.text || ""; }
+  function folkSay(who, pool, o) { if (!FK || !folk.mem) return ""; const r = FK.say(folk.mem, who, pool, Object.assign({ hero: heroWord() }, o || {})); folk.mem = r.mem; save(); return r.text || ""; }   // (build 36: {hero} in a line is what the player is)
   function folkOpening(who, o) { if (!FK || !folk.mem) return ""; const op = FK.opening(folk.mem, who, Object.assign({ now: Date.now() }, o || {})); folk.mem = op.mem; return folkSay(who, op.pool); }
   const classWeaponOf = c => window.FORGE_THINGS.find(t => t.kind === "weapon" && t.weapon.visual.base === c && !(t.parents && t.parents.length));
   function openFolk(who, o) {
@@ -3022,6 +3027,7 @@
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
       onStory() { goStory(); },   // (build 29, design pass 37) The story so far: the opening again on the menu page
       onMenu() { goHome(); },   // (build 35, design pass 45) Main menu: the house's way, since the house left the sign
+      onLook(l) { yard.look = l || myLook(); yard.knCache.clear(); },   // (build 36, design pass 46) Your look: the walker changes at once
       onClose: closeSettings
     });
   }
@@ -3116,7 +3122,8 @@
     openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
     showPlaque, showLegend, viewWeapon, got, get plaqueMode() { return plaqueMode; }, traitLine,
     grycus: { get pose() { return gry.pose; }, get line() { return gry.line; }, get mem() { return gry.mem; }, get pending() { return gry.pending; }, get spot() { return gry.spot; }, get seq() { return gry.seq; },
-      say: grySay, tap: gryTap, hush: gryHush, figure: gryFigure, place: gryPlace, open: gryOpen, meet: gryMeet, quiet: gryQuiet } };
+      say: grySay, tap: gryTap, hush: gryHush, figure: gryFigure, place: gryPlace, open: gryOpen, meet: gryMeet, quiet: gryQuiet },
+    myLook, heroWord, get yardLook() { return yard.look; } };   // (build 36) the player's look, for the checks
   function renderAll() { renderSign(); renderSlots(); if (state.view === "wall") renderWall(); else renderCabinet(); renderArmory(); renderInfo(); }
   // (build 8, design pass 16) what forge-lessons.js reaches besides the above
   Object.assign(window.TheForge, { newSmith, returningSmith, gain, have, plural, storeOf, renderSign, renderCart, plaqueOpen, cellarUrl, menuUrl, goStory, goBack, lessons: null });   // (build 29: goStory, the opening again; build 35: goBack, the way back on the sign)

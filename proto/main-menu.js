@@ -20,8 +20,13 @@
 // Settings' The story so far (?intro=1) replays it without the name and ends on Back to the menu (which takes intro=1 out of the address
 // since design pass 41, the castle page's trip here being pushed, not gone back to). The plank below stays as the fallback
 // (?intro=skip, the harnesses; an old cached page without intro.js).
+// Since build 36 (design pass 46, the heroes): the book opens on the choice of a hero (its first picture), the name beat makes the
+// record with the look chosen, and a player whose record has no hero (a game from before) is asked once on the menu's first tap: the
+// chooser plank (proto/hero-pick.js) with Grycus's face and words in the room under the sign; That's me writes the look and goes where
+// the tap was going. The harnesses' dev smith is never asked (Smith.isId), nor a record with any hero in it.
 // For the checks: ?stay=1 records where a tap would go and stays; ?motion=reduce stills the page (?motion=full plays it); ?nostore=1
-// makes storage act blocked; ?pointer=coarse|fine overrides the pointer; ?intro=skip|1|at:<picture> for the opening.
+// makes storage act blocked; ?pointer=coarse|fine overrides the pointer; ?intro=skip|1|at:<picture>|play for the opening; ?look=ask
+// asks any player with no hero (the dev smith too), ?look=0 never asks.
 (function () {
   "use strict";
   const $ = id => document.getElementById(id);
@@ -49,6 +54,10 @@
   // (build 29, design pass 37) the opening: its controller when its scripts are here, the book while it runs, the adoption it started
   const IN = window.Intro && window.FORGE_INTRO && Sm && Ls ? window.Intro : null;
   let book = null, adopting = null;
+  // (build 36, design pass 46) the heroes: the chooser, the skins and the words when their scripts are here; the ask's state
+  const HP = window.HeroPick || null, HE = window.Heroes || null, FH = window.FORGE_HEROES || null;
+  const look = { shown: false, pick: null, asked: 0 };
+  const isSmall = () => game.clientWidth < 720 || game.clientHeight < 360;
 
   // ------------------------------------------------------------------ the game root: sideways, or turned a quarter (landscape only)
   const viewport = () => { const vv = window.visualViewport; return { w: Math.max(1, Math.round(vv ? vv.width : window.innerWidth)), h: Math.max(1, Math.round(vv ? vv.height : window.innerHeight)) }; };
@@ -90,7 +99,7 @@
     try { scene = Hearth.mount($("scene"), { still: quiet, size: gameSize }); } catch (e) { scene = null; window.__errors.push("scene: " + e.message); }
     return scene;
   }
-  function fit() { fitTurn(); if (scene) { try { scene.refit(); } catch (e) { /* kept as it was */ } } if (book) { try { book.refit(); book.pause(turn.plate); } catch (e) { /* kept */ } } liftWho(); return scene ? scene.layout : null; }
+  function fit() { fitTurn(); if (scene) { try { scene.refit(); } catch (e) { /* kept as it was */ } } if (book) { try { book.refit(); book.pause(turn.plate); } catch (e) { /* kept */ } } if (look.pick) { try { look.pick.refit(); } catch (e) { /* kept */ } } liftWho(); return scene ? scene.layout : null; }
 
   // ------------------------------------------------------------------ the way on
   const url = name => document.body.getAttribute("data-" + name) || ({ forge: "the-forge.html", battlegrounds: "the-battlegrounds.html" })[name];
@@ -110,12 +119,13 @@
   // the tap (design pass 28): nothing while leaving, before the page is booted, under the turn plate, or while the plank is up; with a
   // player, where Play went; without one, the plank
   function tap() {
-    if (leaving || !booted || turn.plate || who.shown) return null;
+    if (leaving || !booted || turn.plate || who.shown || look.shown) return null;
     if (book) return book.tap();   // (build 29) the book's tap: the next line, the next picture
     if (whoOn && !player()) { showWho(); return "who"; }
+    if (needLook()) { showLook(); return "look"; }   // (build 36) a game from before the heroes: asked once what the player is
     return go(lessonPage() || "forge");
   }
-  game.addEventListener("click", e => { if (whoOn && $("who").contains(e.target)) return; tap(); });
+  game.addEventListener("click", e => { if (whoOn && $("who").contains(e.target)) return; const la = $("lookAsk"); if (la && la.contains(e.target)) return; tap(); });
   window.addEventListener("keydown", e => {
     const t = e.target, tag = t && t.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON") return;   // the field's own keys; a focused button's Enter is its click
@@ -206,7 +216,8 @@
     // (build 29) taller than the room under the sign (the smallest phones): the sign steps aside and the plank is centred on the whole height
     const menu = $("menu"), cs = window.getComputedStyle(menu), sign = $("sign");
     const room = menu.clientHeight - parseFloat(cs.paddingTop || 0) - parseFloat(cs.paddingBottom || 0) - sign.offsetHeight - 8;
-    const tall = !lift && !el.hidden && el.offsetHeight > room + 0.5;
+    const lk = $("lookAsk"), tallLook = !!(lk && !lk.hidden && lk.offsetHeight > room + 0.5);   // (build 36: the chooser, taller than the room on most phones, centres on the whole height the same way)
+    const tall = (!lift && !el.hidden && el.offsetHeight > room + 0.5) || tallLook;
     menu.classList.toggle("tall", tall); who.tall = tall;
     if (!lift) { el.style.left = el.style.top = el.style.width = ""; return; }
     const w = Math.max(220, Math.min(b.w - 16, 420));
@@ -222,6 +233,38 @@
     field.addEventListener("blur", () => window.setTimeout(liftWho, 0));
     if (window.visualViewport) { window.visualViewport.addEventListener("resize", liftSoon); window.visualViewport.addEventListener("scroll", liftSoon); }
   }
+
+  // ------------------------------------------------------------------ what are you? (design pass 46 section 3.8, build 36)
+  // A player record with no hero (a game made before build 36) is asked once, on the menu's first tap, with the chooser in the room
+  // under the sign: Grycus's face and his words in the line's place, the knight in red picked already. That's me writes the look and
+  // goes where the tap was going; nothing else puts the plank away (Escape and taps outside do nothing). A record with any hero in it
+  // is never asked, nor the harnesses' dev smith (its id is not a player's), unless ?look=ask; ?look=0 never asks
+  function needLook() {
+    const p = player(); if (!p || !HP || !HE || !FH || !whoOn || book) return false;
+    const q = params.get("look"); if (q === "0") return false;
+    if (HE.of(p).chosen) return false;
+    return q === "ask" || Sm.isId(p.id);
+  }
+  function showLook() {
+    const host = $("lookAsk"); if (look.shown || !host || !HP) return null;
+    host.innerHTML = ""; host.hidden = false; $("tap").hidden = true; look.shown = true; look.asked++;
+    const W = FH.words || {}, A = W.ask || {};
+    const face = Ls && Ls.face ? Ls.face(3) : null;
+    try {
+      look.pick = HP.mount(host, { look: HE.of(player()), words: W, speech: { who: A.who || "Grycus", words: A.words || "", face }, still: () => still, small: isSmall,
+        onOk(l) { if (leaving) return; Sm.setLook(l.hero, l.colour); hideLook(); go(lessonPage() || "forge"); if (!leaving) renderWho(); } });
+    } catch (e) { window.__errors.push("look: " + (e && e.message)); look.pick = null; }
+    if (!look.pick) { hideLook(); return null; }
+    liftWho();
+    return look.pick;
+  }
+  function hideLook() {
+    if (look.pick) { try { look.pick.destroy(); } catch (e) { /* gone */ } look.pick = null; }
+    const host = $("lookAsk"); if (host) { host.hidden = true; host.innerHTML = ""; }
+    look.shown = false; $("menu").classList.remove("tall");
+    if (booted && !who.shown && !book) $("tap").hidden = false;
+  }
+  function renderLook() { if (look.shown && !needLook()) hideLook(); }
 
   // ------------------------------------------------------------------ the opening (design pass 37, build 29)
   // wantBook(): whether this phone sees the book and from where (Intro.wanted's table: no player, the book; an unfinished record, the
@@ -239,8 +282,9 @@
     try {
       book = IN.mount(game, { still: () => still, size: gameSize, desktop: !coarse, player: player(), at: w.at || null, replay: !!w.replay, named: !!w.named,
         scene: () => (scene ? scene.scene : null), sign: $("sign"), tapLine: $("tap"), fade: $("fade"), band, store: Sm.store,
-        onName(name) {
-          const rec = Sm.make(name);
+        look: HE && player() ? HE.of(player()) : null, small: isSmall,   // (build 36) a player's own hero in the pictures; a new phone chooses on the first picture
+        onName(name, lk) {
+          const rec = Sm.make(name, lk && lk.hero ? { hero: lk.hero, colour: lk.colour } : {});
           Ls.start(rec.id, { named: Date.now() });
           who.made = rec;
           // (build 9) online, the new player goes online while the story goes on; the castle button waits for it (4 s at most)
@@ -275,6 +319,8 @@
     get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; }, get turn() { return turn.layout; },
     // (build 8) who is at the forge: the plank's state; fakeBand(b) stands in for a keyboard the checks cannot open (null: the real one)
     get who() { return { shown: who.shown, asked: who.asked, lifted: who.lifted, tall: !!who.tall, made: who.made, skipped: who.skipped || null, player: player(), lesson: lessonPage(), band: band() }; }, renderWho, liftWho, fakeBand(b) { who.fake = b || null; liftWho(); if (book) book.refit(); return band(); },
+    // (build 36) what are you?: the ask's state and the chooser while it shows
+    get look() { return { shown: look.shown, asked: look.asked, needed: needLook(), value: look.pick ? look.pick.value : null, pick: look.pick }; }, showLook, hideLook, needLook,
     // (build 29) the opening: the book while it runs, its state, and the way to start and end it (the checks)
     get book() { return book; }, get intro() { return book ? book.state : null; }, wantBook, startBook, endBook };
   if (window.Nav) Nav.arrive("menu");
@@ -294,7 +340,7 @@
     leaving = false; $("fade").classList.remove("on");
     if (S) turn.forced = S.isOn("forced");
     const now = reduce(); if (now !== still) { still = now; document.documentElement.classList.toggle("still", still); mountScene(still); }
-    fit(); renderWho();
+    fit(); renderWho(); renderLook();   // (build 36: a look chosen on the castle page puts the ask away)
   });
   // booted: the scene is up and the tap line showing (online, once the server has answered: it may bring this phone's game back, or
   // say the game was erased; 4.5 s at most)

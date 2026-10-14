@@ -8,7 +8,7 @@
 // are driven by the sim itself (their inputs are never sent), so every phone plays them alike.
 //
 //   Wire.available()                  the page has the cloud (proto/cloud.js: Cloud.on, a token) and WebSocket
-//   Wire.queue(o)                     the Herald's queue: o = { mode, name, level, loadout: [thingId, thingId], onState(s) }; q.leave()
+//   Wire.queue(o)                     the Herald's queue: o = { mode, name, level, loadout: [thingId, thingId], hero, onState(s) }; q.leave()
 //                                     s: { kind: "looking", waiting, t, needed, fillIn } | { kind: "filling" } | { kind: "found", bout, ticket, seat,
 //                                     seats, seed, mode } | { kind: "offline" } | { kind: "error", why } | { kind: "left", name }
 //   Wire.session(o)                   a bout online: o = { bout, ticket, seat, seats, seed, fight, duel, onForfeit(seat), onVoid(why), onEnd(result),
@@ -230,7 +230,7 @@
     let ws = null, done = false, timer = 0;
     const say = s => { if (!done && o.onState) o.onState(s); };
     try { ws = socketFor(o, "/arena/queue"); } catch (e) { say({ kind: "offline" }); return { leave() {} }; }
-    ws.onopen = () => { ws.send(JSON.stringify({ kind: "join", token: tokenOf(o), mode: o.mode, name: o.name || null, level: o.level | 0, loadout: o.loadout || [] })); };
+    ws.onopen = () => { ws.send(JSON.stringify({ kind: "join", token: tokenOf(o), mode: o.mode, name: o.name || null, level: o.level | 0, loadout: o.loadout || [], hero: o.hero || null })); };   // (build 36: the hero rides with the join)
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.kind === "state") say({ kind: m.filling ? "filling" : "looking", waiting: m.waiting | 0, t: m.t || 0, needed: m.needed | 0, fillIn: m.fillIn });

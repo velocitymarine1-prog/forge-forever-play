@@ -16,6 +16,9 @@
 // Since build 35 (design pass 45, card t107): the row Main menu (The game's front door · Go) after the notes and before Erase, on a page that
 // passes o.onMenu (the castle page, whose sign's house went: the sign's left is the way back to the courtyard now); a page's own rows
 // (o.rows, addRow) go before it.
+// Since build 36 (design pass 46, card t110): the row Your look: Wizard · Blue (What you are, and your colour · Change) after Your name,
+// on a page that passes o.onLook with heroes.js, hero-pick.js and spec/heroes.js loaded (the castle page): Change opens the chooser in a
+// sub-plank (That's me writes the look, Smith.setLook, and calls o.onLook(look); Keep my look closes it); the playtest notes carry a Look line.
 (function (root) {
   "use strict";
   const KEYS = { lefty: "forge-forever:left-handed", forced: "forge-forever:forced-landscape", motion: "forge-forever:less-motion", pour: "forge-forever:tap-to-pour",
@@ -72,6 +75,16 @@
     ".set-notes-text{display:block;width:100%;height:128px;margin:2px 0 4px;padding:6px 8px;resize:none;font-family:var(--data,'Pixelify Sans',monospace);font-size:11.5px;line-height:1.5;background:var(--soot,#181425);color:var(--parch,#ead4aa);border:2px solid var(--oak-d,#3e2731);border-radius:0;-webkit-user-select:text;user-select:text;white-space:pre}";
   function addCSS(doc) { if (!doc || doc.getElementById("set-css")) return; const st = doc.createElement("style"); st.id = "set-css"; st.textContent = CSS; (doc.head || doc.documentElement).appendChild(st); }
   const Sm = () => root.Smith || null, Ls = () => root.Lessons || null;
+  // (build 36) the heroes: their words (spec/heroes.js) and the chooser, when the page has them
+  const He = () => root.Heroes || null, HP = () => root.HeroPick || null, HW = () => ((root.FORGE_HEROES || {}).words || {}), HS = () => (HW().settings || {});
+  const fillW = (t, m) => String(t || "").replace(/\{(\w+)\}/g, (x, k) => (m[k] === undefined ? "" : String(m[k])));
+  // lookLabel(record): "Wizard · Blue" (the colour only for a hero that takes one), from the data's names
+  function lookLabel(p) {
+    const H = He(), D = root.FORGE_HEROES || {}, l = H ? H.of(p) : { hero: "knight", colour: "red" };
+    const h = (D.heroes || []).find(x => x.id === l.hero), c = (D.colours || []).find(x => x.id === l.colour);
+    const name = h ? h.name : (H && H.NAMES[l.hero]) || l.hero, colour = c ? c.name : l.colour;
+    return { name, colour, takes: h ? !!h.colour : (H ? H.takesColour(l.hero) : true), look: l };
+  }
 
   // mount(host, o): the rows into host. o = { build, rows (elements placed before Erase), section (an element placed after the rows),
   // toast(m), onChange(name, on), onErase({ removed, kept }), onClose(), onRename(record) }. Returns { render, openErase, closeErase,
@@ -83,6 +96,9 @@
     const say = m => { if (typeof o.toast === "function") o.toast(m); };
     if (Sm()) addCSS(doc);
     const you = Sm() ? `<button type="button" class="set-row f-iron" data-you="1" hidden><b>Your name</b><i></i><span>Rename</span></button>` : "";
+    // (build 36, design pass 46) Your look, on a page that gives the chooser somewhere to tell (o.onLook) and has the heroes' scripts
+    const lookOn = !!(Sm() && He() && HP() && root.FORGE_HEROES && typeof o.onLook === "function");
+    const look = lookOn ? `<button type="button" class="set-row f-iron" data-look="1" hidden><b>${esc(HS().heading || "Your look")}</b><i>${esc(HS().hint || "What you are, and your colour")}</i><span>${esc(HS().action || "Change")}</span></button>` : "";
     // (build 29, design pass 37) the opening again, from the menu page
     const story = Sm() ? `<button type="button" class="set-row f-iron" data-story="1" hidden><b>The story so far</b><i>Watch the opening again</i><span>Play</span></button>` : "";
     const copy = Sm() && Ls() ? `<button type="button" class="set-row f-iron" data-notes="1" hidden><b>Copy my playtest notes</b><i>Your lessons, to paste in a message</i><span>Copy</span></button>` : "";
@@ -91,14 +107,15 @@
     const gone = Cl() ? `<button type="button" class="set-row f-iron set-danger" data-delete="1"><b>Delete my game</b><i>Your name, game and key, online and here</i><span></span></button>` : "";
     // (build 35, design pass 45) Main menu: the house's way, on a page that gives one (the castle page, whose sign lost the house; the menu page draws no row)
     const menu = typeof o.onMenu === "function" ? `<button type="button" class="set-row f-iron" data-menu="1"><b>Main menu</b><i>The game's front door</i><span>Go</span></button>` : "";
-    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}${you}${story}${cloud}${copy}${menu}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your name, weapons, level and coins here</i><span></span></button>${gone}</div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Your name and your lessons, everything you own, your level, coins and embers, and all you forged in this browser${Cl() ? ", and your place on the Roll of First Forges" : ""}. Grycus will ask who you are again. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>` +
+    host.innerHTML = `<div class="set-rows">${SWITCHES.map(s => `<button type="button" class="set-row f-iron" data-switch="${s.name}" aria-pressed="false"><b>${esc(s.label)}</b><i>${esc(s.hint)}</i><span>off</span></button>`).join("")}${you}${look}${story}${cloud}${copy}${menu}<button type="button" class="set-row f-iron set-danger" data-erase="1"><b>Erase my smithy</b><i>Your name, weapons, level and coins here</i><span></span></button>${gone}</div><div class="set-extra" hidden></div><div class="set-btns"><button type="button" class="f-ember set-done">Done</button></div><p class="set-foot"></p><div class="set-ask f-parch" hidden role="dialog" aria-label="Erase your smithy?"><h3>Erase your smithy?</h3><p>Your name and your lessons, everything you own, your level, coins and embers, and all you forged in this browser${Cl() ? ", and your place on the Roll of First Forges" : ""}. Grycus will ask who you are again. This can't be undone.</p><div class="set-btns"><button type="button" class="f-ember set-keep">Keep my smithy</button><button type="button" class="f-iron set-erase">Erase it</button></div></div>` +
       (you ? `<form class="set-ask set-you f-parch" hidden role="dialog" aria-label="Your name" novalidate autocomplete="off"><h3>Your name</h3><input class="set-field" type="text" maxlength="16" autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="Your name" aria-label="Your name"><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="submit" class="f-ember set-rename" disabled>Rename</button><button type="button" class="f-iron set-unrename">Keep it</button></div></form>` : "") +
+      (look ? `<div class="set-ask set-look f-parch" hidden role="dialog" aria-label="${esc(HS().heading || "Your look")}"></div>` : "") +
       (copy ? `<div class="set-ask set-notes f-parch" hidden role="dialog" aria-label="Your playtest notes"><h3>Your playtest notes</h3><textarea class="set-notes-text" readonly rows="6" aria-label="Your playtest notes"></textarea><div class="set-btns"><button type="button" class="f-ember set-copy">Copy</button><button type="button" class="f-iron set-notes-done">Done</button></div></div>` : "") +
       (cloud ? `<div class="set-ask set-keyask f-parch" hidden role="dialog" aria-label="Your key"><h3>Your key</h3><p>On your other phone, open Settings, then Bring a game here, and type it. A new key replaces the last one.</p><output class="set-key" aria-live="polite"></output><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="button" class="f-ember set-keycopy" disabled>Copy</button><button type="button" class="f-iron set-keydone">Done</button></div></div>` +
         `<form class="set-ask set-claim f-parch" hidden role="dialog" aria-label="Bring a game here" novalidate autocomplete="off"><h3>Bring a game here</h3><p>The game on this phone is replaced by the one the key belongs to.</p><input class="set-field" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="XXXX-XXXX-XXXX-XXXX" aria-label="Your key"><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="submit" class="f-ember set-bring" disabled>Bring my game</button><button type="button" class="f-iron set-unclaim">Keep this one</button></div></form>` +
         `<div class="set-ask set-gone f-parch" hidden role="dialog" aria-label="Delete your game?"><h3>Delete your game?</h3><p>Your name, everything you own, your key and your place on the Roll, online and on this phone. Grycus will ask who you are again. This can't be undone.</p><div class="set-why" aria-live="polite"></div><div class="set-btns"><button type="button" class="f-ember set-keepgame">Keep my game</button><button type="button" class="f-iron set-delete">Delete it</button></div></div>` : "");
     const rows = host.querySelector(".set-rows"), extra = host.querySelector(".set-extra"), btns = host.querySelector(".set-btns"), foot = host.querySelector(".set-foot"), ask = host.querySelector(".set-ask");
-    const youAsk = host.querySelector(".set-you"), notesAsk = host.querySelector(".set-notes");
+    const youAsk = host.querySelector(".set-you"), notesAsk = host.querySelector(".set-notes"), lookAsk = host.querySelector(".set-look");
     const keyAsk = host.querySelector(".set-keyask"), claimAsk = host.querySelector(".set-claim"), goneAsk = host.querySelector(".set-gone");
     const eraseRow = rows.querySelector("[data-erase]");
     const lastRow = () => rows.querySelector("[data-menu]") || eraseRow;   // (build 35) a page's own rows go before Main menu, which stays last before Erase
@@ -120,13 +137,28 @@
       if (yr) { yr.hidden = !p; if (p) { yr.querySelector("b").textContent = "Your name: " + p.name; yr.querySelector("i").textContent = "Your code " + Sm().code(p.id); } }
       if (nr) nr.hidden = !(p && Ls().load(p.id));
       const sr = rows.querySelector("[data-story]"); if (sr) sr.hidden = !p || !(typeof o.onStory === "function" || root.Nav);   // (build 29)
+      // (build 36) Your look: Wizard · Blue
+      const lr = rows.querySelector("[data-look]"); if (lr) { lr.hidden = !p; if (p) { const L = lookLabel(p); lr.querySelector("b").textContent = fillW(L.takes ? (HS().rowColour || "Your look: {name} · {colour}") : (HS().row || "Your look: {name}"), L); } }
       foot.textContent = (Cl() && Cl().foot(o.build)) || "Saved in this browser · build " + (o.build || "dev");
     }
     let asking = false;
-    const asks = [ask, youAsk, notesAsk, keyAsk, claimAsk, goneAsk];
+    const asks = [ask, youAsk, notesAsk, keyAsk, claimAsk, goneAsk, lookAsk];
+    let pick = null;   // (build 36) the chooser while Your look's sub-plank is open
+    function dropPick() { if (pick) { try { pick.destroy(); } catch (e) { /* gone */ } pick = null; } if (lookAsk) lookAsk.innerHTML = ""; }
     function openAsk(el) { asking = true; rows.hidden = true; extra.hidden = true; btns.hidden = true; foot.hidden = true; for (const a of asks) if (a) a.hidden = a !== el; }
     function openErase() { openAsk(ask); const first = ask.querySelector("button"); if (first && !media("(pointer: coarse)")) first.focus(); }
-    function closeErase() { asking = false; rows.hidden = false; extra.hidden = !extra.childElementCount; btns.hidden = false; foot.hidden = false; for (const a of asks) if (a) a.hidden = true; }
+    function closeErase() { asking = false; rows.hidden = false; extra.hidden = !extra.childElementCount; btns.hidden = false; foot.hidden = false; for (const a of asks) if (a) a.hidden = true; dropPick(); }
+    // (build 36, design pass 46 section 3.9) Your look: the chooser on the player's look; That's me writes it, tells the page and closes;
+    // Keep my look closes. The small size follows the page's own room (under 720 x 360, as the menu's and the opening's chooser)
+    function openLook() {
+      const p = Sm() && Sm().read(); if (!p || !lookAsk || !HP()) return null;
+      dropPick();
+      openAsk(lookAsk);
+      pick = HP().mount(lookAsk, { look: He().of(p), words: { heading: HS().heading || "Your look" }, still: () => reduce(), small: () => (root.innerWidth < 720 || root.innerHeight < 360),
+        onOk(l) { const r = Sm().setLook(l.hero, l.colour); closeErase(); render(); if (r) { const L = lookLabel(r); say(fillW(L.takes ? (HS().rowColour || "Your look: {name} · {colour}") : (HS().row || "Your look: {name}"), L)); } try { o.onLook(He().of(r || p)); } catch (e) { /* the page's */ } },
+        onKeep() { closeErase(); } });
+      return pick;
+    }
     // Your name: the same field and rules as the menu's plank; Rename lights for a good name that is not the one already kept
     const fld = youAsk && youAsk.querySelector(".set-field"), why = youAsk && youAsk.querySelector(".set-why"), ren = youAsk && youAsk.querySelector(".set-rename");
     function checkRename() {
@@ -157,8 +189,11 @@
     // Copy my playtest notes: the lines go to the clipboard and show, selected where a browser will not copy them for a page
     function notesText() {
       const p = Sm().read(), rec = p ? Ls().load(p.id) : null;
-      return Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty"), intro: Ls().opening && p ? Ls().opening.load(p.id) : undefined,
+      const t = Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty"), intro: Ls().opening && p ? Ls().opening.load(p.id) : undefined,
         turn: root.Turn && root.Turn.notes ? root.Turn.notes() : undefined });   // (build 31, design pass 40: the screen log, so a screen that turns by itself can be read from the notes)
+      // (build 36) the look: Look: Wizard · Blue (a record with no hero says so, so a tester's notes tell the knight from an unasked one)
+      if (He() && p) { const L = lookLabel(p); return t + "\n" + fillW(HS().notes || "Look: {name}{colourPart}", { name: L.look.chosen ? L.name : "not chosen (the knight)", colourPart: L.look.chosen && L.takes ? " · " + L.colour : "" }); }
+      return t;
     }
     function copyNotes() {
       const ta = notesAsk.querySelector(".set-notes-text"), text = ta.value;
@@ -223,6 +258,7 @@
       if (b.hasAttribute("data-claim")) { cf.value = ""; cb.disabled = true; cw.textContent = ""; openAsk(claimAsk); if (!media("(pointer: coarse)")) cf.focus(); return; }
       if (b.hasAttribute("data-delete")) { goneAsk.querySelector(".set-why").textContent = ""; openAsk(goneAsk); return; }
       if (b.hasAttribute("data-you")) { openRename(); return; }
+      if (b.hasAttribute("data-look")) { openLook(); return; }   // (build 36, design pass 46) Your look
       if (b.hasAttribute("data-story")) { openStory(); return; }
       if (b.hasAttribute("data-menu")) { o.onMenu(); return; }   // (build 35, design pass 45) Main menu: the page's own way there
       if (b.hasAttribute("data-notes")) { notesAsk.querySelector(".set-notes-text").value = notesText(); openAsk(notesAsk); copyNotes(); return; }
@@ -246,7 +282,7 @@
     // (build 9) addRow(el): a row placed before Erase; addSection(el): an element placed after the rows (the bench, once allowed)
     function addRow(el) { if (el) rows.insertBefore(el, lastRow()); }
     function addSection(el) { if (!el) return; extra.appendChild(el); if (!asking) extra.hidden = false; }
-    return { render, openErase, closeErase, addRow, addSection, openRename: youAsk ? openRename : null, notes: copy ? notesText : null, get asking() { return asking; }, host };
+    return { render, openErase, closeErase, addRow, addSection, openRename: youAsk ? openRename : null, openLook: lookAsk ? openLook : null, get pick() { return pick; }, notes: copy ? notesText : null, get asking() { return asking; }, host };
   }
 
   root.Settings = { KEYS, SWITCHES, store, reduce, phoneStill, isOn, setOn, erase, eraseLocal, mount, version: 1 };

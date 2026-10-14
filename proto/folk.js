@@ -177,7 +177,7 @@
     const m = memory(mem), L = poolOf(who, pool);
     if (!m[who] || !L.length) return { text: null, mem: m };
     const k = m[who].n[pool] || 0; m[who].n[pool] = k + 1;
-    return { text: String(L[k % L.length]).replace(/\{n\}/g, o && o.n !== undefined ? String(o.n) : ""), mem: m };
+    return { text: String(L[k % L.length]).replace(/\{n\}/g, o && o.n !== undefined ? String(o.n) : "").replace(/\{hero\}/g, o && o.hero ? String(o.hero) : "knight"), mem: m };   // (build 36: {hero}, what the player is, the knight unsaid)
   }
   function opening(mem, who, o) {
     o = o || {};

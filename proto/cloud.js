@@ -11,9 +11,11 @@
 // since a page can't keep another site's cookie. The Cloudflare copy sends it too, and keeps its cookie.
 //
 // The game keeps using localStorage as it does. This module copies the player's own records to the server and back, as one bundle:
-//   { v: 2, at, smith: { id, name, joined }, forge: <forge-forever:local:<id>>, lessons: <forge-forever:lessons:<id>>,
+//   { v: 2, at, smith: { id, name, joined, hero, colour }, forge: <forge-forever:local:<id>>, lessons: <forge-forever:lessons:<id>>,
 //     marks: { cellarSeen, gateSeen, gateFirsts, hallSeen } }   or the erase marker { v: 2, erased: true, at }
-// (hallSeen, the Great Hall's first visit since design pass 21, rides only once it is set, so a bundle from before it is the same bundle)
+// (hallSeen, the Great Hall's first visit since design pass 21, rides only once it is set, so a bundle from before it is the same bundle;
+// so do hero and colour, the player's look since build 36, design pass 46: they ride once the record has a hero, and a bundle without
+// them leaves this phone's look alone for the same player)
 // gzipped where the browser can (CompressionStream), plain JSON where it can't. The phone's bookkeeping is forge-forever:cloud =
 // { id, rev, dirty, registered, erase }: the player it belongs to, the version both sides last agreed on, unsent changes, whether
 // this player was ever online from here, an erase still to send.
@@ -89,7 +91,7 @@
   function collect(id) {
     const r = record();
     if (!r || r.id !== id) return null;
-    return { v: 2, at: nowIso(), by: on ? deviceId() : null, smith: { id: r.id, name: r.name, joined: r.joined || null },
+    return { v: 2, at: nowIso(), by: on ? deviceId() : null, smith: Object.assign({ id: r.id, name: r.name, joined: r.joined || null }, r.hero ? { hero: r.hero, colour: r.colour || null } : {}),
       forge: parse(get(K.local + id)), lessons: parse(get(K.lessons + id)),
       marks: Object.assign({ cellarSeen: get(K.cellarSeen), gateSeen: get(K.gateSeen), gateFirsts: parse(get(K.gateFirsts)) }, get(K.hallSeen) !== null ? { hallSeen: get(K.hallSeen) } : {}) };
   }
@@ -100,13 +102,22 @@
     const id = (b && b.smith && b.smith.id) || (smith && smith.id);
     if (!id) return "none";
     const name = (b && b.smith && b.smith.name) || (smith && smith.name) || "Kid";
-    set(K.smith, JSON.stringify({ v: 1, id, name, joined: (b && b.smith && b.smith.joined) || (smith && smith.joined) || null }));
+    set(K.smith, JSON.stringify(Object.assign({ v: 1, id, name, joined: (b && b.smith && b.smith.joined) || (smith && smith.joined) || null }, lookFor(b && b.smith, id))));
     if (!b) return "named";
     const put = (k, v) => (v === null || v === undefined ? del(k) : set(k, typeof v === "string" ? v : JSON.stringify(v)));
     put(K.local + id, b.forge); put(K.lessons + id, b.lessons);
     const m = b.marks || {};
     put(K.cellarSeen, m.cellarSeen); put(K.gateSeen, m.gateSeen); put(K.gateFirsts, m.gateFirsts); put(K.hallSeen, m.hallSeen);
     return "applied";
+  }
+  // (build 36) the look a record written here takes: the bundle's when it has one; else this phone's own, kept when the record here is
+  // the same player's (an older bundle, from a phone without the heroes, never undresses the player); else none
+  function lookFor(bs, id) {
+    const word = s => (typeof s === "string" && /^[a-z]{2,16}$/.test(s) ? s : null);
+    if (bs && word(bs.hero)) return Object.assign({ hero: bs.hero }, word(bs.colour) ? { colour: bs.colour } : {});
+    const cur = record();
+    if (cur && cur.id === id && word(cur.hero)) return Object.assign({ hero: cur.hero }, word(cur.colour) ? { colour: cur.colour } : {});
+    return {};
   }
   // wipeLocal(): what Erase my smithy wipes on this phone (settings.js's own list), without telling the server
   function wipeLocal() {
@@ -262,7 +273,7 @@
   async function rekey(r) {
     const to = state.smith.id;
     if (r.id !== to) for (const p of [K.local, K.lessons]) { const v = get(p + r.id); if (v !== null) { set(p + to, v); del(p + r.id); } }
-    set(K.smith, JSON.stringify({ v: 1, id: to, name: r.name, joined: r.joined || state.smith.joined || null }));
+    set(K.smith, JSON.stringify(Object.assign({ v: 1, id: to, name: r.name, joined: r.joined || state.smith.joined || null }, lookFor(r, r.id))));   // (build 36: the look rides along)
     const sync = readSync();
     writeSync({ id: to, rev: state.meta ? state.meta.rev : (sync.id === to ? sync.rev || 0 : 0), dirty: true, registered: true });
     touch(true);
@@ -476,7 +487,7 @@
     touch, adopt: r => adopt(r, false), newKey, claim, erase, deleteGame, foot, onNote,
     call,   // (build 24) the Roll's claims and reads go through the same wire, with the token
     socket, token,   // (build 27, design pass 36) the arena's wire: a WebSocket to the API and the token its first message carries
-    // for the checks: what would be sent, and the bookkeeping
-    collect, readSync, send
+    // for the checks: what would be sent, and the bookkeeping; (build 36) a bundle applied, and the look a written record takes
+    collect, readSync, send, apply, lookFor
   };
 })(typeof window !== "undefined" ? window : globalThis);

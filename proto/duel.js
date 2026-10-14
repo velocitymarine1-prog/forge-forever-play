@@ -70,8 +70,11 @@
     const theirs = players.filter((p, i) => i !== local && (p.team === undefined ? 0 : p.team) !== localTeam);
     const used = new Set(players.map(p => p.name)), houseList = S.house.knights.filter(h => !used.has(h[0]));
     let hi = 0;
-    const house = () => { const h = houseList[hi++ % houseList.length], tag = hi > houseList.length ? " " + Math.ceil(hi / houseList.length) : ""; return { name: h[0] + tag, level: S.house.level, loadout: h.slice(1), kind: "house", house: true, skill }; };
-    const side = (list, team) => { const out = list.slice(0, n).map(p => Object.assign({}, p, { team, house: !!p.house, kind: p.house ? "house" : p.kind === "remote" ? "remote" : "player", skill: p.skill || skill })); while (out.length < n) out.push(Object.assign(house(), { team })); return out; };
+    // (build 36, design pass 46) every seat names its hero: a player's its own, the house's from house.heroes (Mara the elf, Brannock the
+    // sasquatch, Hollis the wretch, Wren the yeti, Asa the wizard; a name not listed is a knight), so every phone draws the same heroes
+    const heroOf = name => ((S.house.heroes || {})[String(name || "").replace(/ \d+$/, "")]) || "knight";
+    const house = () => { const h = houseList[hi++ % houseList.length], tag = hi > houseList.length ? " " + Math.ceil(hi / houseList.length) : ""; return { name: h[0] + tag, level: S.house.level, loadout: h.slice(1), kind: "house", house: true, skill, hero: heroOf(h[0]) }; };
+    const side = (list, team) => { const out = list.slice(0, n).map(p => Object.assign({}, p, { team, house: !!p.house, kind: p.house ? "house" : p.kind === "remote" ? "remote" : "player", skill: p.skill || skill, hero: typeof p.hero === "string" && p.hero ? p.hero : (p.house ? heroOf(p.name) : "knight") })); while (out.length < n) out.push(Object.assign(house(), { team })); return out; };
     const seats = side(mine, 0).concat(side(theirs, 1));
     return seats.map((s, i) => Object.assign(s, { seat: i, loadout: (s.loadout || ["sword"]).slice(0, 2).map(thingOf) }));
   }

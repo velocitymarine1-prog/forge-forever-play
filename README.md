@@ -1,7 +1,8 @@
 # Forge Forever · the first playable
 
 One game in three pages, in the browser. It opens on the **main menu** (the title over the forge's fire; a tap anywhere plays). A phone
-that has never played opens on **the opening** instead (build 29): the story of how you, an Outlander, woke in Grycus's forge with no
+that has never played opens on **the opening** instead (build 29): first **What are you?** (build 36: an elf, a knight, a wretch, a wizard,
+a yeti or a sasquatch, and a colour for three of them; only your look), then the story of how you, an Outlander, woke in Grycus's forge with no
 memory but a cave and an ember, fourteen pictures tapped through, your name asked inside it (**What do I call you?**), and Grycus's tale
 of Ardentia and the embers; then Nell and Grycus walk the new knight
 through the first five minutes: in through the courtyard's gate to Nell's cart for one Fire, up to the Forge where Grycus forges it
@@ -82,4 +83,4 @@ This is a **world of one**: the pairs the seed ledger knows reveal the Forge Ora
 every other pair is the offline Combiner's provisional draft. Your game is saved in this browser and online, on the forge's server,
 so it can go to another phone (Settings: Play on another phone, then Bring a game here on the other). The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `a6c3343`.
+`tools/deploy.sh` from commit `bd58843`.

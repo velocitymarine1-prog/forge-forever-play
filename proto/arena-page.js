@@ -98,19 +98,19 @@
   // ------------------------------------------------------------------ the queue and the seats
   function playerSeat() {
     const f = H.getFight(), hands = (f && f.hands || []).map(h => h.thing), S = H.smith || {};
-    return { seat: 0, team: 0, name: S.name || "You", level: S.level || 1, loadout: hands.length ? hands.slice(0, 2) : [], kind: "player" };
+    return { seat: 0, team: 0, name: S.name || "You", level: S.level || 1, loadout: hands.length ? hands.slice(0, 2) : [], kind: "player", hero: S.hero || "knight" };   // (build 36: the player's hero rides on its seat)
   }
   function start(mode) {
     P.mode = mode;
     const L = W().lobby || {};
     if (H.Wire && H.Wire.available && H.Wire.available() && H.Wire.queue) {
       const me = playerSeat();
-      P.queue = { mode, line: fill(L.looking || "Looking for a knight… {t}", { t: "0:00" }), t0: Date.now() };
+      P.queue = { mode, line: fill(L.looking || "Looking for a foe… {t}", { t: "0:00" }), t0: Date.now() };
       try {
-        P.queue.q = H.Wire.queue({ mode, name: me.name, level: me.level, loadout: me.loadout.map(t => t.id), onState: s => {
+        P.queue.q = H.Wire.queue({ mode, name: me.name, level: me.level, loadout: me.loadout.map(t => t.id), hero: me.hero, onState: s => {   // (build 36: the hero on the queue, so the other phones draw it)
           if (!P.queue) return;
-          if (s.kind === "looking") P.queue.line = s.waiting > 1 ? fill(L.waiting || "{n} knights waiting", { n: s.waiting }) : fill(L.looking || "Looking for a knight… {t}", { t: mmss(s.t || (Date.now() - P.queue.t0) / 1000) });
-          else if (s.kind === "filling") P.queue.line = L.filling || "The house's knights are coming";
+          if (s.kind === "looking") P.queue.line = s.waiting > 1 ? fill(L.waiting || "{n} waiting", { n: s.waiting }) : fill(L.looking || "Looking for a foe… {t}", { t: mmss(s.t || (Date.now() - P.queue.t0) / 1000) });
+          else if (s.kind === "filling") P.queue.line = L.filling || "The house's champions are coming";
           else if (s.kind === "found") { const q = P.queue; P.queue = null; startBout(Object.assign({ online: true }, s)); return; }
           else if (s.kind === "offline" || s.kind === "error") { P.queue = null; startBout({ online: false, mode }); return; }
           else if (s.kind === "left") P.queue.line = fill(L.left || "{name} left the gate", { name: s.name || "A knight" });
