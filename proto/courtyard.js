@@ -489,11 +489,6 @@
   // the Training Cellar's way down, in the keep: a round stone arch (the Forge's own arch, pass 14) over steps going down into the dark,
   // the torches' light on the top steps
   // the Armorer's sign: a board with a steel helmet on it, drawn by the painter L at (x, y), 14 x 12
-  function helmetBoard(L, x, y) {
-    for (let yy = y; yy <= y + 11; yy++) for (let xx = x; xx <= x + 13; xx++) L(xx, yy, xx === x || xx === x + 13 || yy === y || yy === y + 11 ? OUT : yy === y + 1 ? "#e4a672" : "#b86f50", 1);
-    const hcx = x + 6.5, hcy = y + 5.5;
-    for (let yy = y + 2; yy <= y + 9; yy++) for (let xx = x + 2; xx <= x + 11; xx++) { const dx = xx + 0.5 - hcx, dy = yy + 0.5 - hcy; const dome = dx * dx / 16 + dy * dy / 12 <= 1 && yy <= y + 8; if (!dome) continue; L(xx, yy, yy === y + 6 && Math.abs(dx) < 3 ? OUT : dx < -1.5 ? "#c0cbdc" : dx > 2 ? "#5a6988" : "#8b9bb4", 1); }
-  }
 
   // ------------------------------------------------------------------ the standing things: each its own sprite, sorted with the
   // knight by its foot (sy), drawn at (x, y) world. { x, y, w, h, sy, layer }
@@ -502,48 +497,68 @@
   // hearth's light pouring out of it, an anvil on a hanging sign
   const FONT = { F: "111100110100100", O: "010101101101010", R: "110101110101101", G: "011100101101011", E: "111100110100111" };
   function letters(L, s, x, y, c, sh) { let cx = x; for (const ch of s) { const gl = FONT[ch]; if (gl) for (let j = 0; j < 5; j++) for (let i = 0; i < 3; i++) if (gl[j * 3 + i] === "1") { if (sh) L(cx + i + 1, y + j + 1, sh, 1); L(cx + i, y + j, c, 1); } cx += 4; } }
-  // the Armorer's stand (revision 1: where the Forge was going to be, a placeholder, shut): its back board and posts, the canvas rolled
-  // up and tied under the roof's edge; in front, the counter under a tarp roped down with a notice pinned to it, the front posts, the
-  // helmet sign on its pole; beside it an armour stand with a helmet and a breastplate. No armorer yet
+  // (build 38, design pass 47 section 3.5) the Armorer's stand, open: Ottar's. Where revision 1 had it shut (the canvas rolled up, the
+  // counter under a roped tarp with a notice, a helmet sign, an armour stand with a helmet and a breastplate), the pass's sketch
+  // (docs/design/47-the-armorer.sketch.js shop()) draws it open in the same coordinates: the back board and its posts with the canvas let
+  // down from the roof's edge into a striped awning; an oak counter with a gold-rimmed pauldron and a pair of gauntlets on it, a red
+  // runner with a small breastplate, the front posts, the sign on its pole with a breastplate on its board (Ottar sells no helmets, so
+  // none is on show); and four suits on stands, the sets in the knight's cut on oak knobs (proto/armour-art.js standFrame). The Yard
+  // moves them by (32, 70) as it moved the shut pieces. The sign's board: oak, its top lit; on it a breastplate, its shoulders either
+  // side of the neck, narrowing to the waist, lit at its left
+  function plateBoard(L, x, y) {
+    for (let yy = y; yy <= y + 11; yy++) for (let xx = x; xx <= x + 13; xx++) L(xx, yy, xx === x || xx === x + 13 || yy === y || yy === y + 11 ? OUT : yy === y + 1 ? "#e4a672" : "#b86f50", 1);
+    const rows = [[3, 5, 8, 10], [2, 11], [2, 11], [3, 10], [3, 10], [4, 9], [4, 9]];   // per row: the plate's spans (the first row's two shoulders)
+    rows.forEach((sp, k) => { const yy = y + 2 + k; for (let s = 0; s < sp.length; s += 2) for (let xx = x + sp[s]; xx <= x + sp[s + 1]; xx++) { const dx = xx - (x + 6.5); L(xx, yy, k === 0 && (xx === x + sp[s] || xx === x + sp[s + 1]) ? "#5a6988" : dx < -2 ? "#c0cbdc" : dx > 2 ? "#5a6988" : "#8b9bb4", 1); } });
+    for (let yy = y + 3; yy <= y + 8; yy++) L(x + 6, yy, "#c0cbdc", 1);   // the ridge
+    L(x + 6, y + 2, OUT, 1); L(x + 7, y + 2, OUT, 1);                    // the neck
+  }
+  // the back board with its two posts, the canvas let down from the roof's edge into a striped awning (red and grey, six pixels a stripe,
+  // darker as it falls) with a scalloped hem
   function armorerBack() {
-    const P = new Piece(246, 190, 104, 36, 212), g = P.layer, ox = 246, oy = 190;
-    const L = (x, y, c, l) => g.set(x - ox, y - oy, c, l);
+    const P = new Piece(246, 190, 104, 36, 212), g = P.layer, ox = 246, oy = 190, L = (x, y, c, l) => g.set(x - ox, y - oy, c, l);
     const sx0 = 250, sx1 = 326;
     for (let y = 206; y <= 224; y++) for (let x = sx0 + 4; x <= sx1 - 4; x++) L(x, y, x === sx0 + 4 || x === sx1 - 4 || y === 206 ? OUT : (x - sx0) % 9 === 0 ? "#2a1d28" : "#3e2731", 1);
     for (const px of [sx0 + 4, sx1 - 6]) for (let y = 199; y <= 206; y++) { L(px, y, OUT, 1); L(px + 1, y, "#733e39", 1); L(px + 2, y, OUT, 1); }
-    // the roof's edge and the rolled canvas tied under it
     for (let y = 194; y <= 198; y++) for (let x = sx0 - 2; x <= sx1 + 2; x++) L(x, y, y === 194 || y === 198 || x === sx0 - 2 || x === sx1 + 2 ? OUT : y === 195 ? "#e4a672" : "#733e39", 1);
-    for (let y = 199; y <= 204; y++) for (let x = sx0 + 2; x <= sx1 - 2; x++) { const st = Math.floor((x - sx0) / 6) % 2; L(x, y, y === 204 || x === sx0 + 2 || x === sx1 - 2 ? OUT : (x - sx0) % 6 === 0 ? "#3e2731" : st ? (y < 201 ? "#c0cbdc" : "#8b9bb4") : (y < 201 ? "#be4a2f" : "#a22633"), 1); }
-    for (const tx of [sx0 + 16, sx1 - 16]) for (let y = 199; y <= 205; y++) L(tx, y, "#e4a672", 1);
+    for (let x = sx0 - 1; x <= sx1 + 1; x++) {
+      const st = Math.floor((x - sx0 + 60) / 6) % 2, k = (x - sx0 + 60) % 6, hem = 204 + (k === 0 || k === 5 ? 0 : k === 1 || k === 4 ? 1 : 2);
+      for (let y = 199; y <= hem; y++) L(x, y, y === hem || x === sx0 - 1 || x === sx1 + 1 ? OUT : st ? (y < 201 ? "#c0cbdc" : y < 203 ? "#8b9bb4" : "#5a6988") : (y < 201 ? "#e43b44" : y < 203 ? "#be4a2f" : "#a22633"), 1);
+    }
     return P;
   }
+  // the counter (the tarp gone): an oak top with a pauldron and a pair of gauntlets on it, plank fronts, a red runner with the sign's
+  // mark; the front posts; the sign on its pole, its board a breastplate
   function armorerFront() {
-    const P = new Piece(232, 190, 120, 58, 246), g = P.layer, ox = 232, oy = 190;
-    const L = (x, y, c, l) => g.set(x - ox, y - oy, c, l);
+    const P = new Piece(232, 190, 120, 58, 246), g = P.layer, ox = 232, oy = 190, L = (x, y, c, l) => g.set(x - ox, y - oy, c, l);
     const sx0 = 250, sx1 = 326;
     for (const px of [sx0, sx1 - 2]) for (let y = 198; y <= 244; y++) { L(px, y, OUT, 1); L(px + 1, y, "#733e39", 1); L(px + 2, y, OUT, 1); }
-    // the counter under its tarp: grey canvas in folds, two ropes, a notice pinned to it
     for (let y = 222; y <= 246; y++) for (let x = sx0 + 2; x <= sx1 - 2; x++) {
-      const e = x === sx0 + 2 || x === sx1 - 2 || y === 222 || y === 246, fold = (x - sx0 + Math.floor((y - 222) / 3)) % 11;
-      L(x, y, e ? OUT : y < 226 ? (y === 223 ? "#c0cbdc" : "#8b9bb4") : fold === 0 ? "#3a4466" : fold < 3 ? "#5a6988" : fold > 8 ? "#8b9bb4" : "#5a6988", 1);
+      const e = x === sx0 + 2 || x === sx1 - 2 || y === 222 || y === 246 || y === 226;
+      L(x, y, e ? OUT : y < 226 ? (y === 223 ? "#e4a672" : y === 224 ? "#b86f50" : "#733e39") : (x - sx0) % 7 === 0 ? "#3e2731" : (y + x) % 11 === 0 ? "#3e2731" : "#733e39", 1);
     }
-    for (const rx of [sx0 + 14, sx1 - 14]) for (let y = 222; y <= 246; y++) { L(rx, y, "#b86f50", 1); L(rx + 1, y, "#733e39", 1); }
-    for (let y = 229; y <= 239; y++) for (let x = 282; x <= 294; x++) L(x, y, x === 282 || x === 294 || y === 229 || y === 239 ? "#c28569" : (y === 232 || y === 234) && x > 283 && x < 293 ? "#733e39" : y === 236 && x > 283 && x < 289 ? "#733e39" : "#ead4aa", 1);
-    L(288, 229, "#a22633", 1);
-    // the sign on its pole at the front corner: the helmet
-    for (let y = 204; y <= 246; y++) { L(240, y, OUT, 1); L(241, y, "#733e39", 1); L(242, y, OUT, 1); }
-    helmetBoard(L, 234, 200);
+    // the runner down the counter's front, red, its hem gold, a small breastplate on it
+    for (let y = 226; y <= 241; y++) for (let x = 282; x <= 294; x++) L(x, y, x === 282 || x === 294 || y === 241 ? OUT : y === 240 ? "#feae34" : (x === 283 || y === 227) ? "#e43b44" : "#a22633", 1);
+    for (const [x, y, c] of [[286, 229, "#c0cbdc"], [287, 229, "#8b9bb4"], [290, 229, "#8b9bb4"], [291, 229, "#5a6988"], [286, 230, "#c0cbdc"], [287, 230, "#c0cbdc"], [288, 230, "#8b9bb4"], [289, 230, "#8b9bb4"], [290, 230, "#5a6988"], [291, 230, "#5a6988"],
+      [287, 231, "#c0cbdc"], [288, 231, "#8b9bb4"], [289, 231, "#5a6988"], [290, 231, "#5a6988"], [288, 232, "#8b9bb4"], [289, 232, "#5a6988"]]) L(x, y, c, 1);
+    // on the counter: a pauldron with its gold rim, and a pair of gauntlets
+    g.region((x, y) => ell(305, 220.5, 3.8, 2.6)(x + ox, y + oy) && y + oy <= 221, R.steel, { spec: (x, y) => x + ox === 303 && y + oy === 218 });
+    for (let x = 302; x <= 308; x++) L(x, 221, "#feae34", 1);
+    g.region((x, y) => rect(262, 219, 265, 221)(x + ox, y + oy), R.steel); g.region((x, y) => rect(267, 219, 270, 221)(x + ox, y + oy), R.steel);
+    for (const px of [240]) for (let y = 204; y <= 246; y++) { L(px, y, OUT, 1); L(px + 1, y, "#733e39", 1); L(px + 2, y, OUT, 1); }
+    plateBoard(L, 234, 200);
+    g.outline(1);
     return P;
   }
-  function armourStand() {
-    const P = new Piece(326, 202, 24, 46, 246), g = P.layer, ox = 326, oy = 202;
-    const L = (x, y, c, l) => g.set(x - ox, y - oy, c, l);
-    for (let y = 226; y <= 244; y++) { L(337, y, "#b86f50", 1); L(338, y, "#733e39", 1); }
-    for (let x = 332; x <= 343; x++) { L(x, 244, OUT, 1); L(x, 245, "#3e2731", 1); }
-    g.region((x, y) => poly([[331, 222], [345, 222], [343, 236], [339, 239], [337, 239], [333, 236]])(x + ox, y + oy), R.steel, { spec: (x, y) => x + ox === 334 && y + oy < 230 });
-    g.region((x, y) => ell(338, 214, 5, 6)(x + ox, y + oy), R.steel);
-    for (let x = 335; x <= 341; x++) L(x, 214, OUT, 1); L(338, 215, OUT, 1); L(338, 216, OUT, 1);
-    g.outline(1);
+  // a suit of armour on its stand: the set in the knight's cut on the knight's front, standing, an oak knob for a head (ArmourArt.standFrame),
+  // the oak pole showing between the legs and an oak foot under it; cx the middle, feet the row its feet stand on. Behind the counter only
+  // the knob and the shoulders show. Without the armour's painter (an older page's cache) the stand is bare: the pole and its foot
+  function armourStand(setId, cx, feet, sy) {
+    const P = new Piece(cx - 16, feet - 31, 32, 34, sy === undefined ? feet : sy), g = P.layer;
+    if (!root.ArmourArt && typeof module !== "undefined" && module.exports && typeof require === "function") { try { require("./knight.js"); require("./heroes.js"); require("./armour-art.js"); } catch (e) { /* no painter: a bare stand */ } }
+    const fr = root.ArmourArt && typeof root.ArmourArt.standFrame === "function" ? root.ArmourArt.standFrame(setId) : null;
+    for (let y = 25; y <= 31; y++) { g.set(15, y, "#733e39"); g.set(16, y, "#3e2731"); }
+    if (fr) fr.px.forEach((c, k) => { if (c) g.set(k % 32, (k / 32) | 0, c); });
+    for (let x = 8; x <= 23; x++) { g.set(x, 32, x === 8 || x === 23 ? OUT : "#733e39"); g.set(x, 33, OUT); }
     return P;
   }
 
@@ -905,7 +920,7 @@
     this.pieces = [
       moved(wellPiece(), 32, 17),
       moved(stallPiece(), -328, 70), moved(stallFront(), -328, 70),
-      moved(armorerBack(), 32, 70), moved(armorerFront(), 32, 70), moved(armourStand(), 32, 70),
+      moved(armorerBack(), 32, 70), moved(armorerFront(), 32, 70), moved(armourStand("robes", 266, 234, 234), 32, 70), moved(armourStand("frost", 310, 234, 234), 32, 70), moved(armourStand("plate", 338, 244), 32, 70), moved(armourStand("molten", 222, 244), 32, 70),   // (build 38: the stand open, four suits)
       moved(cartPiece(), 412, 70),
       moved(oakPiece(), 16, -4),
       moved(hay, 70, 70), moved(crates, 0, 70)
@@ -997,6 +1012,8 @@
     out.folk.push({ who: "nell", x: S0.folk.nell.x, y: S0.folk.nell.y, pose: nPose, i: Math.floor(beat * (nPose === "idle" ? 1.6 : 4)) % 4 });
     out.folk.push({ who: "biscuit", x: S0.folk.biscuit.x, y: S0.folk.biscuit.y, pose: Math.floor(beat / 6) % 2 ? "eat" : "idle", i: Math.floor(beat * 3) % 4 });
     out.folk.push({ who: "vorn", x: S0.folk.vorn.x, y: S0.folk.vorn.y, pose: vPose, i: Math.floor(beat * 1.6) % 4 });
+    // (build 38, design pass 47) Ottar behind his counter: idle, pointing at his suits every eight seconds or so, tapping a plate now and then
+    if (S0.folk.armorer) { const oPose = Math.floor(beat / 8) % 3 === 2 ? "point" : Math.floor(beat / 7) % 5 === 4 ? "tap" : "idle"; out.folk.push({ who: "armorer", x: S0.folk.armorer.x, y: S0.folk.armorer.y, pose: oPose, i: Math.floor(beat * (oPose === "tap" ? 3 : 1.6)) % 4 }); }
     S0.folk.hens.forEach((hn, k) => {
       const [x0, y0, x1, y1] = hn.home, ph = beat * 0.25 + k * 1.7, wx = (x0 + x1) / 2 + Math.sin(ph) * (x1 - x0) * 0.4, wy = (y0 + y1) / 2 + Math.sin(ph * 0.7 + k) * (y1 - y0) * 0.3;
       out.folk.push({ who: "hen", x: still ? hn.x : wx, y: still ? hn.y : wy, i: Math.floor(beat * 3 + k) % 4, flip: Math.cos(ph) < 0 });
@@ -1007,7 +1024,7 @@
   // ------------------------------------------------------------------ the places: zones, taps, where to stand
   // a place by its id: a door, the map table, the well, the Roll's board (build 24), Nell or Vorn
   Yard.prototype.placeOf = function (id) { const S0 = this.spec; return S0.doors[id] || S0.folk[id] || (id === "well" ? S0.well : id === "table" ? S0.table : id === "roll" ? S0.roll : null) || null; };
-  const PLACES = S0 => [["table", "table", S0.table]].concat(Object.keys(S0.doors).map(id => [id, "door", S0.doors[id]]), [["well", "well", S0.well], ["roll", "roll", S0.roll], ["nell", "folk", S0.folk.nell], ["vorn", "folk", S0.folk.vorn]]).filter(p => p[2]);
+  const PLACES = S0 => [["table", "table", S0.table]].concat(Object.keys(S0.doors).map(id => [id, "door", S0.doors[id]]), [["well", "well", S0.well], ["roll", "roll", S0.roll], ["nell", "folk", S0.folk.nell], ["vorn", "folk", S0.folk.vorn], ["armorer", "folk", S0.folk.armorer]]).filter(p => p[2]);   // (build 38: Ottar, the armourer, at his stand)
   const placed = (id, kind, P) => { const o = { id, kind, prompt: P.prompt }; o[kind === "folk" ? "folk" : kind] = P; return o; };
   // which zone the feet are in: a door, the map table, the well, the Roll or a folk, or null
   Yard.prototype.zoneAt = function (x, y) {

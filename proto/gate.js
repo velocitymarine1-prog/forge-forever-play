@@ -793,7 +793,18 @@
   // the line shown), into their own bounding box when the aim locks, and kept in a small store that forgets the oldest (a lock's line is
   // reused every frame it shows; after the attack it goes). The 16-direction forms below stay for the tests of the older shape
   const TGC = { keep: 24, m: new Map() };
-  const keep = (key, make) => { let v = TGC.m.get(key); if (v) { TGC.m.delete(key); TGC.m.set(key, v); return v; } v = make(); TGC.m.set(key, v); if (TGC.m.size > TGC.keep) TGC.m.delete(TGC.m.keys().next().value); return v; };
+  const keepIn = (store, key, make) => { let v = store.m.get(key); if (v) { store.m.delete(key); store.m.set(key, v); return v; } v = make(); store.m.set(key, v); if (store.m.size > store.keep) store.m.delete(store.m.keys().next().value); return v; };
+  const keep = (key, make) => keepIn(TGC, key, make);
+  // (design pass 44) an effect painted into an image over a world box, for a level's art (the Throne's beams, big rings, arcs, strips and
+  // fissures, past the ring's 64 and the line's 320): paint(put) with put(x, y, colour, alpha) in world px (an alpha under 1 is dithered;
+  // outside clip [x0, y0, x1, y1] dropped), the image anchored at its box's corner (s.x0, s.y0). A keyed image is kept in a store of 32 that
+  // forgets the oldest (a telegraph's line, baked once); a null key is a new image each time (a live beam's flicker, a burst's frame)
+  const FXC = { keep: 32, m: new Map() };
+  TG.image = (key, x0, y0, x1, y1, paint, clip) => {
+    const make = () => { const bx = Math.floor(x0), by = Math.floor(y0), w = Math.max(1, Math.ceil(x1) - bx + 1), h = Math.max(1, Math.ceil(y1) - by + 1), px = new Array(w * h).fill(null);
+      const put = (x, y, c, a) => { x = Math.round(x); y = Math.round(y); if (clip && (x < clip[0] || x > clip[2] || y < clip[1] || y > clip[3])) return; const i = x - bx, j = y - by; if (i < 0 || j < 0 || i >= w || j >= h) return; if (a !== undefined && a < 1 && !dith(x, y, a)) return; px[j * w + i] = c; };
+      paint(put); return sprite(px, w, h, 0, 0, { x0: bx, y0: by, fx: true }); };
+    return key ? keepIn(FXC, key, make) : make(); };
   TG.lineTo = (dx, dy) => { dx = clamp(Math.round(dx), -320, 320); dy = clamp(Math.round(dy), -320, 320); return keep("l" + dx + "|" + dy, () => {
     const len = Math.hypot(dx, dy), ux = len ? dx / len : 1, uy = len ? dy / len : 0, ox = Math.max(0, -dx) + 2, oy = Math.max(0, -dy) + 2, sp = G(Math.abs(dx) + 5, Math.abs(dy) + 5);
     for (let t = 0; t <= len; t += 2) sp.set(ox + ux * t, oy + uy * t, RED); edge(sp); return gridSprite(sp, ox, oy); }); };
@@ -808,8 +819,9 @@
     const a = dir * TAU / DIR, ca = Math.cos(a), sa = Math.sin(a), w = 2 * (len + wd) + 8, sp = G(w, w), c = w >> 1, hw = wd / 2;
     for (let y = 0; y < w; y++) for (let x = 0; x < w; x++) { const dx = x - c, dy = y - c, t = dx * ca + dy * sa, s = -dx * sa + dy * ca; if (t < 0 || t > len) continue; const lim = t > len - 8 ? hw * (len - t) / 8 + 1 : hw - (t < 6 ? 2 : 0); if (Math.abs(s) > lim) continue; if (Math.abs(s) > lim - 1.2 || dith(x, y, 0.35)) sp.set(x, y, RED); }
     edge(sp); return gridSprite(sp, c, c); }); };
-  // (design pass 38) white for a blow the knight can parry, red (as ever) for one that can only be dodged
-  TG.glint = (bright, white) => once("glint" + (bright ? 1 : 0) + (white ? "w" : ""), () => { const sp = G(5, 5), C = white ? "#ffffff" : RED; if (bright) { for (let i = 0; i < 3; i++) { sp.set(1 + i, 2, C); sp.set(2, 1 + i, C); } } else { sp.set(1, 1, C); sp.set(2, 1, C); sp.set(1, 2, C); sp.set(2, 2, C); } edge(sp); return gridSprite(sp, 2, 2); });
+  // (design pass 38) white for a blow the knight can parry, red (as ever) for one that can only be dodged; (design pass 44) gold for a
+  // combo's finisher
+  TG.glint = (bright, white, gold) => once("glint" + (bright ? 1 : 0) + (white ? "w" : "") + (gold ? "g" : ""), () => { const sp = G(5, 5), C = gold ? "#feae34" : white ? "#ffffff" : RED; if (bright) { for (let i = 0; i < 3; i++) { sp.set(1 + i, 2, C); sp.set(2, 1 + i, C); } } else { sp.set(1, 1, C); sp.set(2, 1, C); sp.set(1, 2, C); sp.set(2, 2, C); } edge(sp); return gridSprite(sp, 2, 2); });
   // (design pass 38) the poise bar: a gold hairline w wide under a health bar (a dark track, the fill from the left; the fill dim while
   // the bar is locked after a stagger), with its soot under it. Anchored like the bar, at its top centre
   const POISE = { fill: "#feae34", dim: "#be4a2f", track: "#3e2731" };
@@ -824,11 +836,11 @@
   MK.bubbles = f => once("bubbles" + ((f | 0) & 3), () => { const sp = G(9, 7), ff = (f | 0) & 3; for (let i = 0; i < 3; i++) sp.set(1 + i * 3, 5 - ((ff + i * 2) % 5), i === ff % 3 ? R.water[3] : R.water[2]); return gridSprite(sp, 4, 6); });
 
   // ------------------------------------------------------------------ marks for trolls off the screen (section 3.14)
-  // a chevron of 3, 5 or 7 px pointing outward in one of 8 directions, bone with a 1 px soot edge (red while a trebuchet's stone flies),
+  // a chevron of 3, 5, 7 or 9 px (design pass 44: the King's) pointing outward in one of 8 directions, bone with a 1 px soot edge (red while a trebuchet's stone flies),
   // the engine's dot behind it; anchored at its tip
   const DIR8 = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
   function edgeMark(size, dir, alarm, dot) {
-    size = size >= 7 ? 7 : size >= 5 ? 5 : 3; dir = ((dir | 0) % 8 + 8) % 8;
+    size = size >= 9 ? 9 : size >= 7 ? 7 : size >= 5 ? 5 : 3; dir = ((dir | 0) % 8 + 8) % 8;
     return once("emark" + size + "|" + dir + (alarm ? "a" : "") + (dot ? "d" : ""), () => {
       const n = size + 8, sp = G(n, n), c = n >> 1, h = (size - 1) / 2, col = alarm ? RED : BONE;
       // (ax, ay) in the chevron's own frame: ax along the direction (the tip at 0, the arms behind), ay across; a diagonal's steps are halved
@@ -862,7 +874,7 @@
     // only the current arena's trolls (the director's fight.level.arena: { x0, x1 }; before an arena is set, every troll)
     const AR = fight.level && fight.level.arena && fight.level.arena.x0 !== undefined ? fight.level.arena : null, inArena = x => !AR || (x >= AR.x0 && x <= AR.x1);
     const add = (sx, sy, size, extra) => { if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) return; const dx = Math.max(0, -sx, sx - W), dy = Math.max(0, -sy, sy - H), d = Math.hypot(dx, dy); if (d > within) return; out.push(Object.assign({ sx, sy, d, size: size === "auto" ? (d <= near ? SZ.near : SZ.far) : size, alarm: false, dot: false }, extra || {})); };
-    for (const f of fight.foes || []) if (!f.dead && !(f.spawn > 0) && inArena(f.x)) add(f.x - v.x0, f.y - (f.z || 0) - v.y0, f.kind === "brute" || f.kind === "rockbrute" ? SZ.brute : f.kind === "wolf" ? SZ.far : "auto");   // (a wolf's chevron the small size, design pass 21)
+    for (const f of fight.foes || []) if (!f.dead && !(f.spawn > 0) && inArena(f.x)) add(f.x - v.x0, f.y - (f.z || 0) - v.y0, f.kind === "brute" || f.kind === "rockbrute" ? SZ.brute : f.kind === "wolf" ? SZ.far : SZ[f.kind] !== undefined ? SZ[f.kind] : "auto");   // (design pass 44: a kind's own size in the spec, the King's 9)   // (a wolf's chevron the small size, design pass 21)
     for (const e of fight.engines || []) if (e.manned && !e.wrecked) add(e.x - v.x0, e.y - v.y0, SZ.engine, { dot: true, alarm: !!e.stone });
     for (const s of ((o.marks || fight.marks || {}).stone || [])) { const r = s.r || 16, sx = s.x - v.x0, sy = s.y - (s.z || 0) - v.y0; if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) add(sx, sy, SZ.engine, { alarm: true }); }
     out.sort((a, b) => a.d - b.d);
@@ -930,7 +942,11 @@
   // default; every culling and the ground's columns follow it
   Scene.prototype.setWindow = function (w, h) { this.vw = w > 0 ? w : TW; this.vh = h > 0 ? h : 216; };
   // ---- the ground, before the camera's translate: the one or two tiles the view overlaps, each with its decal canvas over it
-  Scene.prototype.drawGround = function (ctx, camX, camY) {
+  Scene.prototype.drawGround = function (ctx, camX, camY, fight) {
+    // (design pass 44) a level's art may change its ground before it is drawn (the Throne's ruin swapped in); the page hands the fight so
+    // the art has it on the first frame too (drawTufts keeps it otherwise)
+    if (fight) this.fight = fight;
+    if (this.art && this.art.ground) this.art.ground(this, this.fight);
     // (design pass 39) the tiles begin at world (-l, -t) for an area with wings (0, 0 for the rest), and the columns are picked with 8 px
     // to spare at each side, so the Arena's shake (4 px at most) never uncovers a seam
     const l = this.tiles.wl, t = this.tiles.wt, m = l || t ? 8 : 0;
@@ -1003,6 +1019,7 @@
     if (e.type === "fell") { this.fell[e.piece] = fight ? fight.t : 0; return true; }
     // the Emberback's death flare (section 3.6a): a windUp with no live troll behind it; its ring plays on the fight's clock for its wind
     if (e.type === "windUp") { if (e.attack === "flare" && e.tel && e.tel.kind === "ring") { this.flares.push({ x: e.x, y: e.y, z: e.z || 0, r: e.tel.r || 16, T: e.wind || e.tel.grow || 0.5, t0: fight ? fight.t : 0, on: e.on || null }); return true; } return false; }
+    if (e.type === "die" && this.art && this.art.dies && this.art.dies(e, fight, this)) return true;   // (design pass 44) a death the level's art owns: the King's, no stone and no crumble
     if (e.type === "die") { const L = this.last.get(e.foe) || { facing: "toward", anim: "idle", i: 0 }, f = fight && (fight.foes || []).find(x => x.id === e.foe), on = e.on || (f && f.on) || null;
       this.dying.push({ id: e.foe, kind: e.kind, x: e.x, y: e.y, z: e.z || 0, on, why: e.why, t: 0, facing: L.facing, anim: L.anim, i: L.i, dent: L.dent | 0 });
       if (e.why !== "DROWNED" && e.why !== "SPIKED" && fight && fight.area && fight.area.marks && !(fight.marks && fight.marks.rubbleEvents)) this.stamp({ kind: "rubble", x: e.x, y: e.y, z: e.z || 0, on, id: e.foe, r: e.kind === "brute" || e.kind === "rockbrute" ? 10 : 6 }); return true; }
@@ -1222,6 +1239,7 @@
   const reelAnim = f => ({ anim: BRUTES[f.kind] ? "sit" : f.kind === "wizard" ? "kneel" : "reel", i: 0 });
   function trollAnim(f, t, at) {
     const A = f.act;
+    if (root.Trolls && root.Trolls.KIND[f.kind] && root.Trolls.KIND[f.kind].body === "king") return kingAnim(f, t, at);   // (design pass 44)
     if (f.reel > 0 || (at && f.reelUntil !== undefined && at.ft < f.reelUntil - 1e-9) || (at && f.reelUntil === undefined && at.brokeAt !== undefined && at.ft - at.brokeAt < 1.2)) return reelAnim(f);
     if (f.critOpen && f.staggered) return reelAnim(f);
     if (A && A.phase) { const k = A.kind || "", q = A.T > 0 ? clamp((A.t || 0) / A.T, 0, 0.999) : 0;
@@ -1246,6 +1264,47 @@
     if (moving) return { anim: "walk", i: Math.floor(t * 8 + (f.id || 0)) & 3 };
     return { anim: "idle", i: Math.floor(t * 2 + (f.id || 0)) & 1 };
   }
+  // (design pass 44) the King's poses from his state, on his own frames (proto/trolls.js's KING_ANIMS): the cine's (seat, rise, roar,
+  // crouch, air, land), his flight, the kneel after an ultimate, his reel, the Sunwheel's steps (the crouch and the leap, the aim through
+  // the first line's wind, the spin), the Wrath's nova swelling over its charge (three frames), his combos' winds and blows (the lance and
+  // the crown aimed high when the aim is more than 30 degrees up), the charge's run, the Crash in the air and landed, his hit, walk and idle
+  function kingAnim(f, t, at) {
+    const A = f.act, KA = (root.Trolls && root.Trolls.KING_ANIMS) || {};
+    if (f.cine) return { anim: KA[f.cine] ? f.cine : "idle", i: f.cine === "seat" ? Math.floor(t * 2) & 1 : 0 };
+    if (f.flight) return { anim: "air", i: 0 };
+    if (f.kneel) return { anim: "kneel", i: 0 };
+    if (f.reel > 0 || (at && f.reelUntil !== undefined && at.ft < f.reelUntil - 1e-9) || (f.critOpen && f.staggered)) return { anim: "reel", i: 0 };
+    if (A && A.phase === "ult") {
+      const S = A.step, tel = A.tel || {};
+      if (A.kind === "wrath") return { anim: "nova", i: S === "charge" ? Math.min(2, Math.floor(clamp((A.t || 0) / (tel.grow || 5), 0, 0.999) * 3)) : 2 };
+      return { anim: S === "crouch" ? "crouch" : S === "air" ? "air" : S === "wind" ? "aim" : S === "begin" ? "idle" : "spin", i: 0 };
+    }
+    if (A && A.phase) {
+      const k = A.kind, high = A.aim ? Math.sin(Math.atan2(A.aim.y - f.y, A.aim.x - f.x)) < -0.5 : Math.sin(f.face || 0) < -0.5, sweep = k === "sweep" || k === "backsweep", beam = k === "lance" || k === "crown";
+      if (A.phase === "wind") return { anim: sweep ? "sweepWind" : k === "gavel" ? "gavelWind" : k === "charge" ? "chargeWind" : k === "stomp" ? "stomp" : beam ? (high ? "aimHigh" : "aim") : k === "crash" ? "crouch" : "sweepWind", i: 0 };
+      if (A.phase === "run") return { anim: "charge", i: Math.floor(t * 10) & 1 };
+      if (A.phase === "air") return { anim: "air", i: 0 };
+      if (A.phase === "fissures") return { anim: "land", i: 0 };
+      if (A.phase === "strike" || A.phase === "slam" || A.phase === "loose") return { anim: sweep ? "sweep" : k === "gavel" ? "gavel" : k === "stomp" ? "stomp" : beam ? (high ? "fireHigh" : "fire") : k === "charge" ? "charge" : "sweep", i: k === "stomp" ? 1 : k === "charge" ? (Math.floor(t * 10) & 1) : 0 };
+      if (A.phase === "recover") return { anim: k === "gavel" ? "gavel" : k === "crash" ? "land" : k === "stomp" ? "stomp" : "idle", i: k === "stomp" ? 1 : 0 };
+    }
+    if (f.stagger > 0 || f.staggered) return { anim: "reel", i: 0 };
+    if (f.flash > 0) return { anim: "hit", i: 0 };
+    const w = f.intent && f.intent.wish, moving = f.moving || (w && Math.hypot(w[0], w[1]) > 1) || Math.hypot(f.vx || 0, f.vy || 0) > 2;
+    if (moving) return { anim: "walk", i: Math.floor(t * 6 + (f.id || 0)) & 3 };
+    return { anim: "idle", i: Math.floor(t * 2 + (f.id || 0)) & 1 };
+  }
+  // (design pass 44 section 3.6) his facing from his aim a (radians, y down), for a kind whose spec says facings "front": the front when
+  // the aim is within 50 degrees of straight down, else the three-quarter turned toward the aim's side; within 10 degrees of straight
+  // up the last side is kept (last: the facing drawn before); never away. The three-quarter is drawn for right and left (left mirrored)
+  function frontFacing(a, last) {
+    const s = Math.sin(a), c = Math.cos(a);
+    if (s >= Math.cos(50 * Math.PI / 180) - 1e-9) return "toward";
+    if (-s >= Math.cos(10 * Math.PI / 180) - 1e-9 && (last === "left" || last === "right")) return last;
+    return c >= 0 ? "right" : "left";
+  }
+  // his glow (the Ember in his breastbone): 1 and 2 by turns with its beat (1 under less motion), 3 empowered, 0 while he kneels spent
+  const kingGlow = (f, o) => f.kneel ? 0 : f.empowered ? 3 : o.still ? 1 : 1 + (Math.floor(o.t * 2) & 1);
   // a troll knight's shield's dents from its guard meter (design pass 21 section 3.6): 1 at a third of the guard's breakAt, 2 at two
   // thirds (the spec's dents); a meter whose window has passed with no block is empty, as the rules count it at the next block
   function dentOf(f, ft) {
@@ -1259,20 +1318,25 @@
   Scene.prototype.drawTroll = function (ctx, F, o, f) {
     const T = root.Trolls, kind = T.KIND[f.kind] ? f.kind : "footman", N = T.KIND[kind].N;
     let a = f.face; if (a === undefined) { const k = F.k || { x: f.x + 1, y: f.y }; a = Math.atan2(k.y - f.y, k.x - f.x); }
-    const facing = root.Combat && root.Combat.facingOf ? root.Combat.facingOf(a) : (Math.cos(a) >= 0 ? "right" : "left"), an = trollAnim(f, o.t, { ft: F.t || 0, blockAt: this.blocks.get(f.id), brokeAt: this.breaks.get(f.id) });
-    const glow = o.still ? 0 : (kind === "firestaff" ? Math.floor(o.t * 4) & 1 : kind === "emberback" ? Math.floor(o.t * 2) & 1 : 0);
+    const KS = root.Combat && root.Combat.trollKind ? root.Combat.trollKind(kind) : null, front = !!(KS && KS.facings === "front"), was = front ? this.last.get(f.id) : null;   // (design pass 44) the King: no back
+    const facing = front ? frontFacing(a, was ? was.facing : null) : root.Combat && root.Combat.facingOf ? root.Combat.facingOf(a) : (Math.cos(a) >= 0 ? "right" : "left"), an = trollAnim(f, o.t, { ft: F.t || 0, blockAt: this.blocks.get(f.id), brokeAt: this.breaks.get(f.id) });
+    const glow = front ? kingGlow(f, o) : o.still ? 0 : (kind === "firestaff" ? Math.floor(o.t * 4) & 1 : kind === "emberback" ? Math.floor(o.t * 2) & 1 : 0);
     const dent = dentOf(f, F.t || 0);   // (design pass 21) the troll knight's shield dents as its guard meter fills
-    const fr = T.frame(kind, facing, an.anim, an.i, glow, dent);
-    this.last.set(f.id, { facing, anim: an.anim, i: an.i, dent });
+    let fr = T.frame(kind, facing, an.anim, an.i, glow, dent), shud = 0;
+    this.last.set(f.id, { facing, anim: an.anim, i: an.i, dent, glow });
+    // (design pass 44) his end: the frame held as he died in it, the Ember's light cracking through him step by step (the cine's cracks),
+    // his whole silhouette white on the flash's frames, a shudder of a pixel until the cracks centre; the pop is the art's (the burst)
+    const EN = F.cine && F.cine.kind === "end" && F.cine.king === f && T.kingFreeze ? F.cine : null;
+    if (EN) { const FZ = (F.area && F.area.end && F.area.end.freeze) || {}, fl = FZ.flash || 0.1, white = !o.still && (EN.t % fl) < 0.017; fr = T.kingFreeze(fr, EN.cracks | 0, white); if (!o.still && (FZ.shudder || 0) > 0 && EN.t < (FZ.center === undefined ? 0.6 : FZ.center)) shud = (Math.floor(o.t * 30) & 1) ? (FZ.shudder || 1) : -(FZ.shudder || 1); }
     const FX = this.art && this.art.fx ? this.art.fx : null;
     this.drawBody(ctx, F, o, f, (c, b, z) => {
       const bob = b.fly && !o.still ? (Math.floor(o.t * 4 + (b.id || 0)) & 1) : 0;   // (design pass 27) a flier bobs a pixel
-      const x0 = Math.round(b.x) - N / 2, y0 = Math.round(b.y - z) - (N - 1) - bob;
+      const x0 = Math.round(b.x) - N / 2 + shud, y0 = Math.round(b.y - z) - (N - 1) - bob;
       if (b.spawn > 0 || b.gone) c.globalAlpha = b.gone ? 0.7 : 0.5;
-      c.drawImage(b.flash > 0 ? fr.white() : fr.canvas(), x0, y0);
+      c.drawImage(b.flash > 0 && fr.white ? fr.white() : fr.canvas(), x0, y0);
       c.globalAlpha = 1;
       const A = b.act, tel = A && A.tel ? A.tel.kind : null;
-      if (A && A.phase === "wind" && fr.tip && (tel === "glint" || !tel || (tel === "draw" && (A.kind === "bolt" || A.kind === "hexbolt")) || tel === "rings")) { const atk = A.atk || {}, bright = A.T ? A.t >= A.T - (atk.glintBright || 0.15) : false; drawAt(c, TG.glint(bright ? 1 : 0, !!(A.tel && A.tel.parry)), x0 + fr.tip[0], y0 + fr.tip[1]); }   // (design pass 38: white when the blow can be parried)
+      if (A && A.phase === "wind" && fr.tip && (tel === "glint" || !tel || (tel === "draw" && (A.kind === "bolt" || A.kind === "hexbolt")) || tel === "rings" || (A.tel && A.tel.gold))) { const atk = A.atk || {}, bright = A.T ? A.t >= A.T - (atk.glintBright || 0.15) : false; drawAt(c, TG.glint(bright ? 1 : 0, !!(A.tel && A.tel.parry), !!(A.tel && A.tel.gold)), x0 + fr.tip[0], y0 + fr.tip[1]); }   // (design pass 38: white when the blow can be parried)
       if (b.ward && FX && FX.ward) drawAt(c, FX.ward(o.still ? 0 : Math.floor(o.t * 6) & 3), b.x, b.y - z);   // (design pass 27) the egg of light over a warded caster
       if (o.statuses) o.statuses(b, c);
     });
@@ -1352,6 +1416,27 @@
     for (const f of F.foes || []) { const A = f.act; if (!A) continue;
       // (design pass 27) the blink's glyph draws itself over the wind and stands while he is gone (green: a promise, not a blow)
       if (A.tel && A.tel.kind === "glyph" && (A.phase === "wind" || A.phase === "strike") && FX && FX.glyph && inV(A.tel.x, A.tel.y, 14)) { const qg = A.phase === "wind" ? clamp((A.t || 0) / Math.max(0.1, A.T || 0.5), 0, 1) : 1; const s = this.platAt(A.tel.x, A.tel.y, 0); place(FX.glyph(qg), A.tel.x, A.tel.y, 0, s); }
+      // (design pass 44) the King's telegraphs, past the ring's 64 and the line's 320, painted by the level's art (FX): the beam's red line
+      // from the sceptre to the first thing that stops it (each of a fan), the Sunwheel's first line and its arc round him, the Wrath's
+      // big ring filling over its charge (blinking in its last second; steady under less motion) with the Ember's light cracking out of
+      // the floor, the Crash's strips, then its fissures live (cracks of light along the floor)
+      const tk = A.tel ? A.tel.kind : null, CM = root.Combat, minHt = (this.A.beamBlock || {}).ht || 16;
+      const roomBox = (x, y) => { const rm = root.Level && root.Level.roomAt ? root.Level.roomAt(this.A, x, y) : null, RM = this.A.room || {}; if (!rm) return F.floor ? [F.floor.x0, F.floor.y0, F.floor.x1, F.floor.y1] : null; return rm.y0 ? [rm.x0 + 16, rm.y0 + (RM.wallBot || 96), rm.x1 - 16, rm.y1 - 16] : [rm.x0 + (RM.side || 8) + 4, RM.wallBot || 96, rm.x1 - (RM.side || 8) - 4, RM.frontY || rm.y1 - 8]; };
+      if (tk === "beam" && FX && FX.redLine && A.phase === "wind" && A.tel.from && A.tel.angles) { const from = A.tel.from, z = (A.atk && A.atk.z) || 16, zz = z + (f.z || 0), range = (A.atk && A.atk.range) || 320;
+        for (const a of A.tel.angles) { const B = CM && CM.firstBlock ? CM.firstBlock(F, from[0], from[1], z, a, range, minHt, A.tel.w || 10) : { x: from[0] + Math.cos(a) * range, y: from[1] + Math.sin(a) * range }; if (!inV(from[0], from[1], Math.hypot(B.x - from[0], B.y - from[1]) + 4)) continue;
+          const s = TG.image("bl|" + Math.round(from[0]) + "," + Math.round(from[1] - zz) + "|" + Math.round(B.x) + "," + Math.round(B.y - zz), Math.min(from[0], B.x) - 2, Math.min(from[1], B.y) - zz - 2, Math.max(from[0], B.x) + 2, Math.max(from[1], B.y) - zz + 2, put => FX.redLine(put, from[0], from[1] - zz, B.x, B.y - zz)); blit(ctx, s, s.x0, s.y0); n++; }
+        continue; }
+      if (tk === "spin" && FX && FX.arcArrow && FX.redLine) { const tel = A.tel, z = (A.atk && A.atk.z) || 16, zz = z + (f.z || 0), r = tel.r || 44, span = (tel.span || 120) * Math.PI / 180, B = CM && CM.firstBlock ? CM.firstBlock(F, tel.x, tel.y, z, tel.angle, 400, minHt, tel.w || 12) : { x: tel.x + Math.cos(tel.angle) * 400, y: tel.y + Math.sin(tel.angle) * 400 };
+        if (inV(tel.x, tel.y, 400)) { const s = TG.image("sp|" + Math.round(tel.x) + "," + Math.round(tel.y) + "|" + Math.round(tel.angle * 100) + "|" + (tel.dir || 1) + "|" + Math.round(B.x) + "," + Math.round(B.y), Math.min(tel.x - r - 8, B.x) - 2, Math.min(tel.y - r - 8, B.y - zz) - 2, Math.max(tel.x + r + 8, B.x) + 2, Math.max(tel.y + r + 8, B.y) + 2, put => { FX.redLine(put, tel.x, tel.y - zz, B.x, B.y - zz); FX.arcArrow(put, tel.x, tel.y - (f.z || 0), r, tel.angle, span, tel.dir || 1); }); blit(ctx, s, s.x0, s.y0); n++; }
+        continue; }
+      if (tk === "wrath" && FX && FX.bigRing) { const tel = A.tel, r = tel.r || 210, grow = tel.grow || 5, q = clamp((A.t || 0) / grow, 0, 1), blink = !still && grow - (A.t || 0) < (tel.blink || 1) && (Math.floor(t * 10) & 1), qf = blink ? 0 : Math.round(q * 20) / 20;
+        if (inV(tel.x, tel.y, r)) { const s = TG.image("wr|" + Math.round(tel.x) + "," + Math.round(tel.y) + "|" + r + "|" + qf, tel.x - r - 2, tel.y - r - 2, tel.x + r + 2, tel.y + r + 2, put => { FX.bigRing(put, tel.x, tel.y, r, qf); if (FX.wrathRays) FX.wrathRays(put, tel.x, tel.y, r, qf); }, roomBox(tel.x, tel.y)); blit(ctx, s, s.x0, s.y0); n++; }
+        continue; }
+      if (tk === "strips" && FX && FX.redStrip && A.tel.list) { const tel = A.tel, live = A.phase === "fissures" && (A.t || 0) >= (tel.grow || 0.5) - 1e-9, zz = f.z || 0, hw = (tel.w || 10) / 2 + 3;
+        for (const L of tel.list) { if (!inV(L.x0, L.y0, Math.hypot(L.x1 - L.x0, L.y1 - L.y0) + 4)) continue;
+          if (!live) { const s = TG.image("st|" + Math.round(L.x0) + "," + Math.round(L.y0) + "|" + Math.round(L.x1) + "," + Math.round(L.y1) + "|" + (tel.w || 10) + "|" + zz, Math.min(L.x0, L.x1) - hw, Math.min(L.y0, L.y1) - zz - hw, Math.max(L.x0, L.x1) + hw, Math.max(L.y0, L.y1) - zz + hw, put => FX.redStrip(put, L.x0, L.y0 - zz, L.x1, L.y1 - zz, tel.w || 10)); blit(ctx, s, s.x0, s.y0); n++; }
+          else if (FX.fissure) { const s = TG.image(null, Math.min(L.x0, L.x1) - 4, Math.min(L.y0, L.y1) - zz - 4, Math.max(L.x0, L.x1) + 4, Math.max(L.y0, L.y1) - zz + 4, put => FX.fissure(put, L.x0, L.y0 - zz, L.x1, L.y1 - zz, still ? 0 : Math.floor(t * 12))); blit(ctx, s, s.x0, s.y0); n++; } }
+        continue; }
       if (A.phase !== "wind") continue;
       const tel = A.tel || {}, q = tel.grow ? clamp((A.t || 0) / tel.grow, 0, 1) : 1, fill = Math.min(3, Math.floor((A.t || 0) / Math.max(0.1, A.T || 0.9) * 4));
       if (A.ring && inV(A.ring.x, A.ring.y, A.ring.r)) { place(TG.ring(Math.max(3, A.ring.r * q), tel.pulse ? (still ? 0 : Math.floor(t * 6) & 1) : fill), A.ring.x, A.ring.y, A.ring.z || 0, f.on); if (tel.inner) place(TG.ring(tel.inner, 0, true), A.ring.x, A.ring.y, A.ring.z || 0, f.on); }   // (the roar's ring pulses between its first two steps)
@@ -1409,6 +1494,7 @@
     // lifted by its z like a body; one lying on a grouped platform (the roof, the tower's deck) is drawn in that platform's own pass
     // (drawPouches), a flying one where its flight has it this step
     for (const q of F.pouches || []) { if (q.on && !q.fly && this.grouped.has(q.on)) continue; if (!inV(q.x, q.y - (q.z || 0), 8)) continue; push(q.y, q.z || 0, c => this.drawPouch(c, q, o)); }
+    if (art && art.actors) art.actors(F, o, this, push);   // (design pass 44) a level's moving things sorted with the bodies: the Ember, the broken sceptre, the crown
     this.stepDying(o.dt || 0);
     for (const d of this.dying) if (inV(d.x, d.y - d.z, 32)) push(d.y, d.z, c => this.drawDyingOne(c, o, d));
     const M = o.marks || F.marks || {}, T = root.Trolls;
@@ -1425,6 +1511,7 @@
         if (b.fizzle) { if (age < 0.5 && art.fx.fizzle) drawAt(ctx, art.fx.fizzle(o.still ? 1 : Math.floor(age * 8)), b.x, b.y - b.z); }
         else if (age < 0.4 && art.fx.blast) drawAt(ctx, art.fx.blast(b.r, o.still ? 0.5 : age / 0.4), b.x, b.y - b.z); }
       st.blasts = (st.blasts || []).filter(b => ft - b.t0 < 0.5); }
+    if (art && art.over) art.over(ctx, F, o, this);   // (design pass 44) a level's effects over the actors: the live beams, the rings of light, the burst, the take's light
     // a level's weather (design pass 21: the yard's snow), after the actors, in view coordinates
     if (art && art.weather) { ctx.save(); ctx.translate(v.x0, v.y0); art.weather(ctx, v.x0, v.y0, o.t, o.still, this, F); ctx.restore(); }
     return acts.length;
@@ -1518,7 +1605,7 @@
   Scene.prototype.onWall = function (f) { const CA = this.A.castle; return !!CA && f.x - f.y >= CA.foot.u - 4; };
   Scene.prototype.drawEdgeMarks = function (ctx, list) { for (const m of list) drawAt(ctx, edgeMark(m.size, m.dir, m.alarm, m.dot), m.x, m.y); return list.length; };
 
-  root.Gate = { OUT, R, SKY, PALETTE, BAYER, TW, TH, FLOOR_TOP, LIP, hash, vnoise, dith, Grid, region, outline, rect, ell, or, line, dropOrb, DROP, paintRows: paintRows, paint, prepare, Tiles, canvasOf, sprite, sprites: SPR, longShadow, bodyShadow,
+  root.Gate = { frontFacing, kingAnim, OUT, R, SKY, PALETTE, BAYER, TW, TH, FLOOR_TOP, LIP, hash, vnoise, dith, Grid, region, outline, rect, ell, or, line, dropOrb, DROP, paintRows: paintRows, paint, prepare, Tiles, canvasOf, sprite, sprites: SPR, longShadow, bodyShadow,
     marks: MK, telegraph: TG, dirOf, edgeMark, edgeMarks, guideMark, Scene, trollAnim, dentOf, drawAt, blit, bridgeSwing };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Gate;
 })(typeof window !== "undefined" ? window : globalThis);

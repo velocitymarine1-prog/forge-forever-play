@@ -2,15 +2,19 @@
 // her mule Biscuit, Vorn the old quartermaster, two hens and the cat asleep on the Forge's beam: their sprites, drawn in code the
 // knight's and Grycus's way (docs/design/24-courtyard.sketch.js's own drawing, moved here untouched), and when Nell and Vorn speak
 // and what. Their words are data (spec/folk.json, window.FORGE_FOLK in the page; spec/folk.js is the browser twin).
+// Since build 38 (design pass 47 section 3.5, card t113) also Ottar the armourer (the place's id is `armorer`), behind the counter of
+// the Armorer's stand, opened: his sprite is the pass's sketch's (docs/design/47-the-armorer.sketch.js shop().ottar), his pools are
+// spec/folk.json's `folk.armorer` (meet, greet, open, tap, a try line per look, bought, worn, poor, all); he calls the knight "tin".
 //
-//   Folk.frame(who, pose, i)    → { layer, ox, oy }: the sprite of nell, vorn, biscuit, hen or cat at a pose and frame, as one of the
-//                                 courtyard's layers (px, w, h), its anchor at its feet. Nell: idle, talk, wave, count. Vorn: idle,
-//                                 talk, point, nod. Biscuit: idle, eat
+//   Folk.frame(who, pose, i)    → { layer, ox, oy }: the sprite of nell, vorn, armorer, biscuit, hen or cat at a pose and frame, as one
+//                                 of the courtyard's layers (px, w, h), its anchor at its feet. Nell: idle, talk, wave, count. Vorn: idle,
+//                                 talk, point, nod. Ottar (armorer): idle, talk, point, tap. Biscuit: idle, eat
 //   Folk.face(who)              → { px, w: 16, h: 16 }: the face for a plank's head (a crop of the idle frame, as Grycus's on his plank)
-//   Folk.memory(saved)          what each has said, as the save keeps it beside Grycus's: { nell: { met, at, n }, vorn: { met, at, n } }
+//   Folk.memory(saved)          what each has said, as the save keeps it beside Grycus's: { nell: { met, at, n }, vorn: { met, at, n },
+//                                 armorer: { met, at, n } } (build 38: Ottar's)
 //   Folk.opening(mem, who, o)   → { pool, mem }: which pool a plank opens on. The first meeting (meet); for Vorn, his whole rack sold
-//                                 (all: o.all) or picks waiting on the house (free: o.free); a greeting after ten minutes away
-//                                 (greet); else open and tap in turn. o.now is the time (ms)
+//                                 (all: o.all) or picks waiting on the house (free: o.free); for Ottar, every set owned (all: o.all);
+//                                 a greeting after ten minutes away (greet); else open and tap in turn. o.now is the time (ms)
 //   Folk.say(mem, who, pool, o) → { text, mem }: the next line of a pool, in order, round and round ({n} filled from o.n); null for an
 //                                 empty pool
 //   Folk.title(who), Folk.arms(cls)   the plank's title, and a weapon class's line on Vorn's plank
@@ -119,6 +123,50 @@
     g.outline();
     return g;
   }
+  // (build 38, design pass 47 section 3.5) Ottar, the armourer: a broad, ruddy man, a great red beard to the chest and a red topknot,
+  // bushy brows, a steel gorget at his throat, a long leather apron over his mail, bare forearms freckled by sparks, black gloves;
+  // facing the yard behind his counter. Poses: idle (the breath), talk (the jaw, a gloved hand out), point (an arm out toward the suits
+  // on their stands), tap (a small hammer on the counter, up and down). The sketch's own drawing, moved here untouched
+  const BEARD = ["#733e39", "#be4a2f", "#d77643", "#e4a672"], BOOT = ["#181425", "#2a1d28", "#3e2731", "#733e39"], APRON = ["#3e2731", "#733e39", "#b86f50", "#e4a672"];
+  const OTTAR_POSES = { idle: [{}, {}, { b: 1 }, { b: 1 }], talk: [{ m: 1, hand: 1 }, { hand: 1 }, { m: 1, hand: 1, b: 1 }, { hand: 1, b: 1 }],
+    point: [{ point: 1 }, { point: 1 }, { point: 1, b: 1 }, { point: 1, b: 1 }], tap: [{ tap: 1 }, { tap: 0 }, { tap: 1 }, { tap: 0 }] };
+  function ottar(pose, i) {
+    const f = (OTTAR_POSES[pose] || OTTAR_POSES.idle)[mod4(i)], b = f.b ? 1 : 0, g = new Layer(32, 32);
+    g.region(rect(11, 25, 14, 29), R.leather); g.region(rect(18, 25, 21, 29), R.leather);
+    g.region(rect(10, 29, 14, 30), BOOT); g.region(rect(18, 29, 22, 30), BOOT);
+    // the mail, broad; the apron over it, to the knees, its pocket, sparks' scorch
+    g.region(poly([[5, 13 + b], [27, 13 + b], [25, 26], [7, 26]]), R.iron, { tex: (x, y) => (x + y) % 2 === 0 ? "#3a4466" : null });
+    g.region(poly([[10, 14 + b], [22, 14 + b], [23, 28], [9, 28]]), APRON, { tex: (x, y) => (x * 5 + y * 3) % 13 === 0 ? "#3e2731" : (y === 22 && x > 12 && x < 18) ? "#3e2731" : null });
+    g.region(rect(13, 23, 17, 25), APRON, { tex: () => "#733e39" });
+    // the arms: hanging, a hand out (talk), pointing out to the side (point: his right, the viewer's left), or the hammer (tap)
+    const arm = (x0, y0, x1, y1) => { g.region(rect(x0, y0, x1, y1), R.iron); };
+    const fore = (x0, y0, x1, y1) => g.region(rect(x0, y0, x1, y1), R.skin, { tex: (x, y) => (x * 3 + y) % 5 === 0 ? "#b86f50" : null });
+    const glove = (x0, y0, x1, y1) => g.region(rect(x0, y0, x1, y1), BOOT);
+    if (f.point) { arm(1, 14 + b, 6, 16 + b); fore(0, 14 + b, 2, 16 + b); glove(0, 13 + b, 1, 15 + b); }
+    else { arm(4, 14 + b, 7, 18 + b); fore(4, 19 + b, 7, 21 + b); glove(4, 22 + b, 7, 23 + b); }
+    if (f.hand) { arm(25, 15 + b, 27, 17 + b); fore(27, 15 + b, 29, 17 + b); glove(29, 15 + b, 30, 17 + b); }
+    else if (f.tap !== undefined) {
+      const up = f.tap === 1; arm(25, 14 + b, 28, 18 + b); fore(25, 19 + b, 28, 20 + b); glove(25, 21 + b, 28, 22 + b);
+      // the hammer: its haft from the glove, its steel head up (raised) or down on the counter
+      if (up) { for (let y = 15 + b; y <= 21 + b; y++) g.set(29, y, "#733e39"); g.region(rect(28, 12 + b, 30, 14 + b), R.steel); }
+      else { for (let x = 28; x <= 30; x++) g.set(x, 23 + b, "#733e39"); g.region(rect(29, 24 + b, 30, 26 + b), R.steel); }
+    } else { arm(24, 14 + b, 27, 18 + b); fore(24, 19 + b, 27, 21 + b); glove(24, 22 + b, 27, 23 + b); }
+    // the gorget, a steel collar at the throat
+    g.region(ell(16, 13.5 + b, 5.5, 1.8), R.steel, { spec: (x, y) => x === 13 && y === 12 + b });
+    // the head: a broad ruddy face, the great red beard to the chest, bushy brows, the topknot
+    g.region(ell(16, 7.5 + b, 5.2, 5), R.skin, { tex: (x, y) => (y === 9 + b && (x === 12 || x === 20)) ? "#e4a672" : null });
+    g.region(poly([[10, 8 + b], [22, 8 + b], [22, 13 + b], [19, 18 + b], [13, 18 + b], [10, 13 + b]]), BEARD, { tex: (x, y) => (x + y * 2) % 5 === 0 ? "#733e39" : null });
+    g.region(rect(13, 9 + b, 19, 10 + b), R.skin);                                                       // the cheeks over the beard
+    g.region(ell(16, 3 + b, 4.6, 1.6), BEARD);                                                           // the hair, swept back
+    g.region(ell(16, 0.9 + b, 1.6, 1.2), BEARD, { spec: (x, y) => x === 15 && y === b });                // the topknot
+    for (const x of [12, 13, 14, 18, 19, 20]) g.set(x, 5 + b, "#be4a2f");                                // the brows
+    g.set(13, 6 + b, OUT); g.set(19, 6 + b, OUT); g.set(14, 6 + b, "#ffffff"); g.set(18, 6 + b, "#ffffff");   // the eyes
+    g.set(16, 7 + b, "#e4a672"); g.set(16, 8 + b, "#b86f50"); g.set(17, 8 + b, "#b86f50");             // the nose
+    if (f.m) { g.set(15, 12 + b, "#3e2731"); g.set(16, 12 + b, "#2a1d28"); g.set(17, 12 + b, "#3e2731"); }   // the mouth in the beard
+    else { g.set(15, 11 + b, "#733e39"); g.set(16, 11 + b, "#733e39"); g.set(17, 11 + b, "#733e39"); }
+    g.outline();
+    return g;
+  }
   // a hen: cream feathers, a red comb, a yellow beak; stand and peck, facing right (flip for left)
   function hen(i) {
     const peck = mod4(i) === 2, g = new Layer(12, 10);
@@ -146,6 +194,7 @@
   // the sprite of a folk at a pose and frame: { layer, ox, oy } with its anchor at its feet
   const FOLK = {
     nell: (p, i) => ({ layer: nell(p, i), ox: 16, oy: 31 }), vorn: (p, i) => ({ layer: vorn(p, i), ox: 16, oy: 31 }), biscuit: (p, i) => ({ layer: mule(p, i), ox: 20, oy: 29 }),
+    armorer: (p, i) => ({ layer: ottar(p, i), ox: 16, oy: 31 }),   // (build 38) Ottar
     hen: (p, i) => ({ layer: hen(i), ox: 6, oy: 9 }), cat: (p, i) => ({ layer: cat(i), ox: 7, oy: 8 })
   };
   function frame(who, pose, i) { const f = FOLK[who]; return f ? f(pose || "idle", i | 0) : null; }
@@ -161,7 +210,7 @@
   // Their pools are spec/folk.json's: meet, greet, open, bought, poor and tap for both; bulk, trophy and ember for Nell; free, all
   // for Vorn. They have no bubble in the yard: a plank's head is where they speak. The page keeps the memory in the save
   const D = () => root.FORGE_FOLK || (typeof module !== "undefined" && module.exports && typeof require === "function" ? require("../spec/folk.json") : null) || { folk: {}, arms: {} };
-  const WHO = ["nell", "vorn"], GREET_MS = 10 * 60 * 1000;
+  const WHO = ["nell", "vorn", "armorer"], GREET_MS = 10 * 60 * 1000;   // (build 38: the armourer, Ottar)
   const isoOf = ms => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
   function memory(saved) {
     const m = {};
@@ -185,7 +234,7 @@
     const now = o.now === undefined ? Date.now() : o.now, last = me.at ? Date.parse(me.at) : NaN;
     let pool;
     if (!me.met) pool = "meet";
-    else if (who === "vorn" && o.all) pool = "all";
+    else if ((who === "vorn" || who === "armorer") && o.all) pool = "all";   // (build 38: every set owned at Ottar's)
     else if (who === "vorn" && o.free > 0) pool = o.free === 1 ? "free_one" : o.free === 2 ? "free" : "free_many";
     else if (!isNaN(last) && now - last >= GREET_MS) pool = "greet";
     else pool = ((me.n.open || 0) + (me.n.tap || 0)) % 2 ? "tap" : "open";
@@ -195,7 +244,7 @@
   const title = who => ((D().folk || {})[who] || {}).title || who;
   const arms = cls => (D().arms || {})[cls] || "";
 
-  const api = { frame, face, memory, say, opening, title, arms, nell, mule, vorn, hen, cat, FOLK, NELL_POSES, VORN_POSES, WHO, GREET_MS, version: 1 };
+  const api = { frame, face, memory, say, opening, title, arms, nell, mule, vorn, ottar, hen, cat, FOLK, NELL_POSES, VORN_POSES, OTTAR_POSES, WHO, GREET_MS, version: 1 };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.Folk = api;
 })(typeof window !== "undefined" ? window : globalThis);

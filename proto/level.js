@@ -47,7 +47,7 @@
   const camYRange = fight => { const RM = roomOf(fight); return RM && RM.camY ? RM.camY : (((fight.area || {}).camera || {}).y || [0, 216]); };
   // (design pass 27) a climbing room: the camera's y is held between the first uncleared arena's band (top) and the last started one's
   // (bottom), the y versions of the limits' right and left; elsewhere the room's own range
-  const camYLim = (fight, D) => D && D.cam && D.cam.top !== undefined ? [D.cam.top, D.cam.bottom] : camYRange(fight);
+  const camYLim = (fight, D) => D && D.camFree && D.camFreeY ? D.camFreeY : D && D.cam && D.cam.top !== undefined ? [D.cam.top, D.cam.bottom] : camYRange(fight);   // (design pass 44: the y range freed across an open seam, so the camera never snaps between the rooms)
   const climbs = fight => { const RM = roomOf(fight); return !!(RM && RM.climb); };
   const isTag = (e, name) => e.kind === name || tagOf(e.g, null) === name;
   // the outpost the castle's Break the gate sends from (the gate's Gallows Post, outpost 3)
@@ -108,8 +108,10 @@
     if (!fight.level || !fight.world || !fight.world.level) throw new Error("level.js: the director runs a level's fight");
     const A = fight.area, C = CB(), F = fight.floor, W = fight.world;
     const D = { A, opts, fight, waves: opts.waves !== false, t: 0, p: humans(fight), b: brothersOf(fight), arenas: [], ai: 0, cam: null, engines: [], outposts: {}, pouches: [], pouchId: 1,
-      track: {}, squadT: 0, wiping: false, horn: null, frame: false, castle: null, calls: [], seen: { gateHp: null } };
+      track: {}, squadT: 0, wiping: false, horn: null, frame: false, castle: null, calls: [], seen: { gateHp: null },
+      seams: {}, cine: null, landed: null, jumped: false, introDone: !!opts.introDone, camFree: false, camFreeY: null, endPending: false, nextWas: false, skipWas: false };   // (design pass 44) the seam through the doors, the cines
     fight.level.boss = null;   // (design pass 27) the wave's boss once it has come in (the page's plate reads it)
+    fight.cine = null; fight.level.legendEmber = null; fight.level.ruined = false;   // (design pass 44) a cine playing (its lock holds the knights' input); the Legend Ember on the floor; the room ruined by the Wrath
     D.scale = scaling(A, D.p, D.b);
     fight.director = D; fight.brains = true;
     // the arenas, each with its wave; the first is the current one
@@ -117,7 +119,7 @@
       const w = (A.waves || []).find(q => q.arena === ar.id) || null;
       D.arenas.push({ id: ar.id, i, spec: ar, wave: w, state: "ahead", delay: 0, t: 0, entries: [], groups: [], trolls: [], started: false, cleared: false, attempt: 0, phase: null, trickle: null, breakGate: null, retryPhase: false, undropped: [], seenN: 0 });
     });
-    if (A.rooms && A.rooms.length) { const k0 = fight.knights[0], R0 = A.rooms.find(r => k0 && k0.x >= r.x0 && k0.x < r.x1) || A.rooms[0]; fight.level.room = R0.id; }
+    if (A.rooms && A.rooms.length) { const k0 = fight.knights[0], R0 = (k0 && roomAt(A, k0.x, k0.y)) || A.rooms[0]; fight.level.room = R0.id; }   // (design pass 44: a room by x and y)
     D.cam = { xf: ((A.camera || {}).start || [0, 0])[0], yf: ((A.camera || {}).start || [0, 0])[1], left: 0, right: 0 };
     limits(fight, D);
     C.setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf));
@@ -139,7 +141,7 @@
     fight.chest = { x: at[0], y: at[1], r: CH.r || 6, shown: false, open: false, openAt: null, solid: null };
     fight.pouches = D.pouches;
     fight.level.chest = fight.chest; fight.level.gateOpen = false; fight.level.postAwake = false; fight.level.calls = fight.level.calls || [];
-    { const k0 = fight.knights[0], R0 = (A.rooms || []).find(r => k0 && k0.x >= r.x0 && k0.x < r.x1) || (A.rooms || [])[0]; fight.level.room = R0 ? R0.id : null; fight.level.passage = null; }
+    { const k0 = fight.knights[0], R0 = (k0 && roomAt(A, k0.x, k0.y)) || (A.rooms || [])[0]; fight.level.room = R0 ? R0.id : null; fight.level.passage = null; }
     fight.level.respawn = (g, f) => respawn(g, D, f);
     // the drops' streams: one a seat (A.4 rng.drops, then the seat's own step), so every knight's loot is its own
     const RN = (root.FORGE_COMBAT || {}).rng || {}, c0 = parseInt(RN.drops || "0x6c6f6f74", 16) >>> 0, c1 = parseInt(RN.dropsSeat || "0x9e3779b9", 16) >>> 0;
@@ -148,6 +150,7 @@
     setArena(fight, D, null); setGoal(fight, D, D.arenas[0]);   // on a walk the fields follow the view (combat.js's fallback); an arena is set when the camera reaches it
     freeBox(fight, D);
     D.step = (g, dt, input) => step(g, D, dt, input);
+    if (opts.after === "kingDown") afterKingDown(fight, D, opts);   // (design pass 44) a reload after the King's death: the level after the fight
     return D;
   }
   // the fields' box is the arena the party fights in (fight.level.arena, built now, inside the wave's delay, so no step of a fight pays
@@ -172,6 +175,8 @@
   }
   function steerGoal(fight, D, ar) {
     const g = fight.level.goal, s = ar.spec; if (!g) return;
+    // (design pass 44) the arena lies through a seam from the party's room: the goal is the doors' zone, then the landing beyond the line
+    { const PS = (fight.area.passages || []).find(p => p.seam && p.from === fight.level.room && p.to === s.room); if (PS) { const S = D.seams[PS.id]; const open = !!(S && S.open); g.x = open ? (PS.land || [[PS.via ? PS.via[0] : g.x, g.y]])[0][0] : (PS.zone.x[0] + PS.zone.x[1]) / 2; g.y = open ? (PS.land || [[0, PS.line - 20]])[0][1] : PS.zone.y[1] - 8; return; } }
     const counted = fight.knights.filter(k => full(k) && standing(k)); if (counted.length < 2) { g.x = g.base; return; }
     const mean = counted.reduce((q, k) => q + k.x, 0) / counted.length, trigger = s.hornLine ? s.hornLine : (s.camX || [s.x0])[0] + ((fight.area.camera || {}).aimX === undefined ? 176 : fight.area.camera.aimX);
     const lead = fight.knights[0], want = lead.x + (trigger - mean) + 12, bank = s.hornLine ? (((fight.area.moat || {}).u || [2580])[0] - 16) + g.y : Infinity;   // on the bank: u <= the moat's edge less 16
@@ -194,6 +199,8 @@
     else if (D.wiping) { D.wiping = false; retry(fight, D); }
     deaths(fight, D);   // the drops of this step's deaths first, so a clear's magnet takes the last troll's pouch too
     if (D.waves && !fight.wipe) {
+      cineStep(fight, D, dt, input);   // (design pass 44) a cine playing: the intro, the end, the Ember's take
+      seamStep(fight, D);              // (design pass 44) the seam's doors and its line
       castleStep(fight, D, dt);
       wavesStep(fight, D, dt);
       callsStep(fight, D);
@@ -216,6 +223,8 @@
     if (fight.wipe) return null;
     for (const P of A.passages || []) {
       if (P.from !== room) continue;
+      // (design pass 44) a seam: open (for the guide's arrow) from a screen below its zone until the party has crossed its line; no prompt
+      if (P.seam) { const S = D.seams[P.id]; if (S && S.crossed) continue; if (D.cine) continue; const L = leadOf(fight); if (!L || L.y > P.zone.y[1] + (fight.vh || 216)) continue; return P; }
       const w = P.when || {}, ar = w.cleared !== undefined ? D.arenas.find(a => a.id === w.cleared) : null;
       if (ar ? ar.cleared : w.cleared === undefined) return P;
     }
@@ -224,7 +233,7 @@
   function pass(fight, D, id) {
     const C = CB(), A = fight.area, PS = (A.passages || []).find(p => p.id === id);
     const open = passageOpen(fight, D);
-    if (!PS || !open || open.id !== id) return false;
+    if (!PS || PS.seam || !open || open.id !== id) return false;   // (a seam is walked through, never taken by a tap)
     for (const q of D.pouches.slice()) take(fight, D, q);
     fight.level.room = PS.to;
     for (const k of fight.knights) { if (k.out) continue; const at = (PS.land || [])[k.seat] || (PS.land || [])[0]; if (!at) continue; C.place(fight, k, at[0], at[1]); C.clearSeat(fight, k); }
@@ -264,11 +273,18 @@
     // the party leaves (the page's finish steps once with exit: true, on seat 0's input or on the keyed container): the chest opens if it
     // was not, and every pouch on the ground or in flight lands in its knight's satchel in this very step, its pickup event with it
     { const pid = input && (input.pass || (inputOf(input, 0) || {}).pass); if (pid) pass(fight, D, pid); }
-    if (input && (input.exit || (inputOf(input, 0) || {}).exit)) { if (fight.chest.shown && !fight.chest.open) openChest(fight, D, 0, true); for (const q of D.pouches.slice()) take(fight, D, q); }
+    if (input && (input.exit || (inputOf(input, 0) || {}).exit)) {
+      // (design pass 44) leaving before the Ember is taken takes it (the page shows its box first) and opens the end, so the run is cleared
+      if (D.cine && (D.cine.kind === "end" || D.cine.kind === "ember")) { D.cine = fight.cine = null; emberTaken(fight, D); }
+      else if (fight.level.legendEmber && fight.level.legendEmber.state !== "taken") emberTaken(fight, D);
+      if (fight.chest.shown && !fight.chest.open) openChest(fight, D, 0, true); for (const q of D.pouches.slice()) take(fight, D, q);
+    }
     for (const k of fight.knights) {
       const inp = inputOf(input, k.seat);
       if (!inp) continue;
       if (!inp.use || !standing(k)) continue;
+      const EB = fight.level.legendEmber, ZE = (A.zones || {}).ember;   // (design pass 44) the Legend Ember at rest: the player's knight takes it
+      if (EB && EB.state === "rest" && ZE && (ZE.who !== "player" || k.seat === 0) && !D.cine && dist(k.x, k.y, EB.x, EB.y) <= (ZE.within || 20) + 1e-9) { startTake(fight, D, k); continue; }
       const ch = fight.chest;
       if (ch.shown && !ch.open && dist(k.x, k.y, ch.x, ch.y) <= ((A.chest || {}).use || 16) + 1e-9) { openChest(fight, D, k.seat, false); continue; }
       C.takeRam(fight, k.seat);
@@ -283,9 +299,10 @@
   // uncleared arena's camera x); then the position yields to the counted knights (feet in view y 70..204; solo, x 14..369 too), the horn's
   // frame holds camY 100..146 and drives camX to 2604 or more; the view is the rounded position. Downed, carried-off and brothers are not counted
   function camera(fight, D, dt) {
-    const A = fight.area, CA = A.camera || {}, C = CB(), cam = D.cam, vw = fight.vw, vh = fight.vh;
+    if (D.cine && cineCamera(fight, D, dt)) return;   // (design pass 44) a cine's own path
+    const A = fight.area, CA = A.camera || {}, C = CB(), cam = D.cam, vw = fight.vw, vh = fight.vh, RM = roomOf(fight);
     const counted = fight.knights.filter(k => full(k) && standing(k));
-    const aimXd = CA.aimX === undefined ? 176 : CA.aimX, G = CA.aimXGate || null, DZ = CA.deadY || [84, 148], LN = CA.lean || { max: 32, maxDown: 14, within: 240 }, sp = CA.speed || 96;
+    const aimXd = CA.aimX === undefined ? 176 : CA.aimX, G = CA.aimXGate || null, DZ = (RM && RM.deadY) || CA.deadY || [84, 148], LN = CA.lean || { max: 32, maxDown: 14, within: 240 }, sp = CA.speed || 96;   // (design pass 44: a room's own dead zone)
     const VK = A.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 };
     let tx = cam.xf, ty = cam.yf;
     if (counted.length) {
@@ -294,6 +311,9 @@
       let lx = 0, ly = 0, n = 0;
       for (const f of fight.foes) { if (f.dead || !f.brain || f.brain.target === null) continue; const k = fight.knights[f.brain.target]; if (!k || dist(f.x, f.y, k.x, k.y) > LN.within) continue; lx += f.x; ly += f.y - (f.z || 0); n++; }
       if (n) { lx = clamp(lx / n - mx, -LN.max, LN.max); ly = clamp(ly / n - my, -LN.max, LN.maxDown); } else { lx = 0; ly = 0; }
+      // (design pass 44) the boss lean: the wave's boss within `within` of the knights' mean pulls the window further than the trolls do
+      const BL = CA.bossLean, boss = fight.level.boss;
+      if (BL && boss && !boss.dead && !(boss.spawn > 0) && dist(boss.x, boss.y - (boss.z || 0), mx, my) <= (BL.within || 320)) { lx = clamp(boss.x - mx, -(BL.max || 56), BL.max || 56); ly = clamp(boss.y - (boss.z || 0) - my, -(BL.max || 56), BL.maxDown || 40); }
       tx = mx - (G && mx >= G.east ? G.aimX : aimXd) + lx;
       const fy = my - cam.yf, w0 = DZ[0] - ly, w1 = DZ[1] - ly;   // the window, shifted by the lean (down: the knights sit higher on the screen)
       if (fy < w0) ty = my - w0; else if (fy > w1) ty = my - w1; else ty = cam.yf;
@@ -330,7 +350,7 @@
   function freeBox(fight, D) {
     const A = fight.area, CA = A.camera || {}, VK = A.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 }, F = fight.floor, Y = camYLim(fight, D), L = fight.level;
     const counted = fight.knights.filter(k => full(k) && standing(k));
-    if (D.frame || counted.length !== 1) { L.freeBox = null; L.freeSeat = null; return; }
+    if (D.frame || counted.length !== 1 || (D.cine && D.cine.lock)) { L.freeBox = null; L.freeSeat = null; return; }
     L.freeSeat = counted[0].seat;
     L.freeBox = { x0: Math.max(F.x0, D.cam.left + VK.x0), x1: Math.min(F.x1, D.cam.right + VK.x1), y0: Math.max(F.y0, Y[0] + VK.y0), y1: Math.min(F.y1, Y[1] + VK.y1) };
   }
@@ -368,6 +388,12 @@
         const counted = fight.knights.filter(k => full(k) && standing(k)), mx = counted.length ? counted.reduce((s, k) => s + k.x, 0) / counted.length : -Infinity;
         if (mx < (ar.spec.hornLine || 2700)) return;
         horn(fight, D, ar, ST.delay || 3);
+      } else if (ST.after === "intro") {   // (design pass 44) the intro cine starts the wave; cines off (the sims, a jump, a later attempt): 1.5 s after the party lands
+        if (D.cine) return;
+        const at = D.landed ? D.landed.at : D.jumped ? D.jumpAt : null;
+        if (at === null || D.t - at < (ST.delay === undefined ? 1.5 : ST.delay) - 1e-9) return;
+        ar.state = "delay"; ar.delay = 0; limits(fight, D);
+        fight.level.rally = rallyOf(fight, ar); setArena(fight, D, ar); setGoal(fight, D, null);
       } else {
         if (fight.view.x0 < (ar.spec.camX || [ar.spec.x0])[0] - 1e-9) return;   // the camera reaches the arena's x: the wave in `delay` s
         if (ar.spec.camY && fight.view.y0 > ar.spec.camY[1] + 1e-9) return;   // (design pass 27) and climbs into its band
@@ -380,6 +406,8 @@
     if (ar.state !== "live") return;
     ar.t += dt;
     if (isCastle(fight.area, ar) && !fight.bridge.down) return;   // nothing comes out before the bridge lands (the castle's step)
+    // (design pass 44) an ultimate's end this step: its phases may follow, the boss's floor moves to the next
+    if (ar.ult) for (const e of fight.events) if (e.type === "ultDone" && e.kind === ar.ult.kind) ultEnded(fight, D, ar, e.kind, fight.foes.find(f => f.id === e.foe));
     phasesStep(fight, D, ar);
     wardStep(fight, D, ar); bossStep(fight, D, ar);   // (design pass 27) the ward's three ends; the master's death ends the wave
     release(fight, D, ar, dt);
@@ -396,17 +424,27 @@
   function phasesStep(fight, D, ar) {
     const PH = (ar.wave || {}).phases; if (!PH || !PH.length) return;
     ar.phaseDone = ar.phaseDone || {};
+    const C = CB();
     for (const ph of PH) {
       if (ar.phaseDone[ph.id] || ar.masterDead) continue;
       if (ph.ward && (ar.ward || fight.foes.some(f => !f.dead && f.ward))) continue;   // (design pass 27) a ward phase waits while another ward is up
+      if (ph.ult && ar.ult) continue;   // (design pass 44) an ultimate's phase waits while another ultimate runs
       if (!phaseTriggered(fight, D, ar, ph)) continue;
       ar.phaseDone[ph.id] = true;
       const g0 = ar.groups.length, e0 = ar.entries.length;
       buildGroups(fight, D, ar, ph.groups || [], true);
       for (const g of ar.groups.slice(g0)) g.delay = (g.spec.delay || 0) + ar.t;
       for (const e of ar.entries.slice(e0)) e.phase = ph.id;
-      emit(fight, { type: "phase", id: ph.id, name: ph.name || "", line: ph.line || null, art: ph.art || null, arena: ar.id });
+      emit(fight, Object.assign({ type: "phase", id: ph.id, name: ph.name || "", line: ph.line || null, art: ph.art || null, arena: ar.id }, ph.ult ? { ult: ph.ult.kind } : {}, ph.checkpoint ? { checkpoint: true } : {}));   // (the old levels' phase events keep their fields: their pins)
       if (ph.ward) raiseWard(fight, D, ar, ph);
+      // (design pass 44) an ultimate: the rules play it (immune, uncancellable) and say ultDone; an empowerment; a checkpoint (section 3.10)
+      if (ph.ult) { const b = bossOf(fight, ar, ph.ult.boss); if (b) { ar.ult = { kind: ph.ult.kind, phase: ph.id, foe: b.id }; if (C.ultimate) C.ultimate(fight, b, ph.ult.kind); else { emit(fight, { type: "ultDone", kind: ph.ult.kind, foe: b.id }); ultEnded(fight, D, ar, ph.ult.kind, b); } } }   // (without the rules' ultimates, a test's director: done at once)
+      if (ph.empower) { const b = bossOf(fight, ar, ph.empower.boss); if (b && C.empower) C.empower(fight, b); }
+      if (ph.checkpoint && (ar.wave || {}).checkpoints) {
+        const b = bossOf(fight, ar, (ar.wave || {}).boss || (ph.ult || ph.empower || {}).boss);
+        ar.checkpoint = { phase: ph.id, done: Object.assign({}, ar.phaseDone), ultDone: Object.assign({}, ar.ultDone || {}), hpShare: b ? b.hp / b.hpMax : 1, empowered: !!(b && b.empowered), props: C.snapshotProps ? C.snapshotProps(fight) : null, ruined: !!fight.level.ruined };
+        emit(fight, { type: "checkpoint", phase: ph.id, arena: ar.id, hpShare: ar.checkpoint.hpShare });
+      }
     }
   }
   // (design pass 27 section 3.9) the ward: the boss goes to its post at once and kneels behind an egg of light nothing passes, until the
@@ -417,9 +455,11 @@
   function setHpFloor(fight, ar, f) {
     const PH = (ar.wave || {}).phases || [], done = ar.phaseDone || {};
     let floor = 0;
-    for (const ph of PH) { if (!ph.ward || done[ph.id]) continue; const w = hpTriggerOf(ph); if (w && (w.hp === f.kind || w.hp === tagOf(f.group, null))) { floor = Math.max(floor, f.hpMax * (w.below === undefined ? 0.5 : w.below)); } }
+    for (const ph of PH) { if (!(ph.ward || ph.ult) || done[ph.id]) continue; const w = hpTriggerOf(ph); if (w && (w.hp === f.kind || w.hp === tagOf(f.group, null))) { floor = Math.max(floor, f.hpMax * (w.below === undefined ? 0.5 : w.below)); } }   // (design pass 44: an ultimate's threshold is a floor too)
     f.hpFloor = floor;
   }
+  // (design pass 44) an ultimate played out: its phases may follow, the boss's floor moves to the next threshold
+  function ultEnded(fight, D, ar, kind, b) { ar.ultDone = ar.ultDone || {}; ar.ultDone[kind] = true; ar.ult = null; if (b) setHpFloor(fight, ar, b); }
   function raiseWard(fight, D, ar, ph) {
     const C = CB(), W0 = ph.ward, boss = bossOf(fight, ar, W0.boss); if (!boss) return;
     if (W0.post) { const E = (fight.area.doors || {})[W0.post], pts = doorPoints(E); if (pts.length) C.blinkTo(fight, boss, pts[0][0], pts[0][1], Array.isArray(E) || !E ? null : E.on || null); }
@@ -451,8 +491,9 @@
     const w = ar.wave || {}; if (!w.endsWith || ar.masterDead) return;
     const boss = ar.entries.find(e => isTag(e, w.endsWith));
     if (!boss || !boss.sent || !boss.troll || !boss.troll.dead) return;
-    ar.masterDead = true; ar.ward = null; if (fight.level.boss === boss.troll) fight.level.boss = null;
+    ar.masterDead = true; ar.ward = null; ar.ult = null; if (fight.level.boss === boss.troll) fight.level.boss = null;
     for (const f of fight.foes.slice()) if (!f.dead && f.arenaId === ar.id) CB().die(fight, f, "master");
+    if (((fight.area.end || {}).freeze || (fight.area.end || {}).pop) && ar.id === endArena(fight.area)) startEnd(fight, D, ar, boss.troll);   // (design pass 44) his end: the freeze, the pop, the Ember
     for (const e of ar.entries) if (!e.sent) { e.sent = true; e.picked = true; e.dropped = true; }
     ar.phaseDone = ar.phaseDone || {}; for (const ph of w.phases || []) ar.phaseDone[ph.id] = true;
     emit(fight, { type: "masterDead", foe: boss.troll.id, kind: boss.troll.kind, x: boss.troll.x, y: boss.troll.y });
@@ -466,6 +507,7 @@
       if (w.alive !== undefined && own.length && own.every(e => e.sent) && fight.foes.filter(f => !f.dead && f.arenaId === ar.id && !f.pastCap).length <= w.alive) return true;
       // (design pass 27) { hp: tag, below: q }: a living troll of the arena with that tag or kind at or under q of its HP
       if (w.hp !== undefined && fight.foes.some(f => !f.dead && f.arenaId === ar.id && (f.kind === w.hp || tagOf(f.group, null) === w.hp) && f.hp <= f.hpMax * (w.below === undefined ? 0.5 : w.below) + 1e-9)) return true;
+      if (w.ultDone !== undefined && (ar.ultDone || {})[w.ultDone]) return true;   // (design pass 44) an ultimate of that kind played out
     }
     return false;
   }
@@ -478,7 +520,9 @@
     fight.level.rally = rallyOf(fight, ar); setArena(fight, D, ar);
     if (ar.attempt === 1) C.waveStart(fight, fight.level.rally);   // the wave's first attempt: the Second Wind back, the carried-off back at the rally (a retry's rally did that)
     emit(fight, { type: "wave", n: ar.i + 1, of: (fight.area.waves || []).length || 5, name: w.name, arena: ar.id, attempt: ar.attempt });
-    buildGroups(fight, D, ar, w.groups || [], false);
+    if (!ar.introBuilt) buildGroups(fight, D, ar, w.groups || [], false); else ar.introBuilt = false;   // (design pass 44) the intro built the wave's groups (the boss on his throne)
+    if (ar.attempt === 1 && C.snapshotProps && !ar.props0) ar.props0 = C.snapshotProps(fight);   // (design pass 44) the props as the fight began, for a retry with no checkpoint
+    shutDoors(fight, D, ar);   // (design pass 44) a seam's doors shut behind the party as the wave goes live
     for (const e of D.engines) if (e.spec.arena === ar.id && e.spec.manned === "waveStart" && !e.wrecked) { if (!e.winch || e.winch.dead) { e.crew = e.K.crew || 3; e.sent = 0; e.reserveAt = null; manEngine(fight, D, e, true); } e.active = true; }   // its cycle runs from the wave's start (a retry re-manned it at the rally)
     D.squadT = 0;
   }
@@ -578,6 +622,7 @@
   function aliveIn(fight, D, ar) { let n = 0; for (const f of fight.foes) if (!f.dead && f.arenaId === ar.id && !f.pastCap) n++; for (const e of ar.entries) if (e.picked && !e.sent && !e.pastCap) n++; return n; }
   function tryDoor(fight, D, ar, e, dt, DW) {
     const g = e.g;
+    if (g.spec && g.spec.placed === "intro") { if (!e.sent) bossBack(fight, D, ar, e); return; }   // (design pass 44) the boss placed by the intro: on a retry, or with the cines off, he stands at the heart (an entry the intro sent is his already)
     if (g.type === "wall") { const slot = wallSlot(fight, D, e); if (slot) spawnAt(fight, D, ar, e, slot); return; }
     if (g.type === "deck") { const S = (fight.area.surfaces || []).find(s => s.id === g.spec.from); if (S) spawnAt(fight, D, ar, e, { x: (S.rect[0] + S.rect[2]) / 2, y: (S.rect[1] + S.rect[3]) / 2 - 6, on: S.id, hold: true, name: S.id }); return; }
     const doors = doorsOf(fight, g);
@@ -728,7 +773,9 @@
     if (ar.id === endArena(A)) {   // the level is won: the gate is ours (the castle's arena), or a level's own end (A.end): its chest shown, its event
       const E = A.end || {};
       if (isCastle(A, ar)) fight.gate.ours = true; else if ((A.chest || {}).shownFrom === "end" && !fight.chest.shown) showChest(fight, D);
-      fight.level.gateOpen = true; emit(fight, { type: E.event || "gateOurs", x: fight.chest.x, y: fight.chest.y }); magnet(fight, D);
+      // (design pass 44) an end that opens at the Ember's take (end.open) waits for the end cine: the lock on a replay, the box on a first clear
+      if (E.open === "emberTaken" && D.endPending) { /* openEnd opens it */ }
+      else { fight.level.gateOpen = true; emit(fight, { type: E.event || "gateOurs", x: fight.chest.x, y: fight.chest.y }); magnet(fight, D); }
     }
     else {
       emit(fight, { type: "onward", arena: ar.id, next: ar.id + 1 });
@@ -777,7 +824,12 @@
       ar.retryPhase = true; ar.state = "delay"; ar.delay = (ar.wave.start || {}).delay || 2;
       return;
     }
-    ar.entries = []; ar.groups = []; ar.trickle = null; ar.phaseDone = {}; ar.ward = null; ar.masterDead = false; fight.level.boss = null;   // (design pass 27: a boss comes back whole, both wards to come)
+    // (design pass 44) a checkpoint (section 3.10): the phases done stay done, the boss comes back at its share of his HP, empowered when he
+    // was, the props as they stood; without one the whole wave, the props as the fight began
+    const CK = ar.checkpoint || null;
+    ar.entries = []; ar.groups = []; ar.trickle = null; ar.phaseDone = CK ? Object.assign({}, CK.done) : {}; ar.ward = null; ar.masterDead = false; fight.level.boss = null;   // (design pass 27: a boss comes back whole, both wards to come)
+    ar.ultDone = CK ? Object.assign({}, CK.ultDone) : {}; ar.ult = null; ar.introBuilt = false;
+    if (CK || (ar.props0 && ar.props0.length)) { ar.retryBoss = { hpShare: CK ? CK.hpShare : 1, empowered: !!(CK && CK.empowered), checkpoint: CK ? CK.phase : null }; if (C.restoreProps) C.restoreProps(fight, CK ? CK.props : ar.props0); fight.level.ruined = !!(CK && CK.ruined); emit(fight, { type: "retryAt", checkpoint: CK ? CK.phase : null, arena: ar.id }); }   // (only a level with checkpoints or props that break: the old levels' retries are as they were)
     ar.state = "delay"; ar.delay = (ar.wave.start || {}).delay || 2;
     if (isCastle(fight.area, ar)) { raiseBridge(fight, D); ar.phase = null; ar.state = "ahead"; D.hornRetryAt = D.t + ((((ar.wave || {}).retry || {}).gatekeepers || {}).hornAfter || 3); }   // "horn: 3 s after the fade lifts"
   }
@@ -807,6 +859,8 @@
   // a stuck troll's way back in (combat.js's stuck rule): its own door's spot inside its arena, else the nearest door of the arena
   function respawn(fight, D, f) {
     const C = CB(), P = PH(), W = fight.world, A = fight.area, ar = D.arenas.find(a => a.id === f.arenaId) || D.arenas[D.ai];
+    // (design pass 44) a kind whose stuck rule says leapHeart (the King): he leaps to the heart instead, never back to a door
+    const ST = (f.spec || {}).stuck; if (ST && ST.do === "leapHeart" && (A.kingPoints || {}).heart && C.flyTo) { const H = A.kingPoints.heart; if (f.act) C.cancelAct ? null : null; if (f.act && !f.act.uncancellable) f.act = null; f.kcombo = null; C.flyTo(fight, f, H[0], H[1], 0.9, 40, { radius: 40, push: 30, damage: 0, src: "stuck", shake: 3 }); emit(fight, { type: "stuckLeap", foe: f.id, x: f.x, y: f.y, to: H }); return; }
     const g = f.group, doors = g && g.type === "door" ? doorsOf(fight, g) : [], F = fight.floor, r = f.r || 7;
     let best = null, bd = Infinity;
     const cands = doors.length ? doors : Object.entries(A.doors || {}).flatMap(([name, pts]) => doorPoints(pts).map(p => ({ name, p }))).filter(d => ar && d.p[0] >= ar.spec.x0 - 8 && d.p[0] <= ar.spec.x1 + 8);
@@ -819,6 +873,312 @@
     W.list = C.bodies(fight); if (P.caught(W, f)) P.freePoint(W, f);
     f.spawn = common().spawnTell || 0.6; f.act = null; f.intent = null; if (f.brain) f.brain.stuck.best = Infinity; fight.tdirty = true;
     emit(fight, { type: "spawn", foe: f.id, kind: f.kind, x: f.x, y: f.y, z: f.z, tell: f.spawn, again: true, from: best.name });
+  }
+
+  // ================================================================== design pass 44 (the Troll King): rooms by x and y, the seam, the cines
+  // a room by a point: a room with y0 / y1 is matched in y too (the King's Walk lies under the throne room in x); the first room without
+  // them that holds the x wins, as before
+  function roomAt(A, x, y) { for (const r of (A && A.rooms) || []) if (x >= r.x0 && x < r.x1 && (r.y0 === undefined || y >= r.y0) && (r.y1 === undefined || y < r.y1)) return r; return null; }
+  const leadOf = fight => fight.knights.find(k => full(k) && standing(k)) || fight.knights.find(k => !k.out) || fight.knights[0] || null;
+  const inZone = (Z, b) => b.x >= Z.x[0] - 1e-9 && b.x <= Z.x[1] + 1e-9 && b.y >= Z.y[0] - 1e-9 && b.y <= Z.y[1] + 1e-9;
+  // a door's solid by its rect (the world keeps every door prop by its kind: proto/physics.js W.doors)
+  function doorSolidOf(fight, rect) { const W = fight.world; if (!rect || !W.doors) return null; for (const id of Object.values(W.doors)) { const s = W.solids[id]; if (s && s.shape === "r" && Math.abs(s.x0 - rect[0]) < 1e-6 && Math.abs(s.y0 - rect[1]) < 1e-6 && Math.abs(s.x1 - rect[2]) < 1e-6 && Math.abs(s.y1 - rect[3]) < 1e-6) return s; } return null; }
+  // the seam passage (revision 1, section 3.4): no prompt, no dwell, no fade. The lead's feet in its zone open its doors (the leaves' solid
+  // goes, doorsOpen); its feet crossing its line toward the room it leads to switch the room with no teleport (passage) and start the
+  // intro, or, cines off, the wave's own delay. The camera's y range is freed across both rooms from the doors' opening to the intro's
+  // end, so the camera never snaps between them
+  function seamStep(fight, D) {
+    const A = fight.area, P = PH(), W = fight.world;
+    if (fight.wipe || D.cine) return;
+    for (const PS of A.passages || []) {
+      if (!PS.seam || PS.from !== fight.level.room) continue;
+      const S = D.seams[PS.id] || (D.seams[PS.id] = { open: false, crossed: false, openAt: null });
+      if (S.crossed) continue;
+      const L = leadOf(fight); if (!L) continue;
+      const DR = PS.doors || {};
+      if (!S.open && (DR.opensOn || "zone") === "zone" && inZone(PS.zone, L)) {
+        S.open = true; S.openAt = fight.t;
+        const to = (A.rooms || []).find(r => r.id === PS.to), from = roomOf(fight);
+        D.camFree = true; D.camFreeY = [Math.min(to && to.camY ? to.camY[0] : 0, from && from.camY ? from.camY[0] : 0), Math.max(to && to.camY ? to.camY[1] : 0, from && from.camY ? from.camY[1] : 0)];
+        const s = doorSolidOf(fight, DR.leaves); if (s && !s.gone) P.removeSolid(W, s);
+        CB().fieldsReady(fight, true);
+        emit(fight, { type: "doorsOpen", id: PS.id, time: DR.open || 0.8, x: DR.leaves ? (DR.leaves[0] + DR.leaves[2]) / 2 : L.x, y: DR.leaves ? DR.leaves[3] : L.y });
+      }
+      if (!S.open) continue;
+      const up = !PS.dir || PS.dir[0] === "up", across = up ? L.y <= PS.line + 1e-9 : L.y >= PS.line - 1e-9;
+      if (across && L.x >= PS.zone.x[0] - L.r && L.x <= PS.zone.x[1] + L.r) { S.crossed = true; seamCross(fight, D, PS); }
+    }
+  }
+  function seamCross(fight, D, PS) {
+    for (const q of D.pouches.slice()) take(fight, D, q);
+    fight.level.room = PS.to;
+    fight.level.rally = fight.knights.map(k => landOf(PS, k).slice(0, 2));
+    limits(fight, D); fight.level.passage = null;
+    emit(fight, { type: "passage", id: PS.id, from: PS.from, to: PS.to, seam: true });
+    setArena(fight, D, null); if (D.arenas[D.ai]) setGoal(fight, D, D.arenas[D.ai]);
+    const I = fight.area.intro;
+    if (I && I.at === PS.id && D.opts.cine !== false) startIntro(fight, D, PS);
+    else { D.landed = { at: D.t, passage: PS }; D.camFree = false; }
+  }
+  // the doors shut behind the party (doors.shutOn waveLive): the shut rect's solid stands again, a boom
+  function shutDoors(fight, D, ar) {
+    const A = fight.area, P = PH(), W = fight.world;
+    for (const PS of A.passages || []) {
+      if (!PS.seam || !PS.doors || PS.doors.shutOn !== "waveLive" || PS.to !== (ar.spec.room || fight.level.room)) continue;
+      const S = D.seams[PS.id] || (D.seams[PS.id] = { open: true, crossed: true }); if (S.shut) continue;
+      S.shut = true;
+      const s = doorSolidOf(fight, PS.doors.shut); if (s && s.gone) P.restoreSolid(W, s);
+      CB().fieldsReady(fight, true);
+      emit(fight, { type: "doorsShut", id: PS.id, x: PS.doors.shut ? (PS.doors.shut[0] + PS.doors.shut[2]) / 2 : 0, y: PS.doors.shut ? PS.doors.shut[3] : 0 });
+      if (PS.doors.boom) emit(fight, { type: "shake", amp: PS.doors.boom, time: ((root.FORGE_COMBAT || {}).feel || {}).shakeT || 0.12 });
+    }
+  }
+  const landOf = (PS, k) => ((PS.land || [])[k.seat] || (PS.land || [])[0] || [k.x, k.y]);
+  // every knight walks to its landing (by the doorway's middle, via, when it is off the axis and still below it): k.cineWalk, read by
+  // the rules in place of its input while the cine's lock holds
+  function walkKnights(fight, PS, via) {
+    for (const k of fight.knights) {
+      if (k.out || k.down) { k.cineWalk = null; continue; }
+      const at = landOf(PS, k);
+      let tx = at[0], ty = at[1];
+      if (via && k.y > via[1] + 2 && Math.abs(k.x - via[0]) > 10) { tx = via[0]; ty = via[1]; }
+      const dx = tx - k.x, dy = ty - k.y, dd = Math.hypot(dx, dy);
+      k.cineWalk = dd > 1.5 ? [dx / dd, dy / dd] : null;
+    }
+  }
+  // ---- the intro cine (section 3.5, revision 1): enter, pan, talk, rise, roar, leap (the camera back from the leap's start), the wave
+  function startIntro(fight, D, PS) {
+    const A = fight.area, I = A.intro, ar = D.arenas.find(a => a.spec.room === PS.to) || D.arenas[D.ai], w = ar && ar.wave, again = !!D.opts.introAgain;
+    D.cine = fight.cine = { kind: "intro", step: "enter", t: 0, lock: true, again, line: -1, lineT: 0, lines: again ? 1 : (I.lines || []).length, passage: PS, arena: ar, panFrom: null, backFrom: null, leap: null };
+    D.camFree = true;
+    if (ar && w && !ar.introBuilt) { ar.introBuilt = true; buildGroups(fight, D, ar, w.groups || [], false); for (const e of ar.entries) if (e.g.spec && e.g.spec.placed === "intro" && !e.sent) placeBoss(fight, D, ar, e, (I.king || {}).on || "throne", (I.king || {}).anim || "seat"); }
+    emit(fight, { type: "cine", kind: "intro", step: "enter", again });
+  }
+  // the boss stood at a named point (the throne's door on the dais, or the heart) with no tell, posed by the cine when one plays
+  function placeBoss(fight, D, ar, e, where, pose) {
+    const A = fight.area, KP = A.kingPoints || {};
+    let at = null;
+    const E = (A.doors || {})[where], pts = doorPoints(E);   // a door of that name first (it knows its surface: the throne's door on the dais), else a named point
+    if (pts.length) at = { x: pts[0][0], y: pts[0][1], on: Array.isArray(E) || !E ? null : E.on || null, name: where, from: where };
+    else if (KP[where]) at = { x: KP[where][0], y: KP[where][1], name: where, from: where };
+    if (!at || !spawnAt(fight, D, ar, e, at)) return null;
+    e.picked = true; e.pickedAt = fight.t;   // (the release's squads never pick him again)
+    const f = e.troll; f.spawn = 0; f.cine = pose || null; f.face = Math.PI / 2;
+    return f;
+  }
+  // the boss on a later attempt, or with the cines off: at the heart, at his checkpoint's share of his HP, empowered when he was; the
+  // brain held 0.6 s; the spawn event says retry
+  function bossBack(fight, D, ar, e) {
+    const f = placeBoss(fight, D, ar, e, "heart", null); if (!f) return;
+    const RB = ar.retryBoss, C = CB(), ev = fight.events.slice().reverse().find(q => q.type === "spawn" && q.foe === f.id);
+    if (RB) { f.hp = Math.max(1, Math.round(RB.hpShare * f.hpMax)); if (RB.empowered && C.empower) C.empower(fight, f); ar.retryBoss = null; }
+    if (ev && ar.attempt > 1) { ev.retry = true; ev.checkpoint = RB ? RB.checkpoint : null; }   // the page shows a retry bark, not the intro
+    f.cineHold = fight.t + 0.6;
+  }
+  const introBoss = (fight, ar) => { const e = ar && ar.entries.find(q => q.g.spec && q.g.spec.placed === "intro"); return e && e.troll && !e.troll.dead ? e.troll : null; };
+  const pressed = (input, key, D, memo) => { const i = input || {}, n = !!(i[key] || (i[0] && i[0][key])), was = D[memo]; D[memo] = n; return n && !was; };
+  function introStep(fight, D, dt, input) {
+    const CN = D.cine, A = fight.area, I = A.intro || {}, C = CB(), PS = CN.passage, ar = CN.arena, king = introBoss(fight, ar);
+    CN.t += dt;
+    const go = step => { CN.step = step; CN.t = 0; CN.lineT = 0; emit(fight, { type: "cine", kind: "intro", step, again: CN.again }); };
+    if (CN.step === "enter") {
+      const EN = I.enter || {}, via = EN.via || PS.via;
+      walkKnights(fight, PS, via);
+      if (CN.t >= (EN.time || 1.2) - 1e-9) { CN.panFrom = [D.cam.xf, D.cam.yf]; go("pan"); }
+      return;
+    }
+    if (CN.step === "pan") {
+      const T = CN.again ? ((I.again || {}).pan || 1.4) : ((I.pan || {}).time || 2.4);
+      walkKnights(fight, PS, (I.enter || {}).via || PS.via);
+      if (CN.t >= T - 1e-9) { for (const k of fight.knights) { k.cineWalk = null; if (!k.out && !k.down) { const at = landOf(PS, k); if (dist(k.x, k.y, at[0], at[1]) > 2) C.place(fight, k, at[0], at[1]); } } go("talk"); nextLine(fight, D); }
+      return;
+    }
+    if (CN.step === "talk") {
+      CN.lineT += dt;
+      if (CN.again) { if (CN.lineT >= ((I.again || {}).auto || 2.6) - 1e-9) go("rise"); return; }
+      if (pressed(input, "skipCine", D, "skipWas") && CN.line >= (I.skipAfter === undefined ? 1 : I.skipAfter)) { emit(fight, { type: "cineSkip", kind: "intro" }); go("rise"); return; }
+      if (pressed(input, "next", D, "nextWas")) { if (CN.line + 1 < CN.lines) nextLine(fight, D); else go("rise"); }
+      return;
+    }
+    if (CN.step === "rise") {
+      if (king) king.cine = "rise";
+      if (CN.t >= (I.rise || 1.2) - 1e-9) { go("roar"); if (king) king.cine = "roar"; emit(fight, { type: "roar", foe: king ? king.id : null, kind: "king", line: (I.roar || {}).line || null, x: king ? king.x : 0, y: king ? king.y : 0, z: king ? king.z : 0 }); emit(fight, { type: "shake", amp: 3, time: ((root.FORGE_COMBAT || {}).feel || {}).shakeT || 0.12 }); }
+      return;
+    }
+    if (CN.step === "roar") {
+      if (CN.t >= ((I.roar || {}).time || 1.0) - 1e-9) { const LP = I.leap || {}, to = (A.kingPoints || {})[LP.to || "heart"] || (king ? [king.x, king.y] : [0, 0]); CN.leap = { wind: LP.wind || 0.5, air: LP.air || 0.9, to, land: LP.land || { radius: 40, push: 36, damage: 0 }, flown: false }; if (king) king.cine = "crouch"; go("leap"); }
+      return;
+    }
+    if (CN.step === "leap") {
+      const LP = CN.leap;
+      if (LP && !LP.flown && CN.t >= LP.wind - 1e-9) { LP.flown = true; if (king) { king.cine = "air"; C.flyTo(fight, king, LP.to[0], LP.to[1], LP.air, 40, Object.assign({ src: "land", shake: 4 }, LP.land)); } }
+      if (LP && LP.flown && king && !king.flight) king.cine = "land";
+      if (CN.t >= Math.max((I.back || {}).time || 1.6, LP ? LP.wind + LP.air : 1.4) - 1e-9) endIntro(fight, D);
+    }
+  }
+  function nextLine(fight, D) {
+    const CN = D.cine, I = fight.area.intro || {}, king = introBoss(fight, CN.arena);
+    CN.line++; CN.lineT = 0;
+    const L = CN.again ? { words: pickAgain(fight, I) } : (I.lines || [])[CN.line] || { words: "" };
+    if (king && L.rise) king.cine = "rise";
+    emit(fight, { type: "cineLine", kind: "intro", i: CN.line, of: CN.lines, words: L.words, mouth: L.mouth || 1, look: L.look || null, lean: L.lean || 0, rise: !!L.rise, again: CN.again, skip: !CN.again && CN.line >= (I.skipAfter === undefined ? 1 : I.skipAfter) });
+  }
+  const pickAgain = (fight, I) => { const L = (I.again || {}).lines || []; if (!L.length) return ""; return L[Math.floor(fight.rng.waves() * L.length) % L.length]; };
+  function endIntro(fight, D) {
+    const CN = D.cine, ar = CN.arena, king = introBoss(fight, ar);
+    for (const k of fight.knights) k.cineWalk = null;
+    if (king) { king.cine = null; king.cineHold = fight.t + 0.6; }
+    D.cine = fight.cine = null; D.introDone = true; D.camFree = false; D.camFreeY = null;
+    emit(fight, { type: "cine", kind: "intro", step: "done", again: CN.again });
+    if (ar && ar.state === "ahead") { ar.state = "delay"; ar.delay = 0; limits(fight, D); fight.level.rally = rallyOf(fight, ar); setArena(fight, D, ar); setGoal(fight, D, null); }
+  }
+  function cineStep(fight, D, dt, input) {
+    const CN = D.cine; if (!CN) return;
+    if (CN.kind === "intro") introStep(fight, D, dt, input);
+    else if (CN.kind === "end") endStep(fight, D, dt, input);
+    else if (CN.kind === "ember") emberStep(fight, D, dt, input);
+  }
+  // the camera on a cine's path (whole pixels, eased; opts.still: every pan a cut): enter keeps the room's own rule (the y range freed);
+  // pan eases from where the camera was to the intro's point; talk, rise and roar hold; leap eases back onto the knights from the leap's
+  // start; the end's freeze eases onto him; the take's pan onto the knight; the wake's pan up to the empty throne and back
+  function cineCamera(fight, D, dt) {
+    const CN = D.cine, A = fight.area, I = A.intro || {}, E = A.end || {}, cam = D.cam, C = CB(), still = !!D.opts.still;
+    const ease = (q, kind) => still ? 1 : kind === "out" ? 1 - (1 - q) * (1 - q) : kind === "in" ? q * q : (q < 0.5 ? 2 * q * q : 1 - 2 * (1 - q) * (1 - q));
+    const setAt = (x, y) => { cam.xf = x; cam.yf = y; const x0 = Math.round(x), y0 = Math.round(y); if (x0 !== fight.view.x0 || y0 !== fight.view.y0) C.setView(fight, x0, y0); };
+    const lerpTo = (from, to, t, T, kind) => { const q = ease(clamp(t / Math.max(1e-6, T), 0, 1), kind); setAt(from[0] + (to[0] - from[0]) * q, from[1] + (to[1] - from[1]) * q); };
+    const clampCam = (x, y) => { const YR = camYLim(fight, D); return [clamp(x, cam.left, cam.right), clamp(y, YR[0], YR[1])]; };
+    if (CN.kind === "intro") {
+      if (CN.step === "enter") return false;
+      if (CN.step === "pan") { lerpTo(CN.panFrom || [cam.xf, cam.yf], (I.pan || {}).to || [cam.xf, cam.yf], CN.t, CN.again ? ((I.again || {}).pan || 1.4) : ((I.pan || {}).time || 2.4), (I.pan || {}).ease || "inOut"); return true; }
+      if (CN.step === "leap") { if (!CN.backFrom) CN.backFrom = [cam.xf, cam.yf]; D.camFree = false; D.camFreeY = null; lerpTo(CN.backFrom, knightsCam(fight, D), CN.t, (I.back || {}).time || 1.6, (I.back || {}).ease || "out"); return true; }
+      return true;
+    }
+    if (CN.kind === "end") {
+      if (!CN.camFrom) CN.camFrom = [cam.xf, cam.yf];
+      lerpTo(CN.camFrom, clampCam(CN.x - fight.vw / 2, CN.y - (CN.z || 0) - 30 - fight.vh / 2), CN.t, (E.freeze || {}).center || 0.6, "out"); return true;
+    }
+    if (CN.kind === "ember") {
+      const EC = E.cine || {}, TK = EC.take || {}, WK = EC.wake || {}, k = fight.knights[CN.seat] || fight.k;
+      if (CN.step === "take") { if (!CN.camFrom) CN.camFrom = [cam.xf, cam.yf]; lerpTo(CN.camFrom, clampCam(k.x - fight.vw / 2, k.y - (k.z || 0) - 16 - fight.vh / 2), CN.t, TK.pan || 0.6, "out"); return true; }
+      if (CN.step === "wake") {
+        const P = WK.pan || { to: [1344, 40], time: 1.2, hold: 1.2, back: 1.2 }, from = CN.wakeFrom || (CN.wakeFrom = [cam.xf, cam.yf]), t = CN.t;
+        if (t < P.time) lerpTo(from, P.to, t, P.time, "inOut"); else if (t < P.time + P.hold) setAt(P.to[0], P.to[1]); else lerpTo(P.to, from, t - P.time - P.hold, P.back, "inOut");
+        return true;
+      }
+      return true;
+    }
+    return false;
+  }
+  // where the room's own rule would put the camera for the counted knights now (no speed, no yield): the leap's back target
+  function knightsCam(fight, D) {
+    const A = fight.area, CA = A.camera || {}, RM = roomOf(fight), DZ = (RM && RM.deadY) || CA.deadY || [84, 148], aimXd = CA.aimX === undefined ? 176 : CA.aimX, cam = D.cam;
+    const counted = fight.knights.filter(k => full(k) && standing(k)); if (!counted.length) return [cam.xf, cam.yf];
+    let mx = 0, my = 0; for (const k of counted) { mx += k.x; my += k.y - (k.z || 0); } mx /= counted.length; my /= counted.length;
+    const YR = camYLim(fight, D);
+    return [clamp(mx - aimXd, cam.left, cam.right), clamp(my - (DZ[0] + DZ[1]) / 2, YR[0], YR[1])];
+  }
+  // ---- his end (section 3.11, revision 1): at his death the court dies with him (bossStep), a downed knight rises, every status clears;
+  // the end cine: the freeze with its cracks, the pop (his finds come then), on a first clear the Ember hung, dropped and resting, the
+  // lock lifted; a replay opens the end at the lock; the sims (cines off) open it at once through the clear
+  function startEnd(fight, D, ar, king) {
+    const A = fight.area, E = A.end || {}, C = CB(), CT = E.court || {}, first = !D.opts.replay && !!(E.ember && E.ember.first !== false);
+    for (const k of fight.knights) {
+      if (k.out) continue;
+      if (k.down) { k.down = null; k.hp = CT.downedRise || 40; k.hurt = 0; k.stagger = 0; emit(fight, { type: "lifted", by: null, x: k.x, y: k.y, hp: k.hp, seat: k.seat }); }
+      if (CT.statusCleared !== false && C.clearStatuses) C.clearStatuses(fight, k, "kingDown");
+      k.cineWalk = null;
+    }
+    if (D.opts.cine === false) { D.endPending = false; emit(fight, { type: "kingDown", foe: king.id, kind: king.kind, x: king.x, y: king.y, z: king.z || 0, face: king.face, first, hold: 0 }); return null; }   // (the sims read his time from it)
+    king.dropWait = true;
+    D.cine = fight.cine = { kind: "end", step: "freeze", t: 0, lock: true, first, foe: king.id, king, x: king.x, y: king.y, z: king.z || 0, face: king.face, cracks: 0, popped: false, camFrom: null };
+    D.endPending = true;
+    emit(fight, { type: "kingDown", foe: king.id, kind: king.kind, x: king.x, y: king.y, z: king.z || 0, face: king.face, first, hold: E.hitstop || 0 });
+    return D.cine;
+  }
+  function endStep(fight, D, dt, input) {
+    const CN = D.cine, A = fight.area, E = A.end || {}, FZ = E.freeze || {}, PO = E.pop || {}, EM = E.ember || {}, cracks = FZ.cracks || [];
+    CN.t += dt;
+    while (CN.cracks < cracks.length && CN.t >= cracks[CN.cracks] - 1e-9) { CN.cracks++; emit(fight, { type: "kingFreeze", step: CN.cracks, of: cracks.length, x: CN.x, y: CN.y, z: CN.z }); }
+    if (!CN.popped && CN.t >= (PO.at === undefined ? 1.0 : PO.at) - 1e-9) {
+      CN.popped = true; CN.step = "pop";
+      CN.king.dropWait = false; CN.king.dropAside = (PO.crown || {}).aside || 0;
+      emit(fight, { type: "kingPop", foe: CN.foe, x: CN.x, y: CN.y, z: CN.z, flash: PO.flash || 0, shake: PO.shake || 0, ring: PO.ring || null, shards: PO.shards || null, crown: PO.crown || null, scorch: PO.scorch || 0, first: CN.first });
+      if (PO.shake) emit(fight, { type: "shake", amp: PO.shake, time: ((root.FORGE_COMBAT || {}).feel || {}).shakeT || 0.12 });
+      if (CN.first) { const hz = (CN.z || 0) + (((CB().trollKind(CN.king.kind) || {}).chest) || 40); fight.level.legendEmber = { x: CN.x, y: CN.y, z: hz, hz, state: "hang", at: null }; emit(fight, { type: "emberHang", x: CN.x, y: CN.y, z: hz }); }
+    }
+    const EB = fight.level.legendEmber, DR = EM.drop || [1.3, 1.8];
+    if (EB && EB.state === "hang" && CN.t >= DR[0] - 1e-9) { const at = emberSpot(fight, D, CN.x, CN.y); EB.state = "drop"; EB.at = at; emit(fight, { type: "emberDrop", x: CN.x, y: CN.y, z: EB.hz, to: at, time: Math.max(0.05, DR[1] - DR[0]), line: E.line || null }); }
+    if (EB && EB.state === "drop") {
+      const q = clamp((CN.t - DR[0]) / Math.max(1e-6, DR[1] - DR[0]), 0, 1);
+      EB.x = CN.x + (EB.at[0] - CN.x) * q; EB.y = CN.y + (EB.at[1] - CN.y) * q; EB.z = EB.hz * (1 - q);
+      if (CN.t >= (EM.rest === undefined ? DR[1] : EM.rest) - 1e-9) { EB.state = "rest"; EB.x = EB.at[0]; EB.y = EB.at[1]; EB.z = 0; emit(fight, { type: "emberDown", x: EB.x, y: EB.y }); }
+    }
+    if (CN.t >= (E.lock === undefined ? 2.4 : E.lock) - 1e-9) {
+      D.cine = fight.cine = null;
+      emit(fight, { type: "cine", kind: "end", step: "done", first: CN.first });
+      if (!CN.first) openEnd(fight, D);
+    }
+  }
+  // where the Ember comes to rest: the nearest free floor point from where he stood, never on a surface the end keeps it off (the dais)
+  function emberSpot(fight, D, x, y) {
+    const P = PH(), W = fight.world, A = fight.area, EM = (A.end || {}).ember || {}, keepOff = EM.keepOff || [], F = fight.floor, C = CB();
+    W.list = C.bodies(fight);
+    const probe = { x, y, z: 0, r: 6, h: 24, on: null, air: false, knight: true };
+    const ok = (px, py) => { if (px < F.x0 + 6 || px > F.x1 - 6 || py < F.y0 + 6 || py > F.y1 - 6) return false; probe.x = px; probe.y = py; if (P.caught(W, probe) || P.groundAt(W, px, py).deep) return false; for (const Q of W.plats) if (Q.active && (keepOff.includes(Q.id) || Q.solidUnder) && P.inShape(Q, px, py)) return false; for (const b of W.list) if (!b.dead && Math.hypot(b.x - px, b.y - py) < (b.r || 6) + 8) return false; return true; };
+    if (ok(x, y)) return [x, y];
+    for (let R = 4; R <= 96; R += 4) for (let i = 0; i < 16; i++) { const a = i * TAU / 16, px = x + Math.cos(a) * R, py = y + Math.sin(a) * R; if (ok(px, py)) return [px, py]; }
+    return [x, y];
+  }
+  function openEnd(fight, D) {
+    const A = fight.area, E = A.end || {};
+    D.endPending = false;
+    if (fight.level.gateOpen) return;
+    if ((A.chest || {}).shownFrom === "emberTaken" && !fight.chest.shown) showChest(fight, D);
+    fight.level.gateOpen = true;
+    emit(fight, { type: E.event || "gateOurs", x: fight.chest.x, y: fight.chest.y }); magnet(fight, D);
+  }
+  // ---- the take (section 3.11): the player's knight takes the Ember: the cutscene (take, light, wake, the lines, the box), then emberTaken
+  function startTake(fight, D, k) {
+    const A = fight.area, EB = fight.level.legendEmber;
+    EB.state = "taken"; EB.by = k.seat;
+    D.cine = fight.cine = { kind: "ember", step: "take", t: 0, tAll: 0, lock: true, seat: k.seat, pose: "down", line: -1, lines: ((A.page || {}).emberLines || []).length, x: EB.x, y: EB.y, boxShown: false, camFrom: null, wakeFrom: null };
+    emit(fight, { type: "emberTake", seat: k.seat, x: EB.x, y: EB.y });
+    emit(fight, { type: "cine", kind: "ember", step: "take" });
+  }
+  function emberStep(fight, D, dt, input) {
+    const CN = D.cine, A = fight.area, EC = (A.end || {}).cine || {}, TK = EC.take || {}, LT = EC.light || {}, WK = EC.wake || {}, k = fight.knights[CN.seat] || fight.k;
+    CN.t += dt; CN.tAll += dt;
+    const go = step => { CN.step = step; CN.t = 0; emit(fight, { type: "cine", kind: "ember", step }); if (step === "box" && !CN.boxShown) { CN.boxShown = true; emit(fight, { type: "emberBox", seat: CN.seat }); } };
+    if (CN.step !== "box" && pressed(input, "skipCine", D, "skipWas") && CN.tAll >= (EC.skipAfter === undefined ? 1.4 : EC.skipAfter) - 1e-9) { emit(fight, { type: "cineSkip", kind: "ember" }); CN.pose = "rise"; go("box"); }
+    if (CN.step === "take") { const T1 = (TK.pan || 0.6) + (TK.kneel || 0.6); CN.pose = CN.tAll < T1 ? "down" : "rise"; if (CN.tAll >= T1 + (TK.hold || 0.8) - 1e-9) go("light"); return; }
+    if (CN.step === "light") { if (CN.tAll >= (LT.until || 3.6) - 1e-9) { go("wake"); CN.wakeAt = CN.tAll; } return; }
+    if (CN.step === "wake") { emit(fight, { type: "wake", x: k.x, y: k.y, r: Math.max(0, (CN.tAll - (CN.wakeAt || 0)) * (WK.front || 220)) }); if (CN.tAll >= (WK.until || 7.2) - 1e-9) { go("lines"); nextEmberLine(fight, D); } return; }
+    if (CN.step === "lines") { if (pressed(input, "next", D, "nextWas")) { if (CN.line + 1 < CN.lines) nextEmberLine(fight, D); else go("box"); } return; }
+    if (CN.step === "box") { const i = input || {}; if (i.boxDone || (i[0] && i[0].boxDone)) { D.cine = fight.cine = null; emberTaken(fight, D); } }
+  }
+  function nextEmberLine(fight, D) { const CN = D.cine, L = ((fight.area.page || {}).emberLines || []); CN.line++; emit(fight, { type: "cineLine", kind: "ember", i: CN.line, of: L.length, words: L[CN.line] || "", who: "narrator", skip: true }); }
+  function emberTaken(fight, D) {
+    const EB = fight.level.legendEmber; if (EB) EB.state = "taken";
+    emit(fight, { type: "emberTaken", x: EB ? EB.x : 0, y: EB ? EB.y : 0 });
+    openEnd(fight, D);
+  }
+  // ---- a reload after his death (the satchel's throneDown): the level after the fight, the party at the rally, the doors shut, the Ember
+  // resting where it fell (opts.ember) or the end open
+  function afterKingDown(fight, D, opts) {
+    const A = fight.area, C = CB(), P = PH(), W = fight.world, ar = D.arenas[D.arenas.length - 1], KP = A.kingPoints || {};
+    for (const q of D.arenas) { q.state = "cleared"; q.cleared = true; q.started = true; }
+    D.ai = D.arenas.length; D.introDone = true;
+    if (ar && ar.spec.room) fight.level.room = ar.spec.room;
+    for (const PS of A.passages || []) if (PS.seam) { D.seams[PS.id] = { open: true, crossed: true, shut: true }; const s = doorSolidOf(fight, (PS.doors || {}).leaves); if (s && !s.gone) P.removeSolid(W, s); const sh = doorSolidOf(fight, (PS.doors || {}).shut); if (sh && sh.gone) P.restoreSolid(W, sh); }
+    limits(fight, D);
+    const rally = ar ? rallyOf(fight, ar) : fight.knights.map(k => [k.x, k.y]); fight.level.rally = rally;
+    for (const k of fight.knights) { const at = rally[k.seat] || rally[0]; C.place(fight, k, at[0], at[1]); C.clearSeat(fight, k); }
+    fight.level.ruined = !!opts.ruined;
+    if (opts.ember) { const at = emberSpot(fight, D, KP.heart ? KP.heart[0] : fight.k.x, KP.heart ? KP.heart[1] : fight.k.y); fight.level.legendEmber = { x: at[0], y: at[1], z: 0, hz: 0, state: "rest", at }; }
+    else openEnd(fight, D);
+    D.cam.xf = clamp(D.cam.xf, D.cam.left, D.cam.right); snap(fight);
+    setArena(fight, D, null); setGoal(fight, D, null);
+    C.fieldsReady(fight, true);
   }
 
   // ------------------------------------------------------------------ the castle front (section 3.4): the horn, the bridge, the phases
@@ -975,7 +1335,7 @@
     const ch = fight.chest, CH = fight.area.chest || {}; if (!ch.shown || ch.open) return;
     ch.open = true; ch.openAt = fight.t;
     emit(fight, { type: "chestOpen", seat, x: ch.x, y: ch.y, open: CH.open || 0.6 });
-    const made = rollDrops(fight, D, "chest", "iron", 1, 1, ch.x, ch.y, "chest", { z: 0, on: null });
+    const made = rollDrops(fight, D, "chest", CH.kind || "iron", 1, 1, ch.x, ch.y, "chest", { z: 0, on: null });   // (design pass 44: the chest's own kind; a gold chest rolled the iron table until now)
     for (const q of made) { if (atOnce) take(fight, D, q); else fly(fight, D, q); }
   }
 
@@ -1145,8 +1505,9 @@
         const f = U[i];
         if (!f.dead) { U[w++] = f; continue; }
         if (f.dropped || f.gone === "wipe") continue;
+        if (f.dropWait) { U[w++] = f; continue; }   // (design pass 44) the King's finds come at the pop
         f.dropped = true;
-        if (!f.drop || f.why === "master" || f.why === "burst") continue;   // (design pass 27) a troll that died with its master, or a burster that burst, leaves nothing
+        if (!f.drop || f.why === "master" || f.why === "burst" || f.why === "wrath") continue;   // (design pass 27) a troll that died with its master, or a burster that burst, leaves nothing; (design pass 44) nor one the Wrath killed
         const at = restingPlace(fight, f);
         rollDrops(fight, D, f.drop.source, f.kind, f.drop.solo, f.drop.scaled, at[0], at[1], "troll", { z: f.why === "DROWNED" || f.why === "SPIKED" ? 0 : (f.z || 0), on: f.why === "DROWNED" || f.why === "SPIKED" ? null : (f.on || null) });
       }
@@ -1214,7 +1575,7 @@
     const SZ = Object.assign({ near: 5, far: 3, brute: 7, engine: 5 }, M.size || {}), out = [];
     const AR = fight.level && fight.level.arena && fight.level.arena.x0 !== undefined ? fight.level.arena : null, inArena = x => !AR || (x >= AR.x0 && x <= AR.x1);
     const add = (sx, sy, size, extra) => { if (sx >= 0 && sx <= W && sy >= 0 && sy <= H) return; const dx = Math.max(0, -sx, sx - W), dy = Math.max(0, -sy, sy - H), d = Math.hypot(dx, dy); if (d > within) return; out.push(Object.assign({ sx, sy, d, size: size === "auto" ? (d <= near ? SZ.near : SZ.far) : size, alarm: false, dot: false }, extra || {})); };
-    for (const f of fight.foes || []) if (!f.dead && !(f.spawn > 0) && !f.gone && inArena(f.x)) add(f.x - v.x0, f.y - (f.z || 0) - v.y0, f.kind === "brute" || f.kind === "rockbrute" || f.kind === "wizard" ? SZ.brute : f.kind === "wolf" || f.kind === "bat" ? SZ.far : "auto");   // (a wolf's chevron the small size, design pass 21; the wizard's the brute's and a bat's the wolf's, design pass 27)
+    for (const f of fight.foes || []) if (!f.dead && !(f.spawn > 0) && !f.gone && inArena(f.x)) add(f.x - v.x0, f.y - (f.z || 0) - v.y0, f.kind === "king" ? (SZ.king || 9) : f.kind === "brute" || f.kind === "rockbrute" || f.kind === "wizard" ? SZ.brute : f.kind === "wolf" || f.kind === "bat" ? SZ.far : "auto");   // (the King's 9, design pass 44)   // (a wolf's chevron the small size, design pass 21; the wizard's the brute's and a bat's the wolf's, design pass 27)
     for (const e of fight.engines || []) if (e.manned && !e.wrecked) add(e.x - v.x0, e.y - v.y0, SZ.engine, { dot: true, alarm: !!e.stone });
     for (const s of ((fight.marks || {}).stone || [])) { const r = s.r || 16, sx = s.x - v.x0, sy = s.y - (s.z || 0) - v.y0; if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) add(sx, sy, SZ.engine, { alarm: true }); }
     out.sort((a, b) => a.d - b.d);
@@ -1277,6 +1638,8 @@
     if (ch.shown && !(ch.open === true || (ch.openAt !== undefined && ch.openAt !== null))) out.arrows.push({ kind: "chest", x: Math.round(ch.x), y: Math.round(ch.y - 13) });
     else if (G.ours || (fight.level || {}).gateOpen) { const Z = (A.zones || {}).exit; if (Z && Z.u) { const [x, y] = XY((Z.u[0] + Z.u[1]) / 2, (Z.v[0] + Z.v[1]) / 2); out.arrows.push({ kind: "exit", x: Math.round(x), y: Math.round(y - 30) }); } else if (Z && Z.rect) out.arrows.push({ kind: "exit", x: Math.round((Z.rect[0] + Z.rect[2]) / 2), y: Math.round((Z.rect[1] + Z.rect[3]) / 2 - 24) }); }
     for (const k of fight.knights) if (k !== me && k.down && !k.out) out.arrows.push({ kind: "lift", x: Math.round(k.x), y: Math.round(k.y - (k.z || 0) - 20), seat: k.seat });
+    { const EB = (fight.level || {}).legendEmber; if ((A.guide || {}).ember && EB && EB.state === "rest" && !D.cine) out.arrows.push({ kind: "ember", x: Math.round(EB.x), y: Math.round(EB.y - 14) }); }   // (design pass 44) the Legend Ember on the floor
+    if (D.cine) { out.arrows.length = 0; return out; }   // (design pass 44) a cine: nothing is pointed at
     // (design pass 27) in a climbing room between the waves: a yellow arrow over the foot of the next open flight above the player's tier
     const RM = roomOf(fight), climbing = !!(RM && RM.climb), standingMe = me && !me.down && !me.out && !(me.rise > 0);
     if (climbing && ar && ar.state === "ahead" && standingMe && !fight.wipe) { const fl = nextFlight(fight, A, me); if (fl) out.arrows.push({ kind: "flight", x: fl.x, y: fl.y }); }
@@ -1293,7 +1656,8 @@
     // GO: the next arena ahead and nothing to fight (not before the party has walked in, not in the horn's frame, not in a wipe); in a
     // climbing room (design pass 27) GO stands at the top edge over the player, pointing up
     const GD = A.guide || {}, goY = GD.goY || [40, 104], goMin = typeof o.top === "number" ? Math.min(goY[1], Math.max(goY[0], o.top + 8)) : goY[0];
-    if (ar && ar.state === "ahead" && !D.frame && !fight.wipe && standingMe && (D.hornRetryAt === undefined || D.hornRetryAt === null)) out.go = climbing && RM.go === "up" ? { y: goMin, x: clamp(Math.round(me.x - v.x0), 16, W - 16), up: true } : { y: clamp(Math.round(me.y - (me.z || 0) - v.y0 - (GD.goAbove === undefined ? 20 : GD.goAbove)), goMin, goY[1]) };
+    const upRoom = !!(RM && RM.go === "up" && (climbing || RM.climb === undefined));   // (design pass 44: GO up in any room that says go: up, the Keep's climbing rooms as before)
+    if (ar && ar.state === "ahead" && !D.frame && !fight.wipe && standingMe && (D.hornRetryAt === undefined || D.hornRetryAt === null)) out.go = upRoom ? { y: goMin, x: clamp(Math.round(me.x - v.x0), 16, W - 16), up: true } : { y: clamp(Math.round(me.y - (me.z || 0) - v.y0 - (GD.goAbove === undefined ? 20 : GD.goAbove)), goMin, goY[1]) };
     // the trolls left in a wave: alive in its arena, its entries still to come, its standing huts' queues, the trickle, a reserve on its way,
     // the roar's calls; the gate instead while it is to be broken
     if (breaking) out.gate = { hp: Math.max(0, G.hp || 0), hpMax: G.hpMax || 1 };
@@ -1341,8 +1705,10 @@
     const rally = rallyOf(fight, ar); fight.level.rally = rally;
     for (const k of fight.knights) { const at = rally[k.seat]; C.place(fight, k, at[0], at[1]); C.clearSeat(fight, k); }
     D.cam.xf = clamp((ar.spec.camX || [ar.spec.x0])[0], D.cam.left, D.cam.right);
-    const feet = fight.k.y - (fight.k.z || 0), CA = fight.area.camera || {}, DZ = CA.deadY || [84, 148];
+    const feet = fight.k.y - (fight.k.z || 0), CA = fight.area.camera || {}, RMj = roomOf(fight), DZ = (RMj && RMj.deadY) || CA.deadY || [84, 148];
     D.cam.yf = clamp(feet - (DZ[0] + DZ[1]) / 2, camYLim(fight, D)[0], camYLim(fight, D)[1]);
+    D.jumped = true; D.jumpAt = D.t; D.introDone = true;   // (design pass 44) a jump plays no intro: an intro wave starts by its own delay
+    for (const PS of fight.area.passages || []) if (PS.seam && PS.to === fight.level.room) { D.seams[PS.id] = { open: true, crossed: true }; const s = doorSolidOf(fight, (PS.doors || {}).leaves); if (s && !s.gone) P.removeSolid(W, s); }
     yieldCam(fight, D, false, true);   // the knights inside the view's box at once (arena 5's rally lies east of its camX)
     C.setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf));
     setArena(fight, D, ar);
@@ -1353,7 +1719,7 @@
   // the camera put on the counted knights at once (tests and scenes, after Combat.place): the aim and the yield with no speed, inside the limits
   function snap(fight) {
     const D = fight.director; if (!D) return null;
-    const CA = fight.area.camera || {}, VK = fight.area.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 }, G = CA.aimXGate || null, DZ = CA.deadY || [84, 148];
+    const CA = fight.area.camera || {}, VK = fight.area.viewKnight || { x0: 14, x1: 369, y0: 70, y1: 204 }, G = CA.aimXGate || null, RMs = roomOf(fight), DZ = (RMs && RMs.deadY) || CA.deadY || [84, 148];
     const counted = fight.knights.filter(k => full(k) && standing(k)); if (!counted.length) return fight.view;
     let mx = 0, my = 0; for (const k of counted) { mx += k.x; my += k.y - (k.z || 0); } mx /= counted.length; my /= counted.length;
     D.cam.xf = clamp(mx - (G && mx >= G.east ? G.aimX : (CA.aimX === undefined ? 176 : CA.aimX)), D.cam.left, D.cam.right);
@@ -1365,6 +1731,6 @@
     const v = CB().setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf)); freeBox(fight, D); return v;
   }
 
-  root.Level = { attach, scaling, counts, split, edgeMarks, onEdge, guide, jump, snap };
+  root.Level = { attach, scaling, counts, split, edgeMarks, onEdge, guide, jump, snap, roomAt };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Level;
 })(typeof window !== "undefined" ? window : globalThis);

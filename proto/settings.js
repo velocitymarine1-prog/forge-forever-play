@@ -190,7 +190,7 @@
     function notesText() {
       const p = Sm().read(), rec = p ? Ls().load(p.id) : null;
       const t = Ls().notes(rec, { build: o.build || "dev", player: p, screen: { w: root.innerWidth, h: root.innerHeight }, touch: media("(pointer: coarse)"), lefty: isOn("lefty"), intro: Ls().opening && p ? Ls().opening.load(p.id) : undefined,
-        turn: root.Turn && root.Turn.notes ? root.Turn.notes() : undefined });   // (build 31, design pass 40: the screen log, so a screen that turns by itself can be read from the notes)
+        turn: root.Turn && root.Turn.notes ? root.Turn.notes() : undefined, armour: typeof o.armour === "function" ? o.armour() : undefined });   // (build 38, design pass 47: the armour worn and owned)   // (build 31, design pass 40: the screen log, so a screen that turns by itself can be read from the notes)
       // (build 36) the look: Look: Wizard · Blue (a record with no hero says so, so a tester's notes tell the knight from an unasked one)
       if (He() && p) { const L = lookLabel(p); return t + "\n" + fillW(HS().notes || "Look: {name}{colourPart}", { name: L.look.chosen ? L.name : "not chosen (the knight)", colourPart: L.look.chosen && L.takes ? " · " + L.colour : "" }); }
       return t;

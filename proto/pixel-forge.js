@@ -557,6 +557,8 @@
     jar: (sp, t, el) => flask(sp, el || ELEM.fire, true),
     ingot: (sp, t, el, mat) => ingot(sp, mat || RAMP.steel),
     nugget: sp => paint(sp, maskSet(or(disc(13, 18, 5), disc(19, 16, 5), disc(17, 21, 5))), auto(RAMP.gold, (x, y) => (x === 12 && y === 15) || (x === 18 && y === 13))),
+    // the Troll King's crown (design pass 44 section 3.15): a gold band with five points, the middle tallest, and three gems in the band
+    crownIcon: sp => { paint(sp, maskSet(or(rect(9, 17, 23, 22), poly([[9, 18], [9, 10], [12, 15], [16, 8], [20, 15], [23, 10], [23, 18]]))), auto(RAMP.gold, (x, y) => y === 17 || (x === 16 && y <= 11))); sp.set(12, 20, "#e43b44"); sp.set(16, 20, "#0099db"); sp.set(20, 20, "#e43b44"); sp.set(16, 19, "#2ce8f5"); },
     ore: (sp, t) => rock(sp, RAMP.stone, fnv(t.id), RAMP.bronze),
     rock: (sp, t) => rock(sp, RAMP.stone, fnv(t.id)),
     coal: (sp, t) => { rock(sp, ["#181425", "#262b44", "#3a4466", "#5a6988"], fnv(t.id)); for (const [x, y] of [[13, 20], [18, 17], [20, 22]]) { sp.set(x, y, "#f77622"); sp.set(x + 1, y, "#feae34"); } },
@@ -619,6 +621,7 @@
     "slime-jelly": ["blob", "poison"], "skeleton-skull": ["skull"], "treant-branch": ["branch"], "goblin-ear": ["ear"], "wyvern-wing": ["wing"],
     "mimic-tongue": ["tongue"], "basilisk-eye": ["eye"], "troll-tooth": ["tusk"], "troll-hide": ["pelt"], "wolf-fang": ["tusk"],
     "bat-wing": ["wing", null, "iron"], hexstone: ["shards", null, "hex"],   // design pass 27: the hex bats' wing in the bats' slate, Gorvash's hexstone in the Green Hand's ramp
+    "troll-crown": ["crownIcon", null, "gold"],   // design pass 44: the Troll King's crown, gold with its gems
     "gas-can": ["can"], bell: ["bell"], mirror: ["mirror"], hourglass: ["hourglass"], magnet: ["magnet"], lantern: ["lanternIcon", "holy"],
     spring: ["spring"], chain: ["chainlinks"], gear: ["gear"], "war-horn": ["hornIcon"]
   };

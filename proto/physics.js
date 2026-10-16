@@ -107,7 +107,7 @@
   // trebuchets, the gate). The level's dummies, when it has any, are live circles as in the cellar. D: the combat spec (statuses' slow).
   function levelWorld(fight, A, N, D) {
     const W = { level: true, N, D: D || root.FORGE_COMBAT || {}, A, floor: fight.floor, solids: [], halves: [], holes: [], plats: [], platBy: {}, edges: [], ladders: [], cover: [],
-      pieces: [], palisades: {}, dummies: fight.dummies, list: [], boxOf: null, cw: 32, gen: 0, ram: null, changes: null };
+      pieces: [], palisades: {}, doors: {}, dummies: fight.dummies, list: [], boxOf: null, cw: 32, gen: 0, ram: null, changes: null };   // doors (design pass 44): a prop with states, by its kind: its solid's id (gone while open)
     W.ncx = Math.ceil((fight.W || A.w || 384) / W.cw) + 1; W.ncy = Math.ceil((fight.H || A.h || 216) / W.cw) + 1;
     W.cells = []; W.ecells = []; W.ccells = []; W.hcells = []; W.coverSwept = 0;   // ccells / hcells: the cover and the holes by cell (coverOf, gz read one cell)
     for (let i = 0; i < W.ncx * W.ncy; i++) { W.cells.push([]); W.ecells.push([]); W.ccells.push([]); W.hcells.push([]); }
@@ -184,6 +184,12 @@
       return;
     }
     const s = addSolid(W, Object.assign(p.r !== undefined || pk.shape === "circle" ? { shape: "c", x: p.x, y: p.y, r: p.r !== undefined ? p.r : pk.r } : { shape: "r", x0: p.x0, y0: p.y0, x1: p.x1, y1: p.y1 }, base));
+    // (design pass 44) a prop with states (the throne room's doors): solid only in its solidWhen state; the director opens and shuts it
+    // (removeSolid / restoreSolid) and the world remembers it by its kind
+    if (pk.solidWhen !== undefined) { s.door = p.id || p.kind; s.state = p.state || (pk.states || [])[0] || pk.solidWhen; W.doors[s.door] = s.id; if (s.state !== pk.solidWhen) removeSolid(W, s); }
+    // (design pass 44) a prop kind that breaks (cracks, grind, breaksBy): the solid knows its kind's rules; the rules keep its cracks and heat
+    if (pk.cracks || pk.grind || pk.breaksBy) { s.breakable = true; s.cracks = 0; s.heat = 0; s.broken = false; }
+    if (pk.unbreakable) s.unbreakable = true; if (pk.noGrind) s.noGrind = true;
     if (pk.hp) addPiece(W, { kind: p.kind, x: s.shape === "c" ? s.x : (s.x0 + s.x1) / 2, y: s.shape === "c" ? s.y : (s.y0 + s.y1) / 2, r: pk.hitR || s.r || 8, chest: 0, ht: pk.ht, hp: pk.hp, weak: pk.weak, resist: pk.resist, aim: !!pk.aim, solids: [s.id], wood: !!pk.wood });
   }
   // a surface of spec/gate.json: a platform, and what stands with it (the chapel's block; the deck's slab, legs and parapets)
@@ -234,6 +240,14 @@
     if (!s || s.gone) return;
     s.gone = true;
     cellsOf(W, bboxOf(s), c => { const L = W.cells[c], i = L.indexOf(s.id); if (i >= 0) L.splice(i, 1); });
+    changed(W, bboxOf(s), false, s.kind === "clod");
+  }
+  // (design pass 44) a solid that was removed stands again (a door shut, a column restored at a checkpoint): back into its cells, logged
+  function restoreSolid(W, id) {
+    const s = typeof id === "object" ? id : W.solids[id];
+    if (!s || !s.gone) return;
+    s.gone = false;
+    cellsOf(W, bboxOf(s), c => { const L = W.cells[c]; if (L.indexOf(s.id) < 0) L.push(s.id); });
     changed(W, bboxOf(s), false, s.kind === "clod");
   }
   // flat cover laid on the world (a cut wire section, broken staves, the felled tower's poles, a mark that plays): into its cells, logged
@@ -1073,6 +1087,7 @@
     for (const name of set.names) {
       const c = set.cls[name];
       let ok = open && !(L.kind === "row" && (!c.narrow || (L.plat.maxR !== undefined && c.fits > L.plat.maxR + 1e-9))), m = 1;
+      if (ok && on && c.keepOff && c.keepOff.includes(on)) ok = false;   // (design pass 44) a class that keeps off a surface (the King off the dais) never stands on it
       PROBE.x = x; PROBE.y = y; PROBE.z = z; PROBE.r = c.r; PROBE.h = c.h; PROBE.on = on;
       const r = L.kind === "row" ? Math.min(c.r, c.fits) : c.r;   // a row's nodes are tested with the walking kind's own radius
       if (ok) for (const id of W.cells[cell]) {
@@ -1281,7 +1296,7 @@
   }
 
   root.Physics = { world, move, resolve, settle, DRIVES, push, begin, soft, cores, hold, letGo, setPlatform, fellTower, crater, resizeCrater, fillCrater, shotStop,
-    addSolid, removeSolid, addPiece, addCover, removeCover, coverChanged, coverNear, coverCost, cellAt, groundAt, surfaceAt, platZ, inPlat, inShape, coverOf, freePoint, caught, out, blocks, sdist, segQ, edgeFor, buildEdges, massOf,
+    addSolid, removeSolid, restoreSolid, addPiece, addCover, removeCover, coverChanged, coverNear, coverCost, cellAt, groundAt, surfaceAt, platZ, inPlat, inShape, coverOf, freePoint, caught, out, blocks, sdist, segQ, edgeFor, buildEdges, massOf,
     fieldSet, fieldUpdate, field, fieldBuild, fieldSeeds, fieldNext, fieldReach, nodeOf, nodeAt };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Physics;
 })(typeof window !== "undefined" ? window : globalThis);

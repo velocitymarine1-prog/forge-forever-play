@@ -95,7 +95,9 @@
     // the director's own goal for the squire, { x, y }, when it gives one
     goal(fight) { const L = fight.level || {}; return L.goal || null; },
     // (design pass 21) the passage open from the party's room, its spec, or null
-    passage(fight) { const L = fight.level || {}; return L.passage ? ((fight.area || {}).passages || []).find(q => q.id === L.passage) || null : null; }
+    passage(fight) { const L = fight.level || {}; return L.passage ? ((fight.area || {}).passages || []).find(q => q.id === L.passage) || null : null; },
+    // (design pass 44) the wave's boss once he has come in (the Troll King), or null
+    boss(fight) { const L = fight.level || {}; return L.boss && !L.boss.dead ? L.boss : null; }
   };
 
   // ------------------------------------------------------------------ what a bot sees
@@ -242,10 +244,15 @@
   // done 0.25 to 0.40 s later (the squire 0.20 to 0.35)
   function react(fight, bot, k, R, e) {
     const N = bot.N;
-    const roll = (p, kind, ax, ay, hold) => { if (R() >= p) return; bot.queue.push({ at: fight.t + N.react[0] + (N.react[1] - N.react[0]) * R(), kind, ax, ay, hold: hold || 0 }); };
+    // (design pass 44) a level whose bots.dodgeAtLanding is set (the Throne's 0.2) times a dodge to the blow's landing (the wind, and the
+    // Crash's air) less that lead, never sooner than the reaction: the King's winds are long (the gavel 0.9 s, the Crash lands at 1.4 s),
+    // and a dodge 0.3 s in is over before they land; the old levels' squires dodge as they did
+    let landAt = null;
+    const roll = (p, kind, ax, ay, hold) => { if (R() >= p) return; const at0 = fight.t + N.react[0] + (N.react[1] - N.react[0]) * R(); bot.queue.push({ at: kind === "dodge" && landAt !== null ? Math.max(at0, landAt) : at0, kind, ax, ay, hold: hold || 0 }); };
     if (e.type === "windUp") {
       const f = (fight.foes || []).find(q => q.id === e.foe); if (!f) return;
       const tel = e.tel || {}, [ax, ay] = unit(k.x - f.x, k.y - f.y);
+      if (N.dodgeAtLanding !== undefined) { const atk0 = attackOf(f, e.attack) || {}; landAt = (e.t === undefined ? fight.t : e.t) + (e.wind || tel.grow || atk0.wind || 0.45) + (atk0.air || 0) - N.dodgeAtLanding; }
       if (e.attack === "blink") return;   // (design pass 27) a caster sinking into smoke is no blow to dodge
       // (design pass 27) a burster's fuse whose ring covers me: I walk out of it, to its edge and 6 px past (the level's bots.leaveFuse; the
       // clumsier squire half as often), 0.20 to 0.35 s after it starts; else I fight on, and may kill it inside its fuse
@@ -257,7 +264,18 @@
         if (Rg) { let bx, by; if (L.length >= 2) { const [lx, ly] = unit(L[L.length - 1].x - L[0].x, L[L.length - 1].y - L[0].y), side = (k.x - Rg.x) * -ly + (k.y - Rg.y) * lx >= 0 ? 1 : -1; bx = -ly * side; by = lx * side; } else [bx, by] = unit(k.x - Rg.x, k.y - Rg.y); roll(N.dodgeMelee, "dodge", bx, by); }
         return;
       }
-      if (tel.kind === "ring") { if (dist(k.x, k.y, tel.x, tel.y) <= tel.r + k.r + 4) { const [bx, by] = unit(k.x - tel.x, k.y - tel.y); roll(N.dodgeMelee, "dodge", bx, by); } }
+      // (design pass 44 section 3.14) the King's ultimates: cover from the Sunwheel's beam (its wind) and the Wrath's blast (its charge) by the
+      // level's bots.hide (the clumsy squire and the brothers by hide.clumsy): the nearest shelter behind a tall solid seen from him, or for
+      // the Wrath a point outside his ring; walked to and held until the ultimate is over or he kneels
+      if (tel.kind === "spin" || tel.kind === "wrath") { const HD = hideChance(bot, tel.kind); if (HD > 0 && R() < HD) { const sp = shelter(fight, k, f, tel, null); if (sp) { bot.hide = { spot: sp, kind: tel.kind, foe: f.id, since: fight.t }; k.hideSpot = sp; } } return; }
+      // the Crash's fissures: strips, several at once; the one I stand on is dodged off, across it
+      if (tel.kind === "strips" && Array.isArray(tel.list)) {
+        for (const L of tel.list) { const lx = L.x1 - L.x0, ly = L.y1 - L.y0, ll = Math.hypot(lx, ly) || 1, t = clamp(((k.x - L.x0) * lx + (k.y - L.y0) * ly) / (ll * ll), 0, 1), px = L.x0 + lx * t, py = L.y0 + ly * t;
+          if (dist(k.x, k.y, px, py) <= (tel.w || 10) / 2 + k.r + 6) { const side = (k.x - px) * -ly + (k.y - py) * lx >= 0 ? 1 : -1; roll(N.dodgeMelee, "dodge", -ly / ll * side, lx / ll * side); break; } }
+        return;
+      }
+      if (tel.kind === "beam") return;   // (its aim line is answered below, as a shot's)
+      if (tel.kind === "ring") { if (dist(k.x, k.y, tel.x, tel.y) <= tel.r + k.r + 4) { const [bx, by] = N.dodgeAtLanding !== undefined && dist(k.x, k.y, tel.x, tel.y) < 4 ? [ax, ay] : unit(k.x - tel.x, k.y - tel.y); roll(N.dodgeMelee, "dodge", bx, by); } }   // (design pass 44: a ring on my own feet, the Crash's, is left away from him; the Throne's squire only, so the old levels' pins stand)
       else if (tel.kind === "strip") {
         const lx = tel.x1 - tel.x0, ly = tel.y1 - tel.y0, ll = Math.hypot(lx, ly) || 1, t = clamp(((k.x - tel.x0) * lx + (k.y - tel.y0) * ly) / (ll * ll), 0, 1);
         const px = tel.x0 + lx * t, py = tel.y0 + ly * t, off = dist(k.x, k.y, px, py);
@@ -276,8 +294,45 @@
       }
     } else if (e.type === "aimLine" && e.seat === k.seat) {
       const [lx, ly] = unit(e.x1 - e.x0, e.y1 - e.y0), side = R() < 0.5 ? 1 : -1;
-      roll(N.stepOffLine, "step", -ly * side, lx * side, 0.3);
+      roll(N.stepOffLine, "step", -ly * side, lx * side, e.beam && e.fan && e.fan.n > 1 ? 0.5 : 0.3);   // (design pass 44: the crown's fan is stepped off longer, past its neighbours)
+    } else if ((e.type === "grind" || e.type === "grindBreak" || e.type === "propBreak") && bot.hide && bot.hide.spot && e.solid === bot.hide.spot.solid) {
+      // (design pass 44) my shelter is ground (or broken): the next one behind the beam (a solid the beam has passed, in the spin's
+      // direction), the nearest; none left, the open and the dodge
+      const f = (fight.foes || []).find(q => q.id === (e.foe !== undefined ? e.foe : bot.hide.foe)), A = f && f.act;
+      if (f && A && A.tel && A.tel.kind === "beamLive") { const sp = shelter(fight, k, f, A.tel, { angle: A.angle, dir: A.dir || 1 }); if (sp) { bot.hide = { spot: sp, kind: "spin", foe: f.id, since: fight.t }; k.hideSpot = sp; } else { bot.hide = null; k.hideSpot = null; } }
+      else { bot.hide = null; k.hideSpot = null; }
     } else if (e.type === "kstatus" && e.status === "burning" && e.on && e.seat === k.seat) roll(N.rollBurning, "dodge", Math.cos(k.face), Math.sin(k.face));
+  }
+  // (design pass 44) the share of the King's ultimates a bot takes cover from: the squire by hide.beam or hide.wrath, the clumsy squire and
+  // the brothers (bots.brothersHide) by hide.clumsy; nothing without the level's bots.hide
+  function hideChance(bot, kind) { const H = bot.N.hide; if (!H) return 0; if (bot.who !== "squire") return bot.N.brothersHide ? (H.clumsy || 0) : 0; return bot.N.clumsy === true ? (H.clumsy || 0) : (kind === "wrath" ? H.wrath : H.beam) || 0; }
+  // a shelter from him (design pass 44 section 3.14): for each standing round solid at least beamBlock.ht tall (the columns, the statues,
+  // the throne) the spot behind it seen from him, centre + unit(solid - him) x (r + 6 + my radius), free, on the floor (on the dais behind
+  // the throne), not within 8 px of another knight or of the spot another knight has picked (k.hideSpot); for the Wrath also the nearest
+  // point 14 px outside his ring, away from him. behind
+  // { angle, dir }: only solids the beam has passed (their angle from him within a half turn behind the beam in the spin's direction). The
+  // nearest spot, or null
+  function shelter(fight, k, f, tel, behind) {
+    const A = fight.area || {}, P = phys(), W = fight.world, F = fight.floor || { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity }, minHt = (A.beamBlock || {}).ht || 16, spots = [];
+    const onAt = (x, y) => { for (const Q of W.plats || []) if (Q.active && Q.shape === "r" && P.inShape(Q, x, y)) return Q; return null; };
+    const free = (x, y) => {
+      if (x < F.x0 + 6 || x > F.x1 - 6 || y < F.y0 + 6 || y > F.y1 - 6) return null;
+      const Q = onAt(x, y), probe = { x, y, z: Q ? (typeof Q.z === "number" ? Q.z : 0) : 0, r: k.r || 5, h: k.h || 24, on: Q ? Q.id : null, air: false, knight: true, seat: k.seat };
+      W.list = combat().bodies(fight); if (P.caught(W, probe)) return null;
+      for (const q of fight.knights) if (q !== k && !q.out && (dist(q.x, q.y, x, y) < 8 || (q.hideSpot && dist(q.hideSpot.x, q.hideSpot.y, x, y) < 8))) return null;   // (a spot another knight stands on or has picked this very ultimate is taken: two brothers never walk to one shelter and stand in each other)
+      return { x, y, on: Q ? Q.id : null, z: probe.z };
+    };
+    const norm = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a <= -Math.PI) a += 2 * Math.PI; return a; };
+    for (const s of W.solids || []) {
+      if (s.gone || s.thin || s.shape !== "c" || (s.ht || 0) < minHt) continue;
+      if (behind) { const d = norm(Math.atan2(s.y - f.y, s.x - f.x) - behind.angle) * (behind.dir || 1); if (!(d < -0.05 && d > -Math.PI + 0.05)) continue; }
+      const [ux, uy] = unit(s.x - f.x, s.y - f.y), sp = free(s.x + ux * ((s.r || 8) + 6 + (k.r || 5)), s.y + uy * ((s.r || 8) + 6 + (k.r || 5)));
+      if (sp) { sp.solid = s.id; spots.push(sp); }
+    }
+    if (tel && tel.kind === "wrath" && !behind) { const [ux, uy] = unit(k.x - f.x, k.y - f.y), r = (tel.r || 210) + 14; for (const [vx, vy] of [[ux, uy], [1, 0], [-1, 0], [ux, 0], [-ux, 0]]) { const sp = free(f.x + vx * r, f.y + vy * r); if (sp) { spots.push(sp); break; } } }
+    if (!spots.length) return null;
+    let best = null, bd = Infinity; for (const sp of spots) { const d = dist(k.x, k.y, sp.x, sp.y); if (d < bd) { bd = d; best = sp; } }
+    return best;
   }
   // the marks that are not events: a stone's ring I stand in is left (leaveRing), a chunk's shadow over me too (the squire by its own
   // number); each mark rolled once, by its id
@@ -442,6 +497,22 @@
       if (fight.t >= E.until || (E.kind === "leave" && dist(k.x, k.y, E.cx, E.cy) > E.r)) bot.evade = null;
       else { out.move = E.kind === "leave" ? toward(k, E.cx, E.cy, -1) : [E.ax, E.ay]; return out; }
     }
+    // (design pass 44) the cover taken from an ultimate: walked to by the field, then held until the ultimate is over or he kneels (the
+    // kneel is the time to hit him); the Wrath's blast ends it too (he kneels at once)
+    if (bot.hide) {
+      const Hd = bot.hide, f = (fight.foes || []).find(q => q.id === Hd.foe);
+      if (!f || f.dead || !f.act || f.act.phase !== "ult" || f.act.step === "kneel") { bot.hide = null; k.hideSpot = null; }
+      else { const sp = Hd.spot, dd = dist(k.x, k.y, sp.x, sp.y); if (dd > 3) { const s = stepToward(fight, bot, k, { x: sp.x, y: sp.y, on: sp.on || null, z: sp.z || 0 }); out.move = toward(k, s.x, s.y, 1); } else out.move = [0, 0]; return out; }
+    }
+    // (design pass 44) caught in the open while his beam turns: a dodge through it when it will reach me within 0.12 s (bots.dodgeBeam), once a pass
+    if (bot.N.dodgeBeam > 0) for (const f of fight.foes || []) {
+      const A = f.act, tel = A && A.tel; if (!tel || tel.kind !== "beamLive" || !tel.spin || f.dead) continue;
+      const from = tel.from || [f.x, f.y], dx = k.x - from[0], dy = k.y - from[1], dd = Math.hypot(dx, dy) || 1, ang = Math.atan2(dy, dx), dir = A.dir || 1;
+      let d = (ang - A.angle) * dir; while (d > Math.PI) d -= 2 * Math.PI; while (d <= -Math.PI) d += 2 * Math.PI;
+      const sp = (A.atk && A.atk.speed) || [45, 110], ramp = (A.atk && A.atk.ramp) || 2.0, speed = (sp[0] + (sp[1] - sp[0]) * Math.min(1, (A.spinT || 0) / ramp)) * Math.PI / 180, half = Math.atan(((tel.w || 12) / 2 + (k.r || 5)) / dd);
+      const pass = Math.floor((A.spun || 0) / (2 * Math.PI)), tReach = (d - half) / speed;
+      if (d > 0 && tReach <= 0.12 && bot.beamPass !== pass) { bot.beamPass = pass; if (R() < bot.N.dodgeBeam) { out.dodge = true; out.move = [-dy / dd * dir, dx / dd * dir]; return out; } }
+    }
     return null;
   }
 
@@ -491,7 +562,7 @@
     opts = opts || {};
     if (!fight.level) throw new Error("bots.js: the bots play in a level");
     knightClass(fight); botsRng(fight);
-    const B = brothersSpec(), seats = opts.seats || fight.knights.filter(k => k.seat > 0 && (k.kind === "brother" || k.kind === "bench")).map(k => k.seat);
+    const LB = (fight.area || {}).bots || {}, B = Object.assign({}, brothersSpec(), LB.brothersHide && LB.hide ? { hide: LB.hide, brothersHide: true } : {}, LB.dodgeAtLanding !== undefined ? { dodgeAtLanding: LB.dodgeAtLanding } : {}), seats = opts.seats || fight.knights.filter(k => k.seat > 0 && (k.kind === "brother" || k.kind === "bench")).map(k => k.seat);   // (design pass 44: the brothers take cover too, by the clumsy numbers)
     const P = { N: B, seats, bots: seats.map(s => Object.assign(newBot(s, B, "brother"), { name: (fight.knights[s] || {}).name || null })),
       step(dt, input0) {
         assignLifts(fight, P);
@@ -509,7 +580,11 @@
   // of the next arena (the view's centre over it, or the bank past the horn line in the last), where the waves start; it never wanders
   function plan(fight, k) {
     const A = fight.area || {};
-    const P = ADAPT.passage(fight); if (P) { const zx = (P.zone.x[0] + P.zone.x[1]) / 2, zy = Math.max((P.zone.y[0] + P.zone.y[1]) / 2, P.zone.y[1] + 2); return { x: zx, y: zy, on: P.on || null, pass: P.id }; }   // (its zone's foot: the wall stands behind it)   // (design pass 21) through the open door into the next room
+    const P = ADAPT.passage(fight);
+    // (design pass 44) a seam (the throne room's doors): walked through, never tapped: to its zone's middle (the doors open there), then by
+    // the doorway's middle to the first landing beyond its line
+    if (P && P.seam) { const zx = (P.zone.x[0] + P.zone.x[1]) / 2, via = P.via || [zx, P.zone.y[0]], land = (P.land || [[via[0], P.line - 24]])[0]; if (k.y > P.zone.y[1] + 4 && Math.abs(k.x - zx) > 10) return { x: zx, y: P.zone.y[1] - 8 }; if (k.y > via[1] + 6) return { x: via[0], y: via[1], r: 3 }; return { x: land[0], y: land[1], r: 3 }; }
+    if (P) { const zx = (P.zone.x[0] + P.zone.x[1]) / 2, zy = Math.max((P.zone.y[0] + P.zone.y[1]) / 2, P.zone.y[1] + 2); return { x: zx, y: zy, on: P.on || null, pass: P.id }; }   // (its zone's foot: the wall stands behind it)   // (design pass 21) through the open door into the next room
     const g = ADAPT.goal(fight); if (g) return g;
     const ch = ADAPT.chest(fight); if (ch) { if (!ch.on) return { x: ch.x, y: ch.y, r: ch.r || 6, use: true }; const b = besideChest(fight, k, ch); return { x: b[0], y: b[1], r: 2, on: ch.on, use: true, chest: ch }; }   // (design pass 21) a chest on a surface: a free spot beside it
     if (ADAPT.gateOpen(fight)) { const Z = (A.zones || {}).exit; if (Z && Z.u) { const u = (Z.u[0] + Z.u[1]) / 2, v = (Z.v[0] + Z.v[1]) / 2; return { x: (u + v) / 2, y: (v - u) / 2, exit: true }; } if (Z && Z.rect) return { x: (Z.rect[0] + Z.rect[2]) / 2, y: (Z.rect[1] + Z.rect[3]) / 2, exit: true }; }
@@ -578,7 +653,7 @@
     }
     if (g.exit && !(((fight.area || {}).zones || {}).exit || {}).u) {   // a level's exit by x and y (the hall's lord's door): walk in and push on
       // (design pass 27) the push follows the zone's dir: the hall's door right, the Keep's throne-room door up (pushing right there walked out of the rect)
-      if (inExitZone(fight, k)) { const d = ((((fight.area || {}).zones || {}).exit || {}).dir || ["right"])[0]; out.move = d === "up" ? [0, -1] : d === "down" ? [0, 1] : d === "left" ? [-1, 0] : [1, 0]; bot.press = fight.t; }
+      if (inExitZone(fight, k)) { const Z = (((fight.area || {}).zones || {}).exit || {}), d = (Z.dir || ["right"])[0]; out.move = d === "up" ? [0, -1] : d === "down" ? [0, 1] : d === "left" ? [-1, 0] : d === "stand" ? [0, 0] : [1, 0]; if (Z.push === "inside" && Z.rect && d === "up") { const cx = (Z.rect[0] + Z.rect[2]) / 2; out.move[0] = k.x > cx + 2 ? -0.3 : k.x < cx - 2 ? 0.3 : 0; } bot.press = fight.t; }   // (design pass 44: the Throne's exit is held by standing in it, nothing above it would hold a push)
       else { const s = stepToward(fight, bot, k, g); out.move = toward(k, s.x, s.y, 1); }
       return out;
     }
@@ -618,7 +693,7 @@
     const a = lane(mine), b = lane(-mine), v = a.squeeze <= 4 || a.squeeze <= b.squeeze ? a.v : b.v;
     return { x: (u + v) / 2, y: (v - u) / 2 };
   }
-  function inExitZone(fight, k) { const Z = ((fight.area || {}).zones || {}).exit; if (Z && Z.rect) return k.x >= Z.rect[0] - 1 && k.x <= Z.rect[2] + 1 && k.y >= Z.rect[1] && k.y <= Z.rect[3]; if (!Z || !Z.u) return false; const u = k.x - k.y, v = k.x + k.y; return u >= Z.u[0] && u <= Z.u[1] && v >= Z.v[0] && v <= Z.v[1]; }
+  function inExitZone(fight, k) { const Z = ((fight.area || {}).zones || {}).exit; if (Z && Z.rect) { const pad = Z.push === "inside" ? 0 : 1; return k.x >= Z.rect[0] - pad && k.x <= Z.rect[2] + pad && k.y >= Z.rect[1] && k.y <= Z.rect[3]; } /* (design pass 44: a rect pushed anywhere inside is the page's exact rect, so a knight a px outside it walks back in rather than pushing where the page sees no zone) */ if (!Z || !Z.u) return false; const u = k.x - k.y, v = k.x + k.y; return u >= Z.u[0] && u <= Z.u[1] && v >= Z.v[0] && v <= Z.v[1]; }
   const inViewPad = (fight, b, pad) => { const v = fight.view; if (!v) return true; const fy = b.y - (b.z || 0); return b.x >= v.x0 - pad && b.x <= v.x1 + pad && fy >= v.y0 - pad && fy <= v.y1 + pad; };
   function squire(fight, opts) {
     opts = opts || {};
@@ -626,7 +701,7 @@
     knightClass(fight);
     // (design pass 27) the level's own numbers for its squire: bots.leaveFuse (the Keep's 0.8), and the clumsier squire's targets.normal.clumsy
     const LB = (fight.area || {}).bots || {}, LC = (((fight.area || {}).targets || {}).normal || {}).clumsy || {};
-    const S = squireSpec(), N = Object.assign({}, S, LB.leaveFuse !== undefined ? { leaveFuse: LB.leaveFuse } : {}, opts.clumsy ? Object.assign({}, S.clumsy, LC.leaveFuse !== undefined ? { leaveFuse: LC.leaveFuse } : {}) : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;
+    const S = squireSpec(), N = Object.assign({}, S, LB.leaveFuse !== undefined ? { leaveFuse: LB.leaveFuse } : {}, LB.hide ? { hide: LB.hide } : {}, LB.dodgeBeam !== undefined ? { dodgeBeam: LB.dodgeBeam } : {}, LB.dodgeAtLanding !== undefined ? { dodgeAtLanding: LB.dodgeAtLanding } : {}, opts.clumsy ? Object.assign({}, S.clumsy, LC.leaveFuse !== undefined ? { leaveFuse: LC.leaveFuse } : {}) : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;   // (design pass 44: the Throne's hide and dodgeBeam)
     const bot = newBot(0, N, "squire"); if (opts.clumsy) bot.N.clumsy = true;
     const Q = { N, bot, seed, rng: rng((seed ^ seedConst("squire")) >>> 0), step(dt) { return squireInput(fight, Q, bot, dt); } };
     bot.R = Q.rng;

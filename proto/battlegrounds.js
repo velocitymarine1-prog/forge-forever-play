@@ -86,6 +86,7 @@
     gate: { spec: "FORGE_GATE", id: "castle-gate", name: "The Troll Gate", shut: "The gate is shut", seen: "forge-forever:gate-seen", satchel: "forge-forever:satchel" },
     hall: { spec: "FORGE_HALL", art: "Hall", id: "great-hall", name: "The Great Hall", shut: "The hall is shut", seen: "forge-forever:hall-seen", satchel: "forge-forever:satchel:hall" },
     keep: { spec: "FORGE_KEEP", art: "Keep", id: "castle-keep", name: "The Keep", shut: "The keep is shut", seen: "forge-forever:keep-seen", satchel: "forge-forever:satchel:keep" },   // (design pass 27, build 22)
+    throne: { spec: "FORGE_THRONE", art: "Throne", id: "castle-throne", name: "The Throne", shut: "The throne room is shut", seen: "forge-forever:throne-seen", satchel: "forge-forever:satchel:throne" },   // (design pass 44, build 37)
     // (design pass 36, build 27) the Arena: not a level of the castle but a bout on the sand, played by proto/duel.js and proto/arena-page.js;
     // its first state is the Gate of Champions (the lobby). The page keeps its level machinery off (LEVEL false) and its ARENA branches on
     arena: { spec: "FORGE_ARENA", art: "Arena", id: "arena", name: "The Arena", shut: "The gate is shut", seen: "forge-forever:arena-seen", satchel: "forge-forever:satchel:arena", arena: true }
@@ -150,7 +151,7 @@
     // design pass 21: the Great Hall's first visit (each level's first visit and satchel by its area). The gate plate's last choice of
     // brothers (forge-forever:gate-brothers) and the level picked on it (forge-forever:level-pick) were kept here too until design pass 24
     // (build 17): the castle page's Map Table writes them now
-    hallSeen: "forge-forever:hall-seen", keepSeen: "forge-forever:keep-seen" };
+    hallSeen: "forge-forever:hall-seen", keepSeen: "forge-forever:keep-seen", throneSeen: "forge-forever:throne-seen" };
   const SEEN = LEVEL ? WANT.seen : KEYS.seen, SATCHEL = LEVEL ? WANT.satchel : KEYS.satchel;
   // storage is a convenience: the cellar works without it, and nothing is remembered (?nostore=1 plays as if it were blocked)
   const nostore = params.get("nostore") === "1";
@@ -278,8 +279,12 @@
   const brothersN = LEVEL ? clamp(parseInt(params.get("brothers"), 10) || (perf === "stress" ? 3 : 0), 0, 3) : 0;   // (the stress case brings three brothers)
   const benchParty = handoff && handoff.bench ? parseInt(handoff.bench.party, 10) : NaN;   // (a bench.party that is no number counts for nothing)
   const partyN = LEVEL ? clamp(parseInt(params.get("party"), 10) || (Number.isFinite(benchParty) ? benchParty : 0) || 1, 1, 4) : 1;
+  // (build 38, design pass 47) the armour set worn, from the handoff's smith: the player's seat alone wears it, in the cellar and the levels;
+  // ?armour=0, the rule off or a set the rule does not know is none. The Arena's seats never wear one (spec/armour.json arena, Isaac's call 5)
+  const WORN = (() => { const AR = window.Armour, id = handoff && handoff.smith ? handoff.smith.armour : null; return !ARENA && params.get("armour") !== "0" && AR && AR.on() && typeof id === "string" && AR.set(id) ? id : null; })();
+  state.armour = WORN;
   function seats() {
-    const out = [{ loadout: first.hands, kind: "player", name: handoff && handoff.smith ? handoff.smith.name : null }];
+    const out = [{ loadout: first.hands, kind: "player", name: handoff && handoff.smith ? handoff.smith.name : null, armour: WORN || undefined }];   // (build 38: the set worn, the player's seat alone)
     const bench = Math.min(partyN - 1, 3), bros = Math.min(brothersN, 3 - bench);
     if (bench > 0) out.push(...(Bots && Bots.bench ? Bots.bench(bench) : brotherSeats(bench, "bench")));
     if (bros > 0) out.push(...(Bots && Bots.brothers ? Bots.brothers(bros) : brotherSeats(bros, "brother")));
@@ -290,6 +295,7 @@
   // the hand the thumbs are in (section 3.14): the rules read fight.hand for the thumbs' corner the archers avoid, the door rule's thumb
   // check and Level.edgeMarks' default; set with the fight and kept in step on every fit (a switch of hands in the menu refits)
   const syncHand = () => { if (fight && LEVEL) fight.hand = state.lefty ? "left" : "right"; };
+  let ATT = {};   // (design pass 44) the director's options this page attached with (attachOpts)
   try {
     // (design pass 36) the Arena boots with a lobby and a stand-in fight (a duel of one against the house, never stepped) so the page's
     // HUD and rack have a knight and hands; arena-page.js makes the bout's own fight when a plate is taken
@@ -298,7 +304,7 @@
     // the director (design pass 12, proto/level.js: the camera, the waves, the doors, the engines, the castle front, the drops) is attached
     // by one call, never by newFight, and sets fight.brains itself; ?perf=stress builds its own scene (stress()) and keeps the camera where
     // that puts it, so it runs without one
-    if (LEVEL && window.Level && perf !== "stress") Level.attach(fight);
+    if (LEVEL && window.Level && perf !== "stress") Level.attach(fight, ATT = attachOpts());
     syncHand();
     scene = ARENA ? arenaBootScene() : LEVEL ? new Gate.Scene(AREA, artOf(areaKey)) : new C.Scene(AREA);   // (design pass 21: a level's own art, the Great Hall's Hall.art; none for the Troll Gate)
   } catch (e) { if (!wantLevel) throw e; shutBy = e; }
@@ -317,6 +323,16 @@
   function arenaBootScene() {
     try { if (window.Arena && Arena.art && Gate && Gate.Scene) return new Gate.Scene(Object.assign({}, AREA, { art: "Arena" }), Arena.art); } catch (e) { (window.__errors || []).push("arena boot scene: " + (e && e.message)); }
     return new C.Scene(AREA);
+  }
+  // (design pass 44) the director's options: a replay (the smith cleared this level before: no Ember, no take at the end), and the level
+  // after the King's death (a reload, the satchel's throneDown; or ?end=1 for the bench and the harness) with the Ember resting where it
+  // fell unless it was taken; only for a level whose end says so (the Throne's end.reload)
+  function attachOpts() {
+    const o = { replay: !!(handoff && handoff.smith && handoff.smith.cleared && handoff.smith.cleared[AREA.id]) };
+    let d = null; try { d = JSON.parse(session.get(SATCHEL)); } catch (e) { d = null; }
+    const mine = !!(d && d.v === 1 && d.area === AREA.id && (d.world || null) === (handoff ? handoff.world : null));
+    if ((AREA.end || {}).reload && (params.get("end") === "1" || (mine && d.throneDown))) { o.after = "kingDown"; o.ember = !o.replay && !(mine && d.emberTaken) && params.get("ember") !== "0"; o.ruined = true; }
+    return o;
   }
   // the party's controller (stage F's Bots.party): it turns the player's input into every seat's; without it the other seats stand still
   const party = fight && LEVEL && fight.knights.length > 1 && Bots && Bots.party ? Bots.party(fight) : null;
@@ -541,13 +557,14 @@
     else { mx = (K.right ? 1 : 0) - (K.left ? 1 : 0); my = (K.down ? 1 : 0) - (K.up ? 1 : 0); const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; } }
     const inp = { move: [mx, my], strike: input.strike || !!K.strike, swap: input.swap, dodge: input.dodge, ability: input.ability, guard: input.guard || !!K.guard };   // (guard: held, design pass 38)
     if (LEVEL && input.use) inp.use = true;   // E or a tap on the prompt by the chest or the ram: the rules take it up (section 3.14)
+    if (KING) KING.input(inp, T);   // (design pass 44) a cutscene's next, skipCine and boxDone, a tap or a key each (a driver's too)
     if (ARENA) inp.guard = !!(input.guard || K.guard || (T && T.guard));   // (design pass 36) Guard is held, not pressed (a driver's guard too)
     input.swap = false; input.dodge = false; input.ability = false; input.use = false;   // Swap, Dodge, the ability and use are passed once, a press each
     if (T) { if (T.move) inp.move = T.move; if (T.strike !== undefined) inp.strike = !!T.strike; if (T.guard !== undefined) inp.guard = !!T.guard; if (T.swap) { inp.swap = true; T.swap = false; } if (T.dodge) { inp.dodge = true; T.dodge = false; } if (T.ability) { inp.ability = true; T.ability = false; } if (T.use) { inp.use = true; T.use = false; } if (T.target !== undefined) inp.target = T.target; if (T.face !== undefined) inp.face = T.face;
       if (T.pass) { const P = LEVEL ? LV.passage() : null; if (P && P.id === T.pass && state.arrive <= 0) startPassage(P); T.pass = undefined; } }   // (design pass 21: a driver's pass is a tap on the door's prompt: the page's fade, then the pass)
     // arriving: the knight walks in while input waits, to the area's walkTo ([x, y], null for an axis it keeps: the cellar's knight walks
     // down off the bottom step, the level's in from the left edge of the field; through a passage, the passage's walkTo)
-    if (state.arrive > 0) { state.arrive -= STEP; const wt = state.walkTo || AREA.knight.walkTo || [null, null], k = fight.k; if (state.arrive <= 0) state.walkTo = null; return { move: [wt[0] !== null && wt[0] !== undefined && k.x < wt[0] ? 1 : 0, wt[1] !== null && wt[1] !== undefined && k.y < wt[1] ? 1 : 0] }; }
+    if (state.arrive > 0) { state.arrive -= STEP; const wt = state.walkTo || AREA.knight.walkTo || [null, null], k = fight.k; if (state.arrive <= 0) state.walkTo = null; return { move: [wt[0] !== null && wt[0] !== undefined && k.x < wt[0] ? 1 : 0, wt[1] !== null && wt[1] !== undefined && k.y < wt[1] ? 1 : wt[1] !== null && wt[1] !== undefined && k.y > wt[1] ? -1 : 0] }; }   // (design pass 44: up the gallery too)
     return inp;
   }
   // a passage (design pass 21 section 3.3): E, a tap on its prompt, or the stick held toward its door for its dwell (a driver's pass too)
@@ -620,6 +637,7 @@
     for (const n of state.nums) n.t += STEP;
     state.nums = state.nums.filter(n => n.t < n.life);
     if (state.shake.t > 0) state.shake.t -= STEP;
+    if (state.flash && state.flash.t > 0) state.flash.t -= STEP;
     // the dodge and the lunge leave afterimages
     if (k.dodge > 0 || k.lunge) { state.trail.unshift([k.x, k.y]); if (state.trail.length > 9) state.trail.pop(); } else if (state.trail.length) state.trail.pop();
     flushSums(false);
@@ -636,6 +654,7 @@
   const elemRamp = e => PF.ELEM[e] || ELC.physical;
   function ramp(el, mat) { if (el && el !== "physical" && PF.ELEM[el]) return PF.ELEM[el]; const m = PF.RAMP[mat] || PF.RAMP.steel; return mat === "wood" ? PF.RAMP.steel : m; }
   function addFx(e, extra) { const f = Object.assign({}, e, extra || {}, { t: 0 }); f.life = f.life || LIFE[f.kind] || 0.3; if (f.el !== undefined || f.mat !== undefined) f.ramp = ramp(f.el, f.mat); state.fx.push(f); if (state.fx.length > 96) state.fx.shift(); return f; }
+  const wardInk = () => (WORN && window.Armour ? Armour.ink(WORN) : "#2ce8f5");   // (build 38) WARDED in the set's ink
   function say(x, y, s, c, big) { state.nums.push({ x, y, s: String(s), c: c || INK.normal, t: 0, life: FEEL.number, big: !!big }); if (state.nums.length > 64) state.nums.shift(); }
   function take(events) {
     lessonOn("events", events);
@@ -675,7 +694,9 @@
   // (design pass 21: a troll knight's block and guard break, and the wave, a phase, the end and a passage go to the painter too, for the
   // block and reel poses and the Great Hall's art on the fight's clock: the keep's door, the kennels, the hide over the hearth)
   const SCENE_TAKES = new Set(["mark", "markEnd", "wreck", "fell", "die", "windUp", "foeBlock", "guardBreak", "wave", "phase", "passage", "hayLit",
-    "spawn", "onward", "blast", "fizzle"]);   // (design pass 27: the Keep's doors, roost and seal, a burster's blast and fizzle)
+    "spawn", "onward", "blast", "fizzle",   // (design pass 27: the Keep's doors, roost and seal, a burster's blast and fizzle)
+    "doorsOpen", "doorsShut", "ruin", "wrath", "wrathPulse", "propBreak", "kingPop", "wake", "retryAt"]);   // (design pass 44: the Throne's doors, the ruin, the Wrath, a prop breaking, the pop, the waking, a retry)
+  let KING = null;   // (design pass 44) the Throne's page module, mounted below for a level with an intro and an end that pops
   function takeLevel(e) {
     if (SCENE_TAKES.has(e.type) || e.type === END) scene.take(e, fight);   // (windUp: the Emberback's flare, a ring with no troll behind it)
     if (e.type === "palisade") scene.fell["pal" + e.id] = state.t;   // a palisade topples from the director's event (its four frames on the screen's clock, as the painter times them)
@@ -695,6 +716,7 @@
     if (e.type === "wreck") { if (e.kind === "hut" || e.kind === "tent") { lv.huts++; saveSatchel(); } else if (e.kind === "engine" || e.kind === "trebuchet") { lv.engines++; saveSatchel(); } }
     if (e.type === "regrow") { if (e.amount >= 1) say(e.x, e.y - 4, "+" + Math.round(e.amount), INK.heal); firstTime("regrow", "It heals. Burn it."); }   // the troll's green + of regrowth (its y comes lifted: the rules say it over the chest)
     if (e.type === "fx" && e.kind === "crack") { scene.stamp({ type: "mark", kind: "crack", id: e.seed | 0, x: e.x, y: e.y, z: 0, r: 8 }); return true; }
+    if (KING && KING.take(e)) return true;   // (design pass 44) the Throne's own: the cines, the barks, the Wrath, the end, the Ember
     // the director's lines (section 3.14: one timed line at a time, by priority) and what the first time of a thing teaches
     const D = DIRECTOR[e.type];
     if (D) D(e);
@@ -747,8 +769,9 @@
   // the level's own state on the page: the note, the satchel, the counts for the tally (the trolls felled; since design pass 21 the wolves
   // apart), what the first-time lines have taught, the level's start line said, the stir to come
   const lv = { line: null, waved: false, badly: false, ours: false, done: false, clearT: 0, felled: 0, wolves: 0, bats: 0, huts: 0, engines: 0, edgeSeen: false,
-    things: [], finds: { gold_chests: 0, iron_chests: 0, rare_enemies: 0, quest_embers: 0 }, firsts: new Set(), sent: null, started: false, stirAt: 0 };
+    things: [], finds: { gold_chests: 0, iron_chests: 0, rare_enemies: 0, quest_embers: 0 }, firsts: new Set(), sent: null, started: false, stirAt: 0, warded: {}, wardedAt: -9 };
   state.lv = lv;
+  if (ATT.after === "kingDown" && !ATT.ember) { lv.ours = true; lv.throneDown = true; lv.emberTaken = true; }   // (design pass 44) booted after the take: the end is open already (its event came inside the attach, before any step)
   const isMine = e => e.seat === undefined || e.seat === fight.k.seat;
   const title = s => { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); };
   // one timed line at a time: a new line replaces the shown one if its priority is the same or higher and restarts the timer; a lower line
@@ -762,16 +785,16 @@
   }
   // a first-time line (section 3.8): once per profile, 3 s; dropped for a higher line it is not marked seen, so it shows the next time.
   // Returns whether there is nothing more to show (the line showed now, or was taught before); false while it waits for its turn
-  function firstTime(key, text) {
+  function firstTime(key, text, kind, secs) {   // (design pass 44: kind and secs for a line said at an ultimate's priority, so the next first-time line does not take its place)
     if (lv.firsts.has(key)) return true;
-    if (!note(text, "firstTime")) return false;
+    if (!note(text, kind || "firstTime", secs)) return false;
     lv.firsts.add(key);
     store.set(KEYS.firsts, JSON.stringify(Array.from(lv.firsts)));
     return true;
   }
   try { for (const k of JSON.parse(store.get(KEYS.firsts) || "[]")) if (typeof k === "string") lv.firsts.add(k); } catch (e) { /* nothing taught yet */ }
   const DIRECTOR = {
-    wave(e) { lv.waved = true; lv.badly = false; note("Wave " + (e.n || 1) + " of " + (e.of || (AREA.waves || []).length || 5) + " · " + title(e.name), "wave"); },
+    wave(e) { lv.waved = true; lv.badly = false; if (lv.bossT0 === undefined && (AREA.waves || []).some(w => w.boss && w.arena === e.arena)) lv.bossT0 = fight.t; note("Wave " + (e.n || 1) + " of " + (e.of || (AREA.waves || []).length || 5) + " · " + title(e.name), "wave"); },
     breakGate(e) { note(title((e && e.name) || "Break the gate"), "wave", LVN.secs.breakGate); },
     lastOfThem(e) { note(title((e && e.name) || "The last of them"), "wave", LVN.secs.lastOfThem); },
     gateStage(e) { const L = (AREA.gate || {}).lines || {}, line = L[String(e.frac)] || L[String(e.at)]; if (line) note(line, "gateLine"); },
@@ -803,7 +826,7 @@
     gateOurs() { lv.ours = true; lv.clearT = fight.t; note(said((AREA.end || {}).line, "The gate is ours."), OURS); levelClear(); },
     clear() { DIRECTOR.gateOurs(); },
     pickup(e) { if (isMine(e)) pickup(e.id || e.thing, e.from); },
-    chestOpen(e) { if (isMine(e)) { lv.finds.iron_chests = 1; saveSatchel(); } },
+    chestOpen(e) { if (isMine(e)) { if ((AREA.chest || {}).kind === "gold") lv.finds.gold_chests = 1; else lv.finds.iron_chests = 1; saveSatchel(); } },   // (design pass 44: the Throne's chest is gold)
     spawn(e) { if (e.from === "hut" || e.door === "hut" || e.hut !== undefined) firstTime("hut", "Huts send trolls. Wreck them."); if (e.kind === "brute" || e.kind === "rockbrute") firstTime("brute", "Hit it hard and fast."); if (e.kind === "emberback") firstTime("emberback", "A glowing one. It drops a rare find.");
       if (PG.boss && e.kind === PG.boss.tag && !e.again) note(said(PG.boss.intro, ""), "boss"); },   // (design pass 27) the boss turns from the doors: his line
     aimLine() { firstTime("aimLine", "Red line: step off it."); },
@@ -811,6 +834,9 @@
     foeShotEnd(e) { if (e.why === "over" || e.over) firstTime("trench", "In a trench, arrows from the side fly over you."); },
     kstatus(e) { if (!e.on || !isMine(e)) return; if (e.status === "burning") firstTime("burning", "Burning! Dodge to roll it out."); if (e.status === "chill") firstTime("chill", "Ice slows you. Three hits freeze."); },
     down(e) { if (!isMine(e)) firstTime("downed", "Stand by a fallen friend to lift them."); },
+    // (build 38, design pass 47 section 3.7) a ward turns a status away: WARDED over the knight in the set's ink, at most once a second, and
+    // the set's first-time line once a run; the tally remembers what was kept off
+    warded(e) { if (!isMine(e) || !WORN) return; lv.warded[e.status] = true; if (state.t - (lv.wardedAt || -9) >= 1) { say(e.x, e.y - 44, window.Armour ? Armour.word("warded", "WARDED") : "WARDED", wardInk(), true); lv.wardedAt = state.t; } const fw = window.Armour ? Armour.firstWard(WORN) : null; if (fw) firstTime("ward", fw); },
     carry(e) { if (e.what === "ram" && e.on && isMine(e)) toast((AREA.ram || {}).name + " in hand"); }
   };
   if (END !== "gateOurs") DIRECTOR[END] = DIRECTOR.gateOurs;
@@ -827,12 +853,12 @@
     const first = !found.has(id) && !lv.things.includes(id);
     lv.things.push(id);
     saveSatchel();
-    toast(from === "chest" ? "Iron chest: " + t.name + " +1" : first ? "First find: " + t.name : t.name + " +1");
+    toast(from === "chest" ? ((AREA.chest || {}).kind === "gold" ? "Gold chest: " : "Iron chest: ") + t.name + " +1" : first ? "First find: " + t.name : t.name + " +1");
     return true;
   }
   // (design pass 21) the record says its level's id, and each level keeps its own key (AREAS' satchel), so a record of another level is
   // never read into this run: an unfinished run's finds wait for the next run of their own level (a record with no area is the Troll Gate's)
-  function saveSatchel() { session.set(SATCHEL, JSON.stringify({ v: 1, at: nowIso(), world: handoff ? handoff.world : null, area: AREA.id, things: lv.things, finds: lv.finds, felled: lv.felled, wolves: lv.wolves, huts: lv.huts, engines: lv.engines })); }
+  function saveSatchel() { session.set(SATCHEL, JSON.stringify(Object.assign({ v: 1, at: nowIso(), world: handoff ? handoff.world : null, area: AREA.id, things: lv.things, finds: lv.finds, felled: lv.felled, wolves: lv.wolves, huts: lv.huts, engines: lv.engines }, lv.throneDown ? { throneDown: true } : {}, lv.emberTaken ? { emberTaken: true } : {}))); }   // (design pass 44: a reload after the King's death comes back after the fight)
   (function loadSatchel() {   // a reload keeps the satchel (same world); a run that never ended (a closed tab) rides with the next one, so nothing is lost
     let d = null; try { d = JSON.parse(session.get(SATCHEL)); } catch (e) { d = null; }
     if (!d || d.v !== 1 || !Array.isArray(d.things) || (d.world || null) !== (handoff ? handoff.world : null)) return;
@@ -840,6 +866,7 @@
     for (const id of d.things) if (ingredient(id)) lv.things.push(id);
     for (const k of Object.keys(lv.finds)) lv.finds[k] = Math.max(0, (d.finds || {})[k] | 0);
     lv.felled = d.felled | 0; lv.wolves = d.wolves | 0; lv.huts = d.huts | 0; lv.engines = d.engines | 0;
+    if (d.throneDown) lv.throneDown = true; if (d.emberTaken) lv.emberTaken = true;
   })();
   // the way home (section 3.11.5): forge-forever:from-battle, written once with the run; a clear pays at the Forge, a quit banks. The key
   // keeps every run still waiting for the Forge, each by its own id, so the Forge pays or banks each in turn (Again twice: two runs, two
@@ -903,15 +930,16 @@
   }
   // what the page reads of the director's state (the rules keep it; the shapes stage G and this stage assume are one line each to change)
   const LV = {
-    when(name) { return name === "gateOpen" ? lv.ours || !!(fight.gate && fight.gate.ours) : name === "chestShown" ? !!LV.chest() && !LV.chestOpen() : name === "passageOpen" ? !!LV.passage() : true; },   // (the chest stays shown for its lid once open; its prompt does not)
+    when(name) { return name === "gateOpen" ? lv.ours || !!(fight.gate && fight.gate.ours) : name === "chestShown" ? !!LV.chest() && !LV.chestOpen() : name === "passageOpen" ? !!LV.passage() : name === "emberDown" ? !!(LV.ember() && LV.ember().state === "rest") : name === "emberTaken" ? !!((LV.ember() && LV.ember().state === "taken") || lv.ours || (fight.level && fight.level.gateOpen)) : true; },   // (design pass 44: the Ember resting, the Ember taken)
+    ember() { return fight.level ? fight.level.legendEmber || null : null; },   // (design pass 44) the Legend Ember on the floor { x, y, z, state: hang | drop | rest | taken }   // (the chest stays shown for its lid once open; its prompt does not)
     // (design pass 21) the passage open from the party's room (fight.level.passage: its id, null in a wipe or with none open), its spec; and
     // that passage when the player's knight stands in its zone
     passage() { const id = fight.level && fight.level.passage; return id ? (AREA.passages || []).find(p => p.id === id) || null : null; },
-    passageHere() { const P = LV.passage(), k = fight.k, Z = P && P.zone; return Z && Z.x && Z.y && k.x >= Z.x[0] && k.x <= Z.x[1] && k.y >= Z.y[0] && k.y <= Z.y[1] ? P : null; },
+    passageHere() { const P = LV.passage(), k = fight.k, Z = P && !P.seam && P.zone; return Z && Z.x && Z.y && k.x >= Z.x[0] && k.x <= Z.x[1] && k.y >= Z.y[0] && k.y <= Z.y[1] ? P : null; },   // (design pass 44: a seam has no prompt; its doors open on the zone and its line is crossed)
     chest() { const c = fight.chest; return c && c.shown ? c : null; },   // { x, y, shown, open?, openAt? }
     chestOpen() { const c = LV.chest(); return !!c && (c.open === true || (c.openAt !== undefined && c.openAt !== null)); },
     ram() { const W = fight.world, id = W && W.ram; if (id === null || id === undefined || !W.solids || !W.solids[id]) return null; const s = W.solids[id]; return { x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1 }; },
-    at(name) { return name === "chest" ? LV.chest() : name === "ram" ? LV.ram() : null; },
+    at(name) { return name === "chest" ? LV.chest() : name === "ram" ? LV.ram() : name === "ember" ? (LV.ember() && LV.ember().state === "rest" ? { x: LV.ember().x, y: LV.ember().y } : null) : null; },
     // the knight a lift line is about: a downed ally within the lift's reach of the player's knight
     lifting() { const k = fight.k, L = (SPEC.downed || {}).lift || { within: 16, time: 2 }; if (k.down || k.out) return null; for (const b of fight.knights) if (b !== k && b.down && !b.out && dist(k.x, k.y, b.x, b.y) <= (L.within || 16)) return b; return null; }
   };
@@ -925,14 +953,15 @@
     // its time, and a first-time line the first time a kind of its page's firsts is seen on the screen (tried again while a higher line shows)
     if (!lv.started) { lv.started = true; if (typeof PG.start === "string" && PG.start) note(PG.start, "start"); }
     if (lv.stirAt && state.t >= lv.stirAt - 1e-9) { lv.stirAt = 0; note(PG.stir, "stir"); }
-    if ((FIRSTS.length || HINTS.length) && (fight.steps & 3) === 0) for (const [kind, line] of FIRSTS.concat(HINTS)) if (!lv.firsts.has(kind) && seenOnScreen(kind)) firstTime(kind, line);
+    if ((FIRSTS.length || HINTS.length) && (fight.steps & 3) === 0 && !(KING && KING.locked())) for (const [kind, line] of FIRSTS.concat(HINTS)) if (!lv.firsts.has(kind) && seenOnScreen(kind)) firstTime(kind, line);
+    if (KING) KING.tick();   // (design pass 44) the whispers, the bubble, the cine class
   }
   function onHit(e) {
     const tagged = e.tag && INK[e.tag];
     if (e.hold > 0 && !reduce) state.hold = Math.max(state.hold, e.hold);
     if (e.sum) { const s = state.sums[e.d] || (state.sums[e.d] = { acc: 0, at: state.t, x: e.x, y: e.y, tag: null }); s.acc += e.amount; s.x = e.x; s.y = e.y; if (e.tag) s.tag = e.tag; return; }
     if (e.kind === "dot") { say(e.x + (rnd() * 6 - 3), e.y - 6, Math.max(1, Math.round(e.amount)), e.why === "bleed" ? INK.bleed : elemRamp(e.why)[2]); return; }
-    if (e.tag === "IMMUNE") { say(e.x, e.y - 10, "IMMUNE", INK.IMMUNE); return; }   // the word instead of a number
+    if (e.tag === "IMMUNE") { say(e.x, e.y - 10, "IMMUNE", PG.boss && typeof PG.boss.immune === "string" && e.dummy === PG.boss.tag ? PG.boss.immune : INK.IMMUNE); return; }   // the word instead of a number (gold for the King through an ultimate, design pass 44)
     if (e.tag === "WARD") { say(e.x, e.y - 10, "WARD", INK.WARD); addFx({ kind: "sparks", x: e.x, y: e.y, seed: fight.steps, n: 4 }); return; }   // (design pass 27) the ward: the word in green and a spark, no number
     say(e.x, e.y - 10, Math.round(e.amount) + (e.crit ? "!" : ""), e.crit ? INK.crit : tagged ? INK[e.tag] : e.fin ? INK.COMBO : e.kind === "raw" ? INK.raw : INK.normal, e.crit || !!e.fin);
     if (e.fin && e.move) finisherHit(e);   // (design pass 20) a finisher's flash, star and sparks, and its move's own
@@ -1059,7 +1088,7 @@
     const Z = AREA.zones || {}, was = state.zone, wasText = state.promptText;
     let zone = null;
     const shutZones = lessonOn("blocked") || null;   // (build 8) the zones the cellar's lessons shut while they run (the castle's door, while the cellar had one)
-    if (state.arrive <= 0 && !state.passing && !fight.k.down && !fight.k.out) for (const name of (AREA.promptOrder || Object.keys(Z))) {
+    if (state.arrive <= 0 && !state.passing && !fight.k.down && !fight.k.out && !(KING && KING.locked())) for (const name of (AREA.promptOrder || Object.keys(Z))) {
       if (shutZones && shutZones.includes(name)) continue;
       if (name === "lift") { if (LEVEL && LV.lifting()) { zone = name; break; } continue; }
       if (name === "passage") { if (LEVEL && LV.passageHere()) { zone = name; break; } continue; }
@@ -1071,8 +1100,8 @@
     // walking into the zone's wall (the stairs up; a zone to the left, as the cellar's door was) or toward the gate for the zone's dwell
     // does what E does there
     const z = zone === "passage" ? LV.passageHere() : Z[zone], mv = myMove(), F = AREA.floor || {};
-    // (design pass 27) an exit rect against a wall inside the floor (the Keep's throne-room door at the dais's north wall, y 97): the knight pressed against the rect's top counts as pushing on, as one at the floor's top edge does
-    const pushing = zone === "passage" ? !!z && [].concat(z.dir || "up").some(d => toward(mv, d)) : z && z.dwell && [].concat(z.dir || "up").some(d => d === "up" ? mv[1] < -0.5 && (!!z.u || fight.k.y <= F.y0 + 0.5 || (!!z.rect && fight.k.y <= z.rect[1] + fight.k.r + 1)) : d === "left" ? mv[0] < -0.5 && (!!z.u || fight.k.x <= F.x0 + 0.5) : d === "right" ? mv[0] > 0.5 : d === "down" && mv[1] > 0.5);
+    // (design pass 27) an exit rect against a wall inside the floor (the Keep's throne-room door at the dais's north wall, y 97): the knight pressed against the rect's top counts as pushing on, as one at the floor's top edge does; (design pass 44) a rect with push "inside" (the Throne's, at the throne's foot, nothing to press against) counts the push anywhere inside it
+    const pushing = zone === "passage" ? !!z && [].concat(z.dir || "up").some(d => toward(mv, d)) : z && z.dwell && [].concat(z.dir || "up").some(d => d === "up" ? mv[1] < -0.5 && (!!z.u || fight.k.y <= F.y0 + 0.5 || (!!z.rect && (z.push === "inside" || fight.k.y <= z.rect[1] + fight.k.r + 1))) : d === "left" ? mv[0] < -0.5 && (!!z.u || fight.k.x <= F.x0 + 0.5) : d === "right" ? mv[0] > 0.5 : d === "down" && mv[1] > 0.5);
     const dwell = zone === "passage" && z ? (z.dwell === undefined ? 0.4 : z.dwell) : z && z.dwell;
     if (pushing) { state.stairs += STEP; if (state.stairs >= dwell - 1e-9) { state.stairs = 0; useZone(zone); } } else state.stairs = 0;
   }
@@ -1197,7 +1226,7 @@
     if (L && L.full) { ctx.fillStyle = "#0d0a14"; ctx.fillRect(0, 0, win.w, win.h); }   // (beyond the world's edge: night)
     if (state.shake.t > 0 && !still) ctx.translate(Math.round((rnd() * 2 - 1) * state.shake.amp), Math.round((rnd() * 2 - 1) * state.shake.amp));
     const hitches = scene.tiles.hitches;
-    scene.drawGround(ctx, win.x0, win.y0);
+    scene.drawGround(ctx, win.x0, win.y0, fight);   // (design pass 44: the art's ground hook has the fight on the first frame)
     if (state.perf && scene.tiles.hitches > hitches) { state.perf.hitches++; if (window.console) window.console.warn("Forge Forever: a column tile was finished at once (a hitch)"); }
     ctx.translate(-win.x0, -win.y0);
     const o = { t, still, dt: STEP, marks: state.stress ? state.stress.marks : null, patchFade: SPEC.patch.fade, few: state.fx.length > 64,
@@ -1222,6 +1251,7 @@
     ctx.translate(win.x0, win.y0);
     if (shown) { const em = (window.Level ? Level.edgeMarks : Gate.edgeMarks)(fight, { lefty: state.lefty, toast: toastOn, marks: o.marks, avoid: guide ? guide.edges : [], top, view: win, point: true }); scene.drawEdgeMarks(ctx, em); scene.drawGuideView(ctx, guide, o); if (em.length && !state.lv.edgeSeen && firstTime("edge", "Marks at the edge: trolls off the screen.")) state.lv.edgeSeen = true; }   // (dropped under a higher line, the line is tried again while marks show)
     if (state.reach) { ctx.translate(-win.x0, -win.y0); drawReach(); ctx.translate(win.x0, win.y0); }
+    if (state.flash && state.flash.t > 0 && !still) { ctx.globalAlpha = clamp(state.flash.t / state.flash.T, 0, 1) * 0.85; ctx.fillStyle = "#fff6c8"; ctx.fillRect(0, 0, win.w, win.h); ctx.globalAlpha = 1; }   // (design pass 44) the Wrath's and the pop's white flash
     if (state.perf) drawPerf();
     ctx.restore();
     syncLive();
@@ -1328,6 +1358,7 @@
     if (ARENA) {   // (design pass 39) a beaten knight falls by its clock; the stagger reels and the guard guards in pass 38's frames
       if (k.beaten && k.ko) { const bf = window.ArenaPage.fallFrame(k); return { anim: bf.anim, i: bf.i }; }
       if (k.down || k.lie > 0) return { anim: "down", i: 0 }; if (k.staggered > 0) return { anim: "reel", i: 0 }; if (k.guard && !k.strike && !k.dodge) return { anim: "guard", i: 0 }; return Combat.animOf(fight, k); }
+    if (fight.cine && fight.cine.kind === "ember" && fight.cine.seat === k.seat && !k.down) return { anim: fight.cine.pose === "down" ? "down" : "idle", i: 0 };   // (design pass 44) kneeling to the Ember, then risen with it
     if (k.knock) return { anim: k.knock.phase === "lie" ? "down" : "hurt", i: 0 };   // (design pass 38) knocked down: flat, then up on one knee
     if (k.reelT > 0) return { anim: "reel", i: 0 };   // (design pass 38) its poise broken
     if (k.air) return { anim: "fall", i: 0 };
@@ -1346,7 +1377,7 @@
   const lookOf = k => {
     // (design pass 36) on the sand the player's own knight is the cellar's; an ally wears the gold seat kit, a foe the far side's (spec sides.kits)
     if (ARENA) { if (k === fight.k) return Object.assign({ hero: ME.hero, kit: "arena", side: "red" }, k.carry ? { carry: "ram" } : {}); return k.team === fight.k.team ? { hero: seatHero(k), kit: "arena", side: "red", ally: true } : { hero: seatHero(k), kit: "arena", side: "blue" }; }   // (proto/knight.js's arena kit: the far side blue)
-    const L = {}; if (k.kind === "brother") { L.seat = k.seat; L.kit = "brother"; } else { if (k === fight.k) { L.hero = ME.hero; L.colour = ME.colour; } if (k.seat && fight.knights.length > 1) L.seat = k.seat; } if (k.carry) L.carry = "ram"; return Object.keys(L).length ? L : null; };
+    const L = {}; if (k.kind === "brother") { L.seat = k.seat; L.kit = "brother"; } else { if (k === fight.k) { L.hero = ME.hero; L.colour = ME.colour; if (WORN) L.armour = WORN; } if (k.seat && fight.knights.length > 1) L.seat = k.seat; } if (k.carry) L.carry = "ram"; return Object.keys(L).length ? L : null; };
   // the knight (c: a context in world coordinates; the painter lifts a knight by its height before calling this in a level)
   function drawKnight(fxf, k, c) {
     k = k || fight.k; c = c || ctx;
@@ -1767,17 +1798,18 @@
     bossV.hp = hp;
     if (bossV.chip < hp) bossV.chip = hp; else if (bossV.chip > hp && t >= bossV.holdTo) bossV.chip = Math.max(hp, bossV.chip - max * 0.6 * Math.max(0, t - bossV.at));
     bossV.at = t;
-    const IN = 118, fill = hp > 0 ? Math.max(1, Math.round(IN * hp / max)) : 0, chip = Math.max(0, Math.round(IN * bossV.chip / max) - fill), warded = !!b.ward, fury = !!b.fury, hatch = warded && !reduce ? (Math.floor(t * 6) & 1) : 0;
-    const key = fill + "|" + chip + "|" + (warded ? 1 : 0) + "|" + (fury ? 1 : 0) + "|" + hatch + "|" + (b.poiseMax > 0 ? Math.round((b.critOpen ? 0 : b.poise / b.poiseMax) * 40) + (b.poiseLock > fight.t ? "L" : "") : "");
+    const IN = 118, fill = hp > 0 ? Math.max(1, Math.round(IN * hp / max)) : 0, chip = Math.max(0, Math.round(IN * bossV.chip / max) - fill), warded = !!b.ward || !!b.ultImmune, fury = !!b.fury || !!b.empowered, hatch = warded && !reduce ? (Math.floor(t * 6) & 1) : 0;
+    const hatchC = b.ultImmune && !b.ward ? said((PG.boss || {}).immune, "#feae34") : "#63c74d";   // (design pass 44) gold hatching while the King is immune through an ultimate; fury while empowered
+    const key = fill + "|" + chip + "|" + (warded ? 1 : 0) + "|" + (fury ? 1 : 0) + "|" + hatch + "|" + hatchC + "|" + (b.poiseMax > 0 ? Math.round((b.critOpen ? 0 : b.poise / b.poiseMax) * 40) + (b.poiseLock > fight.t ? "L" : "") : "");
     if (key !== bossV.key) {
       bossV.key = key;
       const g = $("bossBar").getContext("2d"); g.clearRect(0, 0, 120, 6); g.fillStyle = OUT; g.fillRect(0, 0, 120, 6);
       for (let x = 0; x < IN; x++) for (let y = 1; y <= 4; y++) {
         let c = x < fill ? (fury ? (y === 1 ? "#ffffff" : y === 4 ? "#e43b44" : "#f6757a") : (y === 1 ? "#f6757a" : y === 4 ? "#a22633" : "#e43b44")) : x < fill + chip ? "#ead4aa" : "#3e2731";
-        if (warded && x < fill && ((x + y + hatch * 2) & 3) === 0) c = "#63c74d";
+        if (warded && x < fill && ((x + y + hatch * 2) & 3) === 0) c = hatchC;
         g.fillStyle = c; g.fillRect(x + 1, y, 1, 1);
       }
-      g.fillStyle = OUT; for (const q of [0.7, 0.4]) g.fillRect(1 + Math.round(IN * q), 0, 1, 6);   // the notches at 70 and 40 %
+      g.fillStyle = OUT; for (const q of (KING ? KING.notches() : [0.7, 0.4])) g.fillRect(1 + Math.round(IN * q), 0, 1, 6);   // the notches at 70 and 40 % (the King's at his ultimates' shares, design pass 44)
       // (design pass 38) his poise as a hairline on the bar's bottom row (gold, dim while locked, empty while broken)
       if (b.poiseMax > 0) { const pq = b.critOpen ? 0 : b.poise / b.poiseMax, pf = pq > 0 ? Math.max(1, Math.round(IN * pq)) : 0, dim = !b.critOpen && b.poiseLock > fight.t; for (let x = 0; x < IN; x++) { g.fillStyle = x < pf ? (dim ? "#be4a2f" : "#feae34") : "#3e2731"; g.fillRect(x + 1, 5, 1, 1); } }
     }
@@ -1924,13 +1956,17 @@
   // Hall's wolves felled apart from its trolls), and the way on to the next level shows between Home and Again
   const COUNTS = { trolls: L => L.felled + (L.felled === 1 ? " troll" : " trolls"), wolves: L => L.wolves + (L.wolves === 1 ? " wolf" : " wolves"), bats: L => L.bats + (L.bats === 1 ? " bat" : " bats") };
   function renderTally() {
-    const L = state.lv, sent = L.sent || {}, secs = Math.max(0, Math.round(L.clearT || fight.t)), mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, "0"), TL = PG.tally || {};
+    const L = state.lv, sent = L.sent || {}, TL = PG.tally || {}, secs = Math.max(0, Math.round(TL.timeOf === "boss" && L.bossT1 ? L.bossT1 - (L.bossT0 || 0) : (L.clearT || fight.t))), mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, "0");   // (design pass 44: the Throne's time is the King's fight)
     $("tallyTitle").textContent = said(TL.title, "THE GATE IS OURS");
     $("tallyTime").textContent = said(TL.time, "The old road to the castle in {t}").replace("{t}", mm + ":" + ss) + ".";
     const felled = (Array.isArray(TL.counts) ? TL.counts : ["trolls"]).filter(c => COUNTS[c]).map(c => COUNTS[c](L));
     let line = "You felled " + (felled.length ? felled.join(" and ") : COUNTS.trolls(L));
     if (L.huts || L.engines) line += (felled.length > 1 ? ", and wrecked " : " and wrecked ") + [L.huts ? L.huts + (L.huts === 1 ? " hut" : " huts") : null, L.engines ? L.engines + (L.engines === 1 ? " engine" : " engines") : null].filter(Boolean).join(" and ");
     $("tallyFelled").textContent = line + ".";
+    { // (build 38, design pass 47) what the armour turned aside: "Your Frost Plate turned 23 damage aside."; with a ward and nothing guarded, what it kept off
+      const ta = $("tallyArmour"), AR = window.Armour, g = Math.round((fight.k && fight.k.guarded) || 0), kept = Object.keys(lv.warded || {});
+      if (ta) { const WHAT = { burning: "fire", chill: "cold", mark: "hex" }; ta.hidden = !(WORN && AR && (g >= 1 || kept.length)); ta.textContent = !ta.hidden ? (g >= 1 ? AR.fill(AR.word("tally"), { name: AR.name(WORN), n: g }) : AR.fill(AR.word("tallyWard"), { name: AR.name(WORN), what: WHAT[kept[0]] || kept[0] })) : ""; } }
+    { const tl = $("tallyLine"); if (tl) { tl.hidden = !(typeof TL.line === "string" && TL.line); tl.textContent = TL.line || ""; } }   // (design pass 44) the level's own line under the count
     const N = PG.next; $("tallyNext").hidden = !(N && Object.prototype.hasOwnProperty.call(AREAS, N.area)); if (!$("tallyNext").hidden) $("tallyNext").textContent = said(N.label, "On to " + AREAS[N.area].name);
     const bros = fight.knights.filter(k => k.kind === "brother").map(k => k.name).filter(Boolean);
     $("tallyWith").hidden = !bros.length; if (bros.length) $("tallyWith").textContent = "With " + (bros.length > 1 ? bros.slice(0, -1).join(", ") + " and " + bros[bros.length - 1] : bros[0]);
@@ -1959,7 +1995,7 @@
       pay = window.Coin && Coin.runPay ? Coin.runPay(AREA.level || 1, !!AREA.boss, replay, L.finds) : null;
       if (carried && pay && window.Progress && xp !== null) { was = Progress.levelFor(xp); up = Progress.levelFor(xp + pay.xp); }
     } catch (e) { pay = null; up = null; }
-    $("tallyPay").textContent = !carried ? (sent.why === "visiting" ? "You came without the Forge, so nothing is paid." : "The finds could not be saved, so nothing is paid.") : pay ? pay.xp + " XP and " + pay.coins + " coins" + (replay ? " (a replay)" : "") + (L.finds.iron_chests || L.finds.rare_enemies ? " · the Forge rolls for a Legend Ember" : "") : "";
+    $("tallyPay").textContent = !carried ? (sent.why === "visiting" ? "You came without the Forge, so nothing is paid." : "The finds could not be saved, so nothing is paid.") : pay ? pay.xp + " XP and " + pay.coins + " coins" + (pay.ember > 0 ? " and a Legend Ember" : "") + (replay ? " (a replay)" : "") + (L.finds.iron_chests || L.finds.gold_chests || L.finds.rare_enemies ? " · the Forge rolls for a Legend Ember" : "") : "";
     $("tallyLevel").hidden = !(up && up > was); if (up && up > was) $("tallyLevel").textContent = "Level " + up + "!";
   }
   $("tallyForge").addEventListener("click", () => { if (ARENA) window.ArenaPage.gate(); else leave("forge"); });   // (design pass 36: The Gate)
@@ -2016,7 +2052,7 @@
   // worst case for the frame in arena 3's lower screen (done criterion 17): three sword-brothers, the alive cap of trolls and the roar
   // footmen round the Stilt Camp and its tower, thinking and fighting (fight.brains), six more trolls above the view for the edge marks,
   // every mark kind at its cap (the marks are stood in for until the rules keep them), the camera on them
-  if (LEVEL) { scene.tiles.finish(0); scene.tiles.finish(1); if (perf === "stress") (areaKey === "hall" ? stressHall : areaKey === "keep" ? stressKeep : stress)(); }
+  if (LEVEL) { scene.tiles.finish(0); scene.tiles.finish(1); if (perf === "stress") (areaKey === "hall" ? stressHall : areaKey === "keep" ? stressKeep : areaKey === "throne" ? stressThrone : stress)(); }
   function stress() {
     const W = fight.world, P = window.Physics, caps = SPEC.caps, k = fight.k;
     Combat.setView(fight, 1536, 216); Combat.place(fight, k, 1660, 300);
@@ -2116,6 +2152,37 @@
     for (let i = 0; i < 40; i++) { const [x, y] = pick(1950, 2660, 160, 416); scene.stamp({ type: "mark", kind: i % 2 ? "scorch" : "rubble", id: i, x, y, z: 0, r: 6 + (i % 5) }); }
     fight.tdirty = true;
   }
+  // (design pass 44 section 3.18) the Throne's worst case: the throne room with the King mid-Sunwheel (the beam live and turning), the
+  // royal guard, the hounds, two archers in the galleries, the court's footmen, three sword-brothers, the columns cracked and one
+  // broken, every mark at its cap, the trolls below the view for the edge marks, the camera on the room
+  function stressThrone() {
+    const W = fight.world, P = window.Physics, caps = SPEC.caps, k = fight.k;
+    Combat.setView(fight, 1344, 100); Combat.place(fight, k, 1600, 330);
+    fight.knights.slice(1).forEach((b, i) => Combat.place(fight, b, 1440 + (i % 2) * 180, 300 + i * 22));
+    state.arrive = 0;
+    const kg = Combat.spawn(fight, "king", 1536, 260, { tell: 0 }); if (kg) { kg.hp = kg.hpMax * 0.6; fight.level.boss = kg; if (Combat.ultimate) { Combat.ultimate(fight, kg, "sunwheel"); for (let i = 0; i < 160; i++) Combat.step(fight, STEP, { move: [0, 0] }); } }
+    for (const [x, y] of [[1480, 380], [1600, 380]]) Combat.spawn(fight, "trollknight", x, y, { tell: 0 });
+    Combat.spawn(fight, "firestaff", 1820, 300, { tell: 0 }); for (const [x, y] of [[1300, 300], [1760, 220]]) Combat.spawn(fight, "wolf", x, y, { tell: 0 });
+    for (const [x, y] of [[1220, 116], [1850, 116]]) Combat.spawn(fight, "archer", x, y, { tell: 0 });
+    for (const [x, y] of [[1250, 360], [1800, 400], [1420, 160], [1700, 160]]) Combat.spawn(fight, "footman", x, y, { tell: 0 });
+    for (const x of [1500, 1560, 1620]) Combat.spawn(fight, "footman", x, 430, { tell: 0 });   // off the screen, below the view: the edge marks
+    for (const [x, y, c, h, b] of [[1280, 176, 1, 0.5, false], [1408, 344, 2, 0.9, false], [1664, 176, 3, 1, true]]) { const s = scene.solidAt(fight, x, y); if (s) { s.cracks = c; s.heat = h; if (b && Combat.breakProp) Combat.breakProp(fight, s, "stress"); } }
+    fight.brains = true;
+    const rm = Combat.rng(4400), pick = (x0, x1, y0, y1) => [x0 + Math.floor(rm() * (x1 - x0)), y0 + Math.floor(rm() * (y1 - y0))], M = fight.marks;
+    const fill = (list, cap, x0, x1, y0, y1, d, make) => {
+      const spots = []; for (let y = y0 + d / 2; y < y1; y += d) for (let x = x0 + d / 2; x < x1; x += d) spots.push([Math.round(x + (rm() - 0.5) * 4), Math.round(y + (rm() - 0.5) * 4)]);
+      for (let i = 0; i < spots.length + cap * 8 && list.length < cap; i++) { const [x, y] = i < spots.length ? spots[i] : pick(x0, x1, y0, y1); make(x, y); } };
+    if (M) {
+      fill(M.crater, caps.craters || 24, 1180, 1890, 330, 416, 30, (x, y) => Combat.crater(fight, x, y, 14, 10, { side: "troll" }));
+      fill(M.fire, caps.worldFire || 12, 1180, 1420, 160, 320, 26, (x, y) => Combat.fire(fight, x, y, 12, 4, "troll", { look: "ember" }));
+      fill(M.ice, caps.ice || 16, 1430, 1640, 160, 320, 26, (x, y) => Combat.ice(fight, x, y, 10, 8, "troll"));
+      fill(M.puddle, caps.puddles || 16, 1650, 1890, 160, 320, 22, (x, y) => Combat.puddle(fight, x, y, 8, 20, "world"));
+      Combat.chunks(fight, 1536, 300, 0, null, { n: [caps.chunks || 24, caps.chunks || 24], dist: [16, 70], flight: [0.6, 0.8], shadow: 3, damageKnight: 2, damageTroll: 4, push: 4, clodEvery: 3 }, "troll", false);
+    }
+    for (let i = 0; i < (caps.clods || 24); i++) { const [x, y] = pick(1180, 1890, 330, 416); P.addSolid(W, { kind: "clod", shape: "c", x, y, r: 4, ht: 6 }); }
+    for (let i = 0; i < 40; i++) { const [x, y] = pick(1180, 1890, 160, 416); scene.stamp({ type: "mark", kind: i % 2 ? "scorch" : "rubble", id: i, x, y, z: 0, r: 6 + (i % 5) }); }
+    fight.tdirty = true;
+  }
   lockLandscape();
   fit();
   syncHud(); syncPrompt();
@@ -2157,6 +2224,14 @@
     $("firstPlank").querySelector("p").textContent = Array.isArray(PL.lines) && PL.lines.length ? PL.lines.join(" ") : "Trolls hurt here. Fight east to the castle, and break its gate.";
     // (design pass 18) the plates, and one line that says them once
     game.classList.add("level"); $("hpPlate").hidden = false; placeNote();
+    // (design pass 44) the Throne's page module: the King's talk box, his barks, the whispers, the cutscenes' input, the Wrath's flash, the
+    // end and the Ember's box; for a level whose spec has an intro and an end that pops
+    if (window.ThronePage && AREA.intro && (AREA.end || {}).art === "kingPops" && !shut) try {
+      const smithXp = handoff && handoff.smith && typeof handoff.smith.xp === "number" ? handoff.smith.xp : null;
+      KING = ThronePage.mount({ $, game, state, input, STEP, reduce, coarse, harness, store, session, AREA, PG, SPEC, VEILS, fight: () => fight, note, firstTime, toast, say, addFx, hold: s => { if (!reduce) state.hold = Math.max(state.hold, s || 0); },
+        shake: (amp, time) => { if (!reduce) state.shake = { t: Math.max(state.shake.t, time || 0.15), amp: Math.max(state.shake.amp, amp || 0) }; }, flash: T => { if (!reduce) state.flash = { t: T, T }; },
+        openPlank, closePlank, lv, smith: { xp: smithXp, level: smithXp !== null && window.Progress ? Progress.levelFor(smithXp) : 1 }, visiting: state.visiting, rnd, mark: (k, v) => { lv[k] = v; saveSatchel(); } });
+    } catch (e) { (window.__errors || []).push("throne-page: " + (e && e.message)); }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => placeNote(), () => {});   // (the plates and the note change width once the font is in)
     const line = document.createElement("p"); line.className = "small"; line.id = "guideLine"; line.textContent = "The red bar top left is your health: it grows back while nothing hits you. Follow the yellow arrows."; $("firstPlank").querySelector("p").after(line);
     $("firstGo").textContent = said(PL.go, "Onto the old road");

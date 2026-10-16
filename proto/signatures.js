@@ -27,6 +27,9 @@
   function spec() { if (!SPEC) SPEC = root.FORGE_SIGNATURES || null; return SPEC; }
   function use(s) { SPEC = s; }
   const on = () => { const S = spec(); return !!(S && S.on !== false); };
+  // (build 38, design pass 47) the armour's rule: the Wizard's Robes ward the mark
+  let ARM = null;
+  function AR() { if (!ARM) ARM = root.Armour || (typeof require === "function" ? (() => { try { return require("./armour.js"); } catch (e) { return null; } })() : null); return ARM && ARM.on() ? ARM : null; }
   const LARGE = () => (spec().poise.large || ["brute", "rockbrute"]);
   const BOSS = () => (spec().poise.boss || ["wizard"]);
   const isLarge = kind => LARGE().includes(kind), isBoss = kind => BOSS().includes(kind);
@@ -79,10 +82,13 @@
 
   // ------------------------------------------------------------------ poise on a body
   function poiseMax(kind) { const P = spec().poise.max, v = P[kind]; if (v === null) return null; return v === undefined ? (P.other === undefined ? 40 : P.other) : v; }
-  const groupOf = (kind, knight) => knight ? "knight" : kind === "trollknight" ? "trollknight" : isLarge(kind) ? "brute" : isBoss(kind) ? "wizard" : (kind === "straw" || kind === "armored" || kind === "rail" || kind === "quintain") ? "dummy" : "small";
-  const reelOf = (kind, knight) => { const R = spec().poise.reel, g = groupOf(kind, knight); return R[g] === undefined ? R.small : R[g]; };
-  const againOf = (kind, knight) => { const R = spec().poise.again, g = groupOf(kind, knight); return R[g] === undefined ? R.small : R[g]; };
-  const windowOf = (kind, knight) => { const R = spec().poise.critWindow || {}, g = groupOf(kind, knight); return R[g] === undefined ? (R.small === undefined ? 2.0 : R.small) : R[g]; };
+  // (design pass 44) poise.groups: a named group of kinds with its own reel, again and critWindow (the King's); the old groups as before
+  const groupNamed = kind => { const G = spec().poise.groups || {}; for (const g of Object.keys(G)) if ((G[g].kinds || []).includes(kind)) return g; return null; };
+  const groupOf = (kind, knight) => knight ? "knight" : groupNamed(kind) || (kind === "trollknight" ? "trollknight" : isLarge(kind) ? "brute" : isBoss(kind) ? "wizard" : (kind === "straw" || kind === "armored" || kind === "rail" || kind === "quintain") ? "dummy" : "small");
+  const ofGroup = (key, dflt, kind, knight) => { const g = groupOf(kind, knight), G = (spec().poise.groups || {})[g]; if (G && G[key] !== undefined) return G[key]; const R = spec().poise[key] || {}; return R[g] === undefined ? (R.small === undefined ? dflt : R.small) : R[g]; };
+  const reelOf = (kind, knight) => ofGroup("reel", 1.0, kind, knight);
+  const againOf = (kind, knight) => ofGroup("again", 3.0, kind, knight);
+  const windowOf = (kind, knight) => ofGroup("critWindow", 2.0, kind, knight);
   function initBody(fight, b, kind) {
     const m = poiseMax(kind);
     b.poiseKind = kind; b.poiseMax = m === null ? 0 : m; b.poise = b.poiseMax; b.poiseAt = -1e9; b.poiseLock = 0; b.critOpen = false; b.reelT = 0; b.lag = 0;
@@ -109,7 +115,7 @@
   }
   // a troll's poise taken by something other than a knight's blow (a parry, the horn's cone): the break when it empties, else a reel
   function takePoise(H, fight, d, p, reel) {
-    if (!d || !(d.poiseMax > 0) || d.dead || d.critOpen) return false;
+    if (!d || !(d.poiseMax > 0) || d.dead || d.critOpen || d.ultImmune) return false;   // (design pass 44: nothing through an ultimate)
     d.poise -= p; d.poiseAt = fight.t;
     if (d.poise <= 1e-9 && fight.t >= d.poiseLock) { breakPoise(H, fight, d); return true; }
     if (d.poise < 0) d.poise = 0;
@@ -121,6 +127,7 @@
   // the bow's pin: a leaping, swooping or charging troll stops where it is and staggers
   function pin(H, fight, d) {
     const S = spec(), A = d.act, reel = ((S.classes.bow || {}).pin || {}).reel || 0.3;
+    if ((S.pinImmune || []).includes(d.kind) || d.ultImmune || d.flight) return;   // (design pass 44) the King is never pinned: a bow does not stop his charge or his leap
     if (A && A.phase === "run" && A.fam === "charge") H.runEnd(fight, d, A, "pin", 0);
     if (d.air) { d.ix = 0; d.iy = 0; d.vx = 0; d.vy = 0; if (A && A.fam === "leap") A.hits.push(-1); }
     reelFor(H, fight, d, reel);
@@ -238,7 +245,10 @@
     }
     // the mark on the knight: more from every blow while it lasts; the wizard's bolt sets it
     if (k.markUntil > fight.t) R.dmg *= S.statuses.mark.more;
-    if (M && M.sets === "mark") R.after.push(() => { k.markUntil = fight.t + S.statuses.mark.time; H.emit(fight, { type: "kstatus", status: "mark", on: true, x: k.x, y: k.y }, k); });
+    if (M && M.sets === "mark") {
+      if (k.armour && AR() && AR().wards(k.armour, "mark")) R.after.push(() => H.emit(fight, { type: "warded", status: "mark", x: k.x, y: k.y }, k));   // (design pass 47) the robes turn the hex away
+      else R.after.push(() => { k.markUntil = fight.t + S.statuses.mark.time; H.emit(fight, { type: "kstatus", status: "mark", on: true, x: k.x, y: k.y }, k); });
+    }
     // the troll knight's riposte: its cut within a second of a block
     if (M && M.riposte && f && f.guard && Array.isArray(f.guard.blocks) && f.guard.blocks.length && fight.t - f.guard.blocks[f.guard.blocks.length - 1] <= M.riposte.within + 1e-9) { R.dmg *= M.riposte.x; if (!R.tag) R.tag = "RIPOSTE"; }
     // the archer's pin: an arrow that lands just after a dodge ended

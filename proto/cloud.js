@@ -42,7 +42,7 @@
   // cross: the server is on another site (the GitHub Pages copy): no cookie, the token alone, and no keepalive send as a page closes
   let cross = false; try { cross = /^https?:\/\//i.test(API) && new URL(API).origin !== root.location.origin; } catch (e) { cross = false; }
   const K = { smith: "forge-forever:smith", local: "forge-forever:local:", lessons: "forge-forever:lessons:", intro: "forge-forever:intro:", sync: "forge-forever:cloud", device: "forge-forever:device",
-    note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts", hallSeen: "forge-forever:hall-seen", keepSeen: "forge-forever:keep-seen" };
+    note: "forge-forever:cloud-note", cellarSeen: "forge-forever:cellar-seen", gateSeen: "forge-forever:gate-seen", gateFirsts: "forge-forever:gate-firsts", hallSeen: "forge-forever:hall-seen", keepSeen: "forge-forever:keep-seen", throneSeen: "forge-forever:throne-seen" };   // (design pass 44: the Throne's first visit, and the Keep's carried at last)
   const WAIT = 4000, DEBOUNCE = 2000, GAP = 5000, RETRY = 30000, KEEPALIVE_MAX = 60000, AWAY = 60000;
   const DEV = "isaac";   // the bench's dev smith (proto/smith.js): never sent online
   // the Battlegrounds page shows none of the save (it plays what the Forge handed down), so it is never reloaded for the cloud: a run
@@ -93,7 +93,7 @@
     if (!r || r.id !== id) return null;
     return { v: 2, at: nowIso(), by: on ? deviceId() : null, smith: Object.assign({ id: r.id, name: r.name, joined: r.joined || null }, r.hero ? { hero: r.hero, colour: r.colour || null } : {}),
       forge: parse(get(K.local + id)), lessons: parse(get(K.lessons + id)),
-      marks: Object.assign({ cellarSeen: get(K.cellarSeen), gateSeen: get(K.gateSeen), gateFirsts: parse(get(K.gateFirsts)) }, get(K.hallSeen) !== null ? { hallSeen: get(K.hallSeen) } : {}) };
+      marks: Object.assign({ cellarSeen: get(K.cellarSeen), gateSeen: get(K.gateSeen), gateFirsts: parse(get(K.gateFirsts)) }, get(K.hallSeen) !== null ? { hallSeen: get(K.hallSeen) } : {}, get(K.keepSeen) !== null ? { keepSeen: get(K.keepSeen) } : {}, get(K.throneSeen) !== null ? { throneSeen: get(K.throneSeen) } : {}) };
   }
   const same = (a, b) => !!a && !!b && JSON.stringify([a.smith, a.forge, a.lessons, a.marks]) === JSON.stringify([b.smith, b.forge, b.lessons, b.marks]);
   // apply(bundle, smith): the bundle's records become this phone's (another player's records already here stay where they are)
@@ -107,7 +107,7 @@
     const put = (k, v) => (v === null || v === undefined ? del(k) : set(k, typeof v === "string" ? v : JSON.stringify(v)));
     put(K.local + id, b.forge); put(K.lessons + id, b.lessons);
     const m = b.marks || {};
-    put(K.cellarSeen, m.cellarSeen); put(K.gateSeen, m.gateSeen); put(K.gateFirsts, m.gateFirsts); put(K.hallSeen, m.hallSeen);
+    put(K.cellarSeen, m.cellarSeen); put(K.gateSeen, m.gateSeen); put(K.gateFirsts, m.gateFirsts); put(K.hallSeen, m.hallSeen); if (m.keepSeen !== undefined) put(K.keepSeen, m.keepSeen); if (m.throneSeen !== undefined) put(K.throneSeen, m.throneSeen);   // (design pass 44: the Keep's and the Throne's first visits ride once set, as the hall's)
     return "applied";
   }
   // (build 36) the look a record written here takes: the bundle's when it has one; else this phone's own, kept when the record here is

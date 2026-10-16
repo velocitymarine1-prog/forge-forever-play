@@ -242,7 +242,7 @@
   }
 
   // ------------------------------------------------------------------ what he says, and when (section 3.4); pure, the words are data
-  const TRIGGERS = ["meet", "greet", "back", "crucible", "tap", "first", "legend", "rare", "common", "ingredient", "fail"];
+  const TRIGGERS = ["meet", "greet", "back", "crucible", "castle", "tap", "first", "legend", "rare", "common", "ingredient", "fail"];   // (castle: design pass 44 section 3.16)
   // the pose a remark is made in, before he talks (a pool not listed here is said straight away, talking)
   const REACT = { first: "marvel", legend: "marvel", crucible: "marvel", rare: "watch", common: "shake", ingredient: "shake", fail: "shake" };
   // his memory, from a save (anything missing or malformed takes its default)
@@ -274,6 +274,7 @@
   function opening(m, ctx, W) {
     W = W || words();
     if (!m.met) return "meet";
+    if (ctx.castleDue && ((W.lines || {}).castle || []).length) return "castle";   // (design pass 44) the Troll Castle won: his word for it, once, before anything else
     if (ctx.fromCellar) return "back";
     if (ctx.crucibleAwake && !m.crucible) return "crucible";
     if (!m.greetAt || ctx.now - Date.parse(m.greetAt) >= (W.greetAfterMin || 10) * 60000) return "greet";

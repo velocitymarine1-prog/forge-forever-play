@@ -15,9 +15,11 @@ like the cellar with the stick (or tap a door, the well or a stall and the knigh
 the two main ways: **the gate**, Into the wild, its two oak doors cracked open on the sunset road, with the **map table** beside it,
 and **the Forge**, the smithy's own front with the fire in its door. On the left the **Armory**, the castle's west wing. On the right
 the **Training Cellar**'s stairs going down, and the Training Yard's chained gate (soon). Along the bottom the market: **Vorn**, an
-old quartermaster who sells weapon classes (on the house while your levels have earned them, 120, 180 or 240 coins beyond that), the
-Armorer's shut stand (soon), and **Nell** the Trader with her mule Biscuit, who sells everything the Forge's Cart sold at the same
-prices. In the middle **the well**: 50 coins once a calendar day. Every room of the castle is a step away on the same page.
+old quartermaster who sells weapon classes (on the house while your levels have earned them, 120, 180 or 240 coins beyond that),
+**Ottar** the armourer at his stand (build 38: four full armour sets, each a look and a guard: the Castle Plate against blows, the
+Wizard's Robes against magic, the Frost Plate against fire, the Molten Plate against water and ice; bought once, worn one at a time,
+never a helmet, worn everywhere but the Arena's sand), and **Nell** the Trader with her mule Biscuit, who sells everything the Forge's
+Cart sold at the same prices. In the middle **the well**: 50 coins once a calendar day. Every room of the castle is a step away on the same page.
 
 **The Map Table** (the gate, or the table beside it). The realm on an oak table, lit by two candles, drawn as a map: the Troll
 Castle on the left (open: a troll footman keeps its gate), the Frostpeaks, the Dragon's Den, the Usurper's Capital and the Burning
@@ -83,4 +85,4 @@ This is a **world of one**: the pairs the seed ledger knows reveal the Forge Ora
 every other pair is the offline Combiner's provisional draft. Your game is saved in this browser and online, on the forge's server,
 so it can go to another phone (Settings: Play on another phone, then Bring a game here on the other). The design passes, the engine, the
 world service and the ledger's source of truth live in the private `forgecrawl` repository; this copy is written by its
-`tools/deploy.sh` from commit `bd58843`.
+`tools/deploy.sh` from commit `c6f92df`.

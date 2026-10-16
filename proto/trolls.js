@@ -68,10 +68,12 @@
     // blink 3; the bat's fly 4 (its idle too); the burster's run 4 and fuse 4)
     wizard: { body: "wizard", N: 48, skin: R.nature, weapon: "hexstaff", extra: { cast: 1, point: 1, jab: 1, nova: 1, ward: 2, kneel: 1, blink: 3 } },
     bat: { body: "bat", N: 32, skin: R.fur, weapon: "fangs", climbs: false, extra: { idle: 4, fly: 4, reel: 1 } },
-    burster: { body: "burster", N: 32, skin: R.nature, weapon: "belly", extra: { run: 4, fuse: 4 } }
+    burster: { body: "burster", N: 32, skin: R.nature, weapon: "belly", extra: { run: 4, fuse: 4 } },
+    // design pass 44: the Troll King, 96 px, on the sketch's own animations alone (own: no LARGE set under them), never climbing
+    king: { body: "king", N: 96, skin: null, weapon: "sceptre", climbs: false, own: true, extra: { idle: 2, walk: 4, seat: 2, rise: 1, roar: 1, sweepWind: 1, sweep: 1, gavelWind: 1, gavel: 1, chargeWind: 1, charge: 2, stomp: 2, crouch: 1, air: 1, land: 1, aim: 1, fire: 1, aimHigh: 1, fireHigh: 1, spin: 1, nova: 3, kneel: 1, reel: 1, hit: 1 } }
   };
   const KINDS = Object.keys(KIND);
-  const ANIMS = {}; for (const k of KINDS) ANIMS[k] = Object.assign({}, KIND[k].N === 48 || KIND[k].climbs === false ? LARGE : SMALL, KIND[k].extra || {});
+  const ANIMS = {}; for (const k of KINDS) ANIMS[k] = KIND[k].own ? Object.assign({}, KIND[k].extra) : Object.assign({}, KIND[k].N === 48 || KIND[k].climbs === false ? LARGE : SMALL, KIND[k].extra || {});
 
   // ------------------------------------------------------------------ a small painter over an N x N grid (the renderer's way)
   function Grid(N) { this.N = N; this.px = new Array(N * N).fill(null); }
@@ -1203,6 +1205,457 @@
   const BURSTER_ANIMS = { idle: 2, walk: 4, run: 4, fuse: 4, hit: 1, stone: 1 };
 
 
+
+  // ================================================================== design pass 44 (card t112): THE TROLL KING, body "king" on a 96 px cell
+  // Ported verbatim from the pass's sketch, docs/design/44-the-troll-king.sketch.js (its helpers kept with it: the sketch's Grid is sized,
+  // its region shades the same way; the King's palette is his own), so the built frames equal the sketch's pixel for pixel
+  // (tools/test-render.js proves it). Two drawings (the front, the three-quarter toward his facing; away draws the three-quarter: he is
+  // never seen from behind), 24 animations, his face for the talk box, and his end (the freeze's cracks, the burst into his own pixels)
+  const KING = (function () {
+    const OUT = "#181425";
+    const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    const TAU = Math.PI * 2;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    // the ramps: ENDESGA 32 (the house's), with the Things' stone, oak and iron. The King's own: his skin (the brutes' dark troll green),
+    // his robe (crimson, a step darker than the knight's tabard so the two never read as one), the ermine of his mantle, the gold of his
+    // crown and sceptre, and the Ember's light in five steps from banked to white
+    const R = {
+      skin: ["#193c3e", "#265c42", "#3e8948", "#63c74d"], robe: ["#3e2731", "#a22633", "#e43b44", "#f6757a"],
+      ermine: ["#8b9bb4", "#c0cbdc", "#ffffff", "#ffffff"], gold: ["#733e39", "#be4a2f", "#feae34", "#fee761"],
+      iron: ["#262b44", "#3a4466", "#5a6988", "#8b9bb4"], stone: ["#4a4450", "#6e6a70", "#9a948c", "#c4bcae"],
+      oak: ["#3e2731", "#733e39", "#b86f50", "#e4a672"], dark: ["#181425", "#262b44", "#3a4466", "#5a6988"],
+      marble: ["#1d1a26", "#262233", "#302b40", "#3a344c"], granite: ["#2c2838", "#3e3a4a", "#555064", "#6e6a78"],
+      blue: ["#0b2f55", "#124e89", "#0099db", "#2ce8f5"], burnt: ["#2a1d28", "#3e2731", "#733e39", "#be4a2f"]
+    };
+    const EMBER = ["#be4a2f", "#f77622", "#feae34", "#fee761", "#ffffff"];   // banked, low, lit, bright, white
+    const TUSK = ["#c28569", "#e8b796", "#ead4aa"];
+    const GEM = { red: ["#a22633", "#e43b44"], blue: ["#124e89", "#0099db"] };
+
+    // ------------------------------------------------------------------ hashes, noise, dither (never Math.random)
+    function hash(x, y, k) { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul((k | 0) + 1, 2246822519)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+    const smooth = t => t * t * (3 - 2 * t);
+    function vnoise(x, y, s, k) {
+      const gx = Math.floor(x / s), gy = Math.floor(y / s), fx = smooth(x / s - gx), fy = smooth(y / s - gy);
+      const a = hash(gx, gy, k), b = hash(gx + 1, gy, k), c = hash(gx, gy + 1, k), d = hash(gx + 1, gy + 1, k);
+      return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+    }
+    const dith = (x, y, a) => BAYER[((y & 3) << 2) | (x & 3)] < a * 16;
+
+    // ------------------------------------------------------------------ a sized painter (the renderer's way, on any W x H)
+    function Grid(W, H) { this.W = W; this.H = H || W; this.N = W; this.px = new Array(this.W * this.H).fill(null); }
+    Grid.prototype.get = function (x, y) { return x >= 0 && y >= 0 && x < this.W && y < this.H ? this.px[y * this.W + x] : null; };
+    Grid.prototype.set = function (x, y, c) { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < this.W && y < this.H) this.px[y * this.W + x] = c; };
+    const rect = (x0, y0, x1, y1) => (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+    const ell = (cx, cy, rx, ry) => (x, y) => ((x - cx) ** 2) / (rx * rx) + ((y - cy) ** 2) / (ry * ry) <= 1.02;
+    const or = (...f) => (x, y) => f.some(g => g(x, y));
+    const and = (...f) => (x, y) => f.every(g => g(x, y));
+    const not = f => (x, y) => !f(x, y);
+    function poly(pts) {
+      return (x, y) => { const px = x + 0.5, py = y + 0.5; let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside; } return inside; };
+    }
+    function line(x0, y0, x1, y1, w) {
+      const s = new Set(), n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 2 + 1, a = -((w - 1) >> 1), b = w >> 1;
+      for (let i = 0; i <= n; i++) { const t = i / n, x = Math.round(x0 + (x1 - x0) * t), y = Math.round(y0 + (y1 - y0) * t); for (let dx = a; dx <= b; dx++) for (let dy = a; dy <= b; dy++) s.add((x + dx) + "," + (y + dy)); }
+      return (x, y) => s.has(x + "," + y);
+    }
+    // a region lit from the top left (proto/trolls.js region): o.ball shades a round mass, else the edges; o.spec the ramp's glint, o.flat
+    // one tone, o.tex a texture, o.cast a 1 px shadow down and right onto what is behind
+    function region(sp, pred, ramp, o) {
+      o = o || {}; const W = sp.W, H = sp.H, m = (x, y) => x >= 0 && y >= 0 && x < W && y < H && pred(x, y);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m(x, y)) {
+        const ul = !m(x - 1, y) || !m(x, y - 1), dr = !m(x + 1, y) || !m(x, y + 1);
+        let t;
+        if (o.ball) { const v = ((x - o.ball[0]) + (y - o.ball[1])) / (2 * o.ball[2]); t = v < -0.2 ? 2 : v < 0.55 ? 1 : 0; if (dr && t === 1 && v > 0.25) t = 0; }
+        else t = ul && dr ? 1 : dr ? 0 : ul ? 2 : 1;
+        let c = ramp[t];
+        if (o.spec && o.spec(x, y)) c = ramp[3];
+        if (o.flat !== undefined) c = ramp[o.flat];
+        if (o.tex) c = o.tex(x, y, c) || c;
+        sp.set(x, y, c);
+      }
+      if (o.cast) for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) if (!m(x, y) && sp.get(x, y) && sp.get(x, y) !== OUT && (m(x - 1, y) || m(x, y - 1) || m(x - 1, y - 1))) sp.set(x, y, o.cast);
+    }
+    function outline(sp) { const W = sp.W, H = sp.H, add = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!sp.get(x, y) && (sp.get(x - 1, y) || sp.get(x + 1, y) || sp.get(x, y - 1) || sp.get(x, y + 1))) add.push([x, y]); for (const [x, y] of add) sp.set(x, y, OUT); }
+    const darkOf = r => [r[0], r[0], r[1], r[2]];
+    function limb(sp, sx, sy, fx, fy, ramp, fr, w) { region(sp, line(sx, sy, fx, fy, w || 3), ramp, { cast: ramp[0] }); region(sp, ell(fx, fy, fr || 2.3, (fr || 2.3) * 0.9), ramp, { ball: [fx - 1, fy - 1, (fr || 2.3) + 0.5], cast: ramp[0] }); }
+    const inCell = (v, r, N) => Math.max(r + 1, Math.min(N - 2 - r, v));
+
+    // ================================================================== THE TROLL KING (body "king", 96 px)
+    // A troll twice a brute's height and three times his breadth, gone fat and grand on what he took: a crown of five gold points too small
+    // for his skull, an ermine mantle over a hump of shoulder, a crimson robe open on his chest, gold bracers and a gold belt with a crown
+    // for a buckle, and the old lords' sceptre, a gold staff as tall as he is whose head is a gold crown cradling a shard of yellow light.
+    // The Legend Ember is in him: pressed into his breastbone, a white heart in a ring of cracked, burnt flesh, and from it yellow veins run
+    // under the green skin to his arms, his throat and the corners of his eyes, pulsing with it. His eyes are the Ember's yellow.
+    // P: { bob, step (-1..1), lean, crouch (px lower), kneel (0 or 1), seat, staff (plant | raise | over | sweepL | sweepR | level | out |
+    //      both | drop | back), arm (hang | fist | wide | reach | up | grip), head ([dx, dy]), mouth (0 | 1 | 2), glow (0..3), flinch, puff }
+    // glow: 0 the veins banked (the kneel, the stone), 1 lit, 2 bright (a beam, the Wrath), 3 white-hot (the Ember King, phase 3)
+    const VEINS = [["#3e2731", "#733e39"], ["#be4a2f", "#f77622"], ["#f77622", "#feae34"], ["#feae34", "#fee761"]];
+    const HEART = [["#733e39", "#be4a2f", "#f77622"], ["#f77622", "#feae34", "#fee761"], ["#feae34", "#fee761", "#ffffff"], ["#fee761", "#ffffff", "#ffffff"]];
+    const EYES = [["#f77622", "#feae34"], ["#fee761", "#ffffff"], ["#fee761", "#ffffff"], ["#ffffff", "#ffffff"]];
+    // the veins: polylines in the front drawing's coordinates from the Ember outward (the side drawing shifts them), each point [x, y]
+    const VEIN_FRONT = [
+      [[48, 54], [46, 50], [45, 47], [44, 45]], [[48, 54], [51, 50], [52, 47], [53, 45]],                     // up the throat
+      [[48, 54], [43, 53], [39, 51], [36, 49]], [[48, 54], [53, 53], [57, 51], [60, 49]],                     // out to the shoulders
+      [[48, 54], [46, 59], [44, 63], [45, 67]], [[48, 54], [51, 58], [53, 62], [52, 67]],                     // down the belly
+      [[48, 54], [42, 57], [39, 61]], [[48, 54], [55, 57], [58, 61]]
+    ];
+    function veinsOn(sp, lines, dx, dy, glow, skinOK) {
+      const V = VEINS[glow];
+      for (const L of lines) for (let k = 0; k + 1 < L.length; k++) {
+        const [x0, y0] = L[k], [x1, y1] = L[k + 1], n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+        for (let i = 0; i <= n; i++) { const x = Math.round(x0 + (x1 - x0) * i / n) + dx, y = Math.round(y0 + (y1 - y0) * i / n) + dy; if (skinOK(sp.get(x, y))) sp.set(x, y, k === 0 && i < n / 2 ? V[1] : V[(x + y) & 1 ? 0 : 1]); }
+      }
+    }
+    const isSkin = c => R.skin.includes(c);
+    // the Ember in his breastbone: a crater of burnt flesh (r 4), its cracks, the ring of light and the heart (3 px, white at glow 2 and 3)
+    function ember(sp, cx, cy, glow, big) {
+      const H = HEART[glow], r = big ? 4.6 : 3.8;
+      region(sp, ell(cx, cy, r, r * 0.95), R.burnt, { ball: [cx + 1, cy + 1, r] });
+      for (const [dx, dy] of [[-5, -1], [-4, 3], [4, -3], [5, 2], [0, -5], [1, 5], [-3, -4], [3, 4]]) if (isSkin(sp.get(cx + dx, cy + dy))) sp.set(cx + dx, cy + dy, R.burnt[1]);
+      region(sp, ell(cx, cy, r - 1.4, (r - 1.4) * 0.95), [H[0], H[1], H[1], H[2]], { ball: [cx - 0.5, cy - 0.5, r - 1.4] });
+      region(sp, ell(cx, cy, big ? 1.6 : 1.1, big ? 1.6 : 1.1), [H[2], H[2], H[2], H[2]]);
+      sp.set(cx, cy, glow >= 2 ? "#ffffff" : H[2]);
+    }
+    // the crown: a gold band with three gems and five points (the middle tallest), set a pixel askew because his skull is too big for it
+    function crown(sp, cx, top, side, tilt, turned) {
+      const w = side ? 6 : 9, w1 = turned ? 6 : w, t = tilt || 0;   // (revision 1) turned: the band runs cx - 9 to cx + 6, foreshortened toward the facing
+      region(sp, (x, y) => x >= cx - w && x <= cx + w1 && y >= top + 6 + (x > cx ? t : 0) && y <= top + 9 + (x > cx ? t : 0), R.gold, { tex: (x, y) => y === top + 6 + (x > cx ? t : 0) ? R.gold[3] : null });
+      const pts = side ? [[-6, 3], [-2, 1], [2, 0], [6, 2]] : turned ? [[-9, 3], [-5, 1], [-1, -1], [3, 1], [6, 3]] : [[-9, 3], [-5, 1], [0, -1], [5, 1], [9, 3]];
+      for (const [px, py] of pts) {
+        const x = cx + px, yb = top + 6 + (x > cx ? t : 0), y0 = top + py + (x > cx ? t : 0);
+        region(sp, poly([[x - 1.6, yb + 0.5], [x + 0.5, y0], [x + 2.6, yb + 0.5]]), R.gold, { tex: (xx, yy) => xx <= x ? R.gold[3] : null });
+        sp.set(x, y0 - 1, R.gold[3]);
+      }
+      if (turned) { sp.set(cx - 5, top + 8, GEM.blue[1]); sp.set(cx - 1, top + 8, GEM.red[1]); sp.set(cx + 3, top + 8 + t, GEM.blue[1]); sp.set(cx - 1, top + 7, "#f6757a"); }
+      else if (!side) { sp.set(cx - 5, top + 8, GEM.blue[1]); sp.set(cx, top + 8 + 0, GEM.red[1]); sp.set(cx + 5, top + 8 + t, GEM.blue[1]); sp.set(cx, top + 7, "#f6757a"); }
+      else { sp.set(cx - 2, top + 8, GEM.red[1]); sp.set(cx + 3, top + 8 + t, GEM.blue[1]); }
+    }
+    // the sceptre: a gold shaft 3 px wide with a grip of leather, and its head, a gold crown (a cup with four points) holding the shard
+    function sceptre(sp, bx, by, hx, hy, glow, P) {
+      region(sp, line(bx, by, hx, hy, 3), R.gold, { tex: (x, y) => (Math.round(x * 0.7 + y) % 9 === 0) ? R.gold[1] : null });
+      // the head: a cup of gold under the shard, its points, the shard of light (the tip, where the beams come out)
+      const dx = hx - bx, dy = hy - by, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, px = -uy, py = ux;
+      const at = (a, b) => [hx + ux * a + px * b, hy + uy * a + py * b];
+      region(sp, poly([at(-1, -4.5), at(-1, 4.5), at(4, 3.4), at(4, -3.4)]), R.gold, { ball: [hx - 1, hy - 1, 5] });
+      for (const b of [-4, -1.4, 1.4, 4]) { const [x, y] = at(6.2, b); region(sp, line(...at(3, b * 0.9), x, y, 1), R.gold, { flat: 3 }); }
+      const [sx, sy] = at(5, 0), E = HEART[clamp(glow + 1, 0, 3)];
+      region(sp, ell(sx, sy, 2.1, 2.1), [E[0], E[1], E[1], E[2]], { ball: [sx - 0.5, sy - 0.5, 2.1] });
+      sp.set(sx, sy, glow >= 1 ? E[2] : E[1]);
+      return [Math.round(sx), Math.round(sy)];
+    }
+    function fist(sp, x, y, ramp, r) { region(sp, ell(x, y, r || 3.6, (r || 3.6) * 0.92), ramp, { ball: [x - 1, y - 1, (r || 3.6) + 0.5], cast: ramp[0] }); }
+    function bracer(sp, x0, y0, x1, y1) { region(sp, line(x0, y0, x1, y1, 9), R.gold, { tex: (x, y) => (x + y) % 4 === 0 ? R.gold[3] : null }); }
+    // an arm: the upper arm from the shoulder, the forearm to the fist, a gold bracer above the wrist; ramp the skin (dark on the far side)
+    function arm(sp, sx, sy, ex, ey, fx, fy, ramp, glow, veins) {
+      region(sp, line(sx, sy, ex, ey, 11), ramp, { cast: ramp[0] });
+      region(sp, line(ex, ey, fx, fy, 10), ramp, { cast: ramp[0] });
+      const bx = ex + (fx - ex) * 0.62, by = ey + (fy - ey) * 0.62, cx = ex + (fx - ex) * 0.82, cy = ey + (fy - ey) * 0.82;
+      bracer(sp, Math.round(bx), Math.round(by), Math.round(cx), Math.round(cy));
+      fist(sp, fx, fy, ramp, 5.6);
+      if (veins) veinsOn(sp, [[[sx, sy + 2], [ex + 1, ey], [Math.round(bx), Math.round(by) - 1]]], 0, 0, glow, isSkin);
+    }
+    // the head from the front: a broad skull under a heavy brow, small deep eyes (the Ember's yellow), a wide nose, an underbite with two
+    // great tusks, long ears drooping out; P.mouth 1 talks, 2 roars; the veins reach the corners of his eyes
+    function headFront(sp, cx, cy, P, glow) {
+      const S = R.skin, m = P.mouth || 0;
+      region(sp, or(line(cx - 12, cy - 2, cx - 19, cy + 2, 3), line(cx + 12, cy - 2, cx + 19, cy + 2, 3)), S, { flat: 1 });   // the ears, long and drooping
+      sp.set(cx - 19, cy + 3, S[0]); sp.set(cx + 19, cy + 3, S[0]); sp.set(cx - 18, cy + 3, S[1]); sp.set(cx + 18, cy + 3, S[1]);
+      region(sp, ell(cx, cy - 3, 12, 9.5), S, { ball: [cx - 3, cy - 6, 12], cast: S[0] });                                        // the skull
+      const jw = m === 2 ? 3 : m ? 1 : 0;
+      region(sp, poly([[cx - 13, cy], [cx + 13, cy], [cx + 12, cy + 12 + jw], [cx + 8, cy + 14 + jw], [cx - 8, cy + 14 + jw], [cx - 12, cy + 12 + jw]]), S, { ball: [cx - 4, cy + 3, 13] });   // the great jaw
+      for (let x = cx - 10; x <= cx + 10; x++) { sp.set(x, cy - 6, S[0]); if (Math.abs(x - cx) > 1) sp.set(x, cy - 7, S[2]); }       // the brow ridge
+      sp.set(cx - 1, cy - 8, S[0]); sp.set(cx + 1, cy - 8, S[0]); sp.set(cx, cy - 9, S[0]);                                      // a scowl
+      const E = EYES[glow];
+      if (P.flinch) { for (const x of [cx - 7, cx - 6, cx - 5, cx + 5, cx + 6, cx + 7]) sp.set(x, cy - 4, S[0]); }
+      else {
+        for (const [x, c] of [[cx - 7, 0], [cx - 6, 1], [cx - 5, 0], [cx + 5, 0], [cx + 6, 1], [cx + 7, 0]]) sp.set(x, cy - 4, E[c]);
+        for (const x of [cx - 6, cx + 6]) { sp.set(x, cy - 5, E[0]); sp.set(x, cy - 3, S[0]); }
+        if (glow >= 2) for (const [x, y] of [[cx - 8, cy - 4], [cx - 4, cy - 4], [cx + 4, cy - 4], [cx + 8, cy - 4], [cx - 6, cy - 6], [cx + 6, cy - 6]]) if (isSkin(sp.get(x, y))) sp.set(x, y, "#feae34");
+        if (glow >= 3) for (const [x, y] of [[cx - 8, cy - 3], [cx - 9, cy - 2], [cx + 8, cy - 3], [cx + 9, cy - 2], [cx - 9, cy - 1], [cx + 9, cy - 1]]) sp.set(x, y, "#fee761");   // light running from them
+      }
+      region(sp, poly([[cx - 2, cy - 4], [cx + 2, cy - 4], [cx + 4, cy + 1], [cx - 4, cy + 1]]), S, { spec: (x, y) => x === cx - 2 && y === cy - 3 });   // the nose
+      sp.set(cx - 2, cy + 1, S[0]); sp.set(cx + 2, cy + 1, S[0]);
+      // the mouth: an underbite, open to the gullet when he talks or roars, a row of teeth along the lower lip
+      const my = cy + 5;
+      if (m) { region(sp, rect(cx - 8, my, cx + 8, my + 1 + jw), ["#2a1d28", "#2a1d28", "#3e2731", "#3e2731"]); for (let x = cx - 7; x <= cx + 7; x += 2) sp.set(x, my + 1 + jw, TUSK[2]); }
+      else { for (let x = cx - 9; x <= cx + 9; x++) sp.set(x, my, S[0]); for (let x = cx - 6; x <= cx + 6; x += 3) sp.set(x, my - 1, TUSK[1]); }
+      // the tusks: two great ivory tusks up from the jaw past the lip, lit on their left
+      for (const s2 of [-1, 1]) { const tx = cx + s2 * 9, ty = my + 4 + jw; region(sp, poly([[tx - 2, ty], [tx + 2, ty], [tx + s2 * 1.2 + 0.6, my - 6], [tx + s2 * 1.2 - 0.6, my - 6]]), TUSK, { tex: (x) => x <= tx + s2 * 0.6 - 0.5 ? TUSK[2] : TUSK[1] }); sp.set(tx + s2, ty - 1, TUSK[0]); }
+      // warts, and the veins up his throat into the corners of his eyes
+      sp.set(cx - 9, cy + 8, S[1]); sp.set(cx + 10, cy - 1, S[1]); sp.set(cx + 4, cy + 11, S[1]);
+      const V = VEINS[glow];
+      for (const [x, y] of [[cx - 8, cy - 2], [cx - 9, cy - 1], [cx - 9, cy], [cx - 10, cy + 1], [cx + 8, cy - 2], [cx + 9, cy - 1], [cx + 10, cy], [cx - 4, cy + 10], [cx - 5, cy + 11], [cx - 5, cy + 12], [cx + 4, cy + 9], [cx + 5, cy + 10], [cx - 3, cy - 10]]) if (isSkin(sp.get(x, y))) sp.set(x, y, V[(x + y) & 1]);
+    }
+    // (revision 1) the head turned three-quarter toward his facing (right): the skull and the jaw turned, the near ear (his right) long and
+    // drooping, the far one only a tip behind the skull, both yellow eyes (the far one by the nose), the hooked nose and the far tusk breaking
+    // the cheek's line toward the facing; P.mouth 1 talks, 2 roars; the veins reach the corners of his eyes as from the front
+    function headThree(sp, cx, cy, P, glow) {
+      const S = R.skin, m = P.mouth || 0, jw = m === 2 ? 3 : m ? 1 : 0;
+      region(sp, line(cx - 11, cy - 2, cx - 19, cy + 3, 3), S, { flat: 1 });                                                       // the near ear, long and drooping
+      sp.set(cx - 19, cy + 4, S[0]); sp.set(cx - 18, cy + 4, S[1]);
+      region(sp, ell(cx - 1, cy - 3, 12, 9.5), S, { ball: [cx - 4, cy - 6, 12], cast: S[0] });                                     // the skull
+      region(sp, poly([[cx - 10, cy], [cx + 13, cy - 2], [cx + 16, cy + 9 + jw], [cx + 12, cy + 14 + jw], [cx - 4, cy + 14 + jw], [cx - 9, cy + 12 + jw]]), S, { ball: [cx - 1, cy + 3, 13] });   // the jaw, turned: its far corner juts toward the facing
+      for (let x = cx - 8; x <= cx + 13; x++) { sp.set(x, cy - 6, S[0]); if (x > cx - 7 && x < cx + 12) sp.set(x, cy - 7, S[2]); }  // the brow ridge
+      sp.set(cx + 3, cy - 8, S[0]); sp.set(cx + 5, cy - 8, S[0]); sp.set(cx + 4, cy - 9, S[0]);                                    // a scowl over the nose
+      const E = EYES[glow];
+      if (P.flinch) { for (const x of [cx - 4, cx - 3, cx - 2, cx + 8, cx + 9]) sp.set(x, cy - 4, S[0]); }
+      else {
+        for (const [x, c] of [[cx - 4, 0], [cx - 3, 1], [cx - 2, 0], [cx + 8, 1], [cx + 9, 0]]) sp.set(x, cy - 4, E[c]);           // the near eye (3 px) and the far one by the nose (2 px)
+        sp.set(cx - 3, cy - 5, E[0]); sp.set(cx + 8, cy - 5, E[0]); sp.set(cx - 3, cy - 3, S[0]); sp.set(cx + 9, cy - 3, S[0]);
+        if (glow >= 2) for (const [x, y] of [[cx - 5, cy - 4], [cx - 1, cy - 4], [cx + 7, cy - 4], [cx + 10, cy - 4], [cx - 3, cy - 6], [cx + 8, cy - 6]]) if (isSkin(sp.get(x, y))) sp.set(x, y, "#feae34");
+        if (glow >= 3) for (const [x, y] of [[cx - 5, cy - 3], [cx - 6, cy - 2], [cx - 6, cy - 1], [cx + 10, cy - 3], [cx + 11, cy - 2], [cx + 12, cy - 2]]) sp.set(x, y, "#fee761");   // light running from them
+      }
+      region(sp, poly([[cx + 4, cy - 5], [cx + 7, cy - 5], [cx + 15, cy + 1], [cx + 13, cy + 2], [cx + 5, cy + 2]]), S, { spec: (x, y) => x === cx + 5 && y === cy - 4 });   // the hooked nose, past the cheek
+      sp.set(cx + 6, cy + 2, S[0]); sp.set(cx + 12, cy + 2, S[0]);
+      const my = cy + 6;
+      if (m) { region(sp, rect(cx - 4, my, cx + 13, my + 1 + jw), ["#2a1d28", "#2a1d28", "#3e2731", "#3e2731"]); for (let x = cx - 3; x <= cx + 12; x += 2) sp.set(x, my + 1 + jw, TUSK[2]); }
+      else { for (let x = cx - 5; x <= cx + 14; x++) sp.set(x, my, S[0]); for (let x = cx - 2; x <= cx + 10; x += 3) sp.set(x, my - 1, TUSK[1]); }
+      // the tusks: the far one (toward the facing) long, breaking the jaw's line; the near one shorter
+      { const tx = cx + 12, ty = my + 4 + jw; region(sp, poly([[tx - 2, ty], [tx + 2, ty], [tx + 2.2, my - 6], [tx + 1, my - 6]]), TUSK, { tex: (x) => x <= tx + 1 ? TUSK[2] : TUSK[1] }); sp.set(tx + 1, ty - 1, TUSK[0]); }
+      { const tx = cx - 4, ty = my + 4 + jw; region(sp, poly([[tx - 1.5, ty], [tx + 1.5, ty], [tx - 0.4, my - 4], [tx - 1.4, my - 4]]), TUSK, { tex: (x) => x <= tx - 1 ? TUSK[2] : TUSK[1] }); }
+      sp.set(cx - 7, cy + 8, S[1]); sp.set(cx + 13, cy + 5, S[1]); sp.set(cx + 6, cy + 12, S[1]);
+      const V = VEINS[glow];
+      for (const [x, y] of [[cx - 5, cy - 2], [cx - 6, cy - 1], [cx - 6, cy], [cx - 7, cy + 1], [cx + 10, cy - 2], [cx + 11, cy - 1], [cx + 12, cy], [cx, cy + 11], [cx - 1, cy + 12], [cx - 1, cy + 13], [cx + 7, cy + 10], [cx + 8, cy + 11], [cx, cy - 10]]) if (isSkin(sp.get(x, y))) sp.set(x, y, V[(x + y) & 1]);
+    }
+    // the ermine mantle: white fur over the hump of the shoulders, black tail-tips in rows, its lower edge scalloped
+    const ermineTex = (x, y, c) => ((x * 7 + y * 3) % 11 === 0 && (y % 4 === 1)) ? OUT : (y % 4 === 2 && (x * 7 + y * 3) % 11 === 0 ? R.ermine[0] : null);
+    function robeTex(x, y, c, hem) { if (y >= hem - 1) return R.gold[(x >> 1) % 2 ? 2 : 3]; if ((x * 3 + y) % 13 === 0) return R.robe[0]; return null; }
+
+    // the sceptre for each staff pose, in each drawing: [its butt, its head, the near hand's grip] (B the body's drop). From the front the
+    // sceptre is in his right hand, our left. In three-quarter (revision 1: facing right; left is the mirror) it is the same hand, the one
+    // nearer the camera, reaching across his front toward the facing; "back" trails it behind him, "levelHigh" raises it 45° at a target
+    // above him, "high" holds it overhead in one fist (the Sunwheel's pose, from the front). "drop" lies on the floor (no grip)
+    function staffOf(drawing, st, B) {
+      if (drawing === "three") return ({
+        plant: [[15, 94], [15, 8 + B], [16, 70 + B]], raise: [[22, 62 + B], [26, 4 + B], [23, 46 + B]], over: [[24, 34 + B], [74, 4 + B], [32, 28 + B]],
+        sweepR: [[44, 62 + B], [6, 76 + B], [40, 64 + B]], sweepL: [[46, 66 + B], [90, 56 + B], [56, 64 + B]], level: [[42, 62 + B], [90, 52 + B], [56, 58 + B]],
+        levelHigh: [[44, 68 + B], [80, 12 + B], [54, 54 + B]], out: [[42, 60 + B], [90, 60 + B], [56, 60 + B]], both: [[54, 94], [54, 16 + B], [52, 58 + B]],
+        drop: [[8, 94], [60, 92], null], back: [[40, 60 + B], [4, 82 + B], [36, 62 + B]], slam: [[48, 62 + B], [90, 88], [54, 66 + B]], high: [[20, 60 + B], [22, 2 + B], [21, 36 + B]]
+      })[st] || null;
+      return ({
+        plant: [[13, 94], [13, 8 + B], [14, 70 + B]], raise: [[20, 62 + B], [22, 4 + B], [21, 46 + B]], over: [[30, 42 + B], [64, 6 + B], [36, 32 + B]],
+        sweepL: [[20, 70 + B], [4, 52 + B], [10, 64 + B]], sweepR: [[26, 68 + B], [90, 62 + B], [30, 66 + B]], level: [[20, 58 + B], [38, 80 + B], [24, 64 + B]],
+        levelHigh: [[20, 66 + B], [26, 8 + B], [22, 50 + B]], out: [[20, 62 + B], [4, 62 + B], [12, 62 + B]], both: [[48, 94], [48, 16 + B], [42, 58 + B]],
+        drop: [[6, 94], [58, 92], null], back: [[18, 64 + B], [4, 88], [14, 68 + B]], slam: [[30, 64 + B], [46, 93], [34, 68 + B]], high: [[14, 60 + B], [14, 2 + B], [14, 36 + B]]
+      })[st] || null;
+    }
+
+    // Revision 1 (card t111): two drawings, the front ("down") and the three-quarter ("three", turned toward his right); there is no
+    // profile and no back. The three-quarter is the front turned a quarter: the gut, the robe's open front and the Ember stay toward the
+    // camera, shifted 4 px toward the facing; the face turns with them (headThree); the far arm is half behind the gut, a step darker; the
+    // cape is a strip behind the near shoulder, never the slab the old side drawing showed (it read as his back). P.lean moves his upper body
+    // toward the facing (three-quarter only), as it moved the old profile's
+    function kingBody(drawing, P) {
+      const N = 96, sp = new Grid(N), S = R.skin, glow = clamp(P.glow === undefined ? 1 : P.glow, 0, 3);
+      const B = (P.bob || 0) + (P.crouch || 0) + (P.kneel ? 6 : 0) + (P.seat ? 8 : 0), st = P.staff || "plant", A = P.arm || "hang", step = P.step || 0;
+      const three = drawing === "three", X = three ? (P.lean || 0) : 0, T = three ? 5 : 0;   // X the lean; T the turn: the torso's features shift toward the facing
+      const hx = (P.head ? P.head[0] : 0) + X, hy = B + (P.head ? P.head[1] : 0);
+      const la = step > 0 ? -1 : 0, lb = step < 0 ? -1 : 0, SD = staffOf(drawing, st, B);
+      let tip = null, heart = null;
+      const drawStaff = () => { if (!SD) return; const [[bx, by], [cx, cy]] = SD; tip = sceptre(sp, inCell(bx, 2, N), inCell(by, 2, N), inCell(cx, 6, N), inCell(cy, 6, N), glow, P); };
+      const twoHands = st === "over" || st === "slam" || st === "both";
+      // the cape behind him: from the front wider than he is, to the floor; in three-quarter only a strip behind his near shoulder (our left)
+      if (three) region(sp, poly([[27 + X, 44 + B], [16 + X * 0.5, 70 + B], [9, 95], [32, 95], [31 + X, 58 + B]]), darkOf(R.robe), { tex: (x, y) => y >= 94 ? R.gold[(x >> 1) & 1 ? 2 : 3] : (Math.abs(x - 15 - (95 - y) * 0.2) < 1 && y > 60 + B ? R.robe[0] : null) });
+      else region(sp, poly([[22, 44 + B], [13, 72 + B], [16, 95], [80, 95], [83, 72 + B], [74, 44 + B]]), darkOf(R.robe), { tex: (x, y) => y >= 94 ? R.gold[(x >> 1) & 1 ? 2 : 3] : ((x * 2 + y) % 11 === 0 ? R.robe[0] : null) });
+      if (st === "over" || (three && (st === "back" || st === "sweepR"))) drawStaff();   // a sceptre behind him (overhead, or trailed behind) goes first
+      // the legs and feet (seated: thighs toward us, feet planted wide; kneeling: one knee down); in three-quarter the far leg a step darker
+      const NL = three ? 2 : 0, FL = three ? 3 : 0, farS = three ? darkOf(S) : S;
+      if (P.seat) {
+        region(sp, rect(26 + NL, 80, 44 + NL, 90), S, { ball: [32 + NL, 83, 9] }); region(sp, rect(52 + FL, 80, 70 + FL, 90), farS, { ball: [58 + FL, 83, 9] });
+        region(sp, rect(22 + NL, 89, 42 + NL, 95), S, { ball: [28 + NL, 91, 7] }); region(sp, rect(54 + FL, 89, 74 + FL, 95), farS, { ball: [60 + FL, 91, 7] });
+      } else if (P.kneel) {
+        region(sp, rect(28 + NL, 86, 44 + NL, 95), S, { ball: [33 + NL, 89, 7] }); region(sp, rect(54 + FL, 82, 66 + FL, 92), farS); region(sp, rect(52 + FL, 90, 70 + FL, 95), farS, { ball: [58 + FL, 92, 6] });
+      } else {
+        region(sp, rect(51 + FL, 84 + lb, 66 + FL, 91 + lb), farS); region(sp, rect(50 + FL, 90 + lb, 69 + FL + (three ? 2 : 0), 95 + lb), farS, { ball: [56 + FL, 91, 8] });
+        region(sp, rect(30 + NL, 84 + la, 45 + NL, 91 + la), S); region(sp, rect(27 + NL, 90 + la, 46 + NL + (three ? 3 : 0), 95 + la), S, { ball: [34 + NL, 91, 8] });
+        for (const [x0, l] of [[30 + NL, la], [51 + FL, lb]]) for (let x = x0; x <= x0 + 15; x++) sp.set(x, 88 + l, (x & 1) ? R.gold[2] : R.gold[3]);
+        for (const x of [29, 33, 37, 41]) sp.set(x + NL + (three ? 3 : 0), 94 + la, S[0]);
+        for (const x of [53, 57, 61, 65]) sp.set(x + FL + (three ? 2 : 0), 94 + lb, S[0]);
+      }
+      // the robe: falling from the shoulders behind the arms to a bell at the knees, open on the chest and the belly
+      const rb = 88 + (P.seat ? -6 : 0);
+      region(sp, poly(three ? [[24 + X, 46 + B], [19 + X, 70 + B], [18, rb], [77, rb], [75 + X, 70 + B], [70 + X, 46 + B]] : [[24, 46 + B], [18, 70 + B], [17, rb], [79, rb], [78, 70 + B], [72, 46 + B]]),
+        R.robe, { ball: [30 + X, 56 + B, 28], tex: (x, y, c) => robeTex(x, y, c, rb) });
+      // the arms: the sceptre in his right hand (ours left from the front; the near hand in three-quarter); s -1 his right, 1 his left
+      const SH = { near: [22 + (three ? 2 : 0) + X, 50 + B], far: [74 - (three ? 3 : 0) + X, 50 + B] };
+      const farRamp = three ? darkOf(S) : S;
+      const armOf = (s) => {
+        if (!three) {   // the front, as pass 44 drew it, and the Sunwheel's sceptre held high
+          const sx = s < 0 ? 22 : 74;
+          if (s < 0 && st !== "drop") { const G = SD ? SD[2] : [14, 70 + B]; return arm(sp, sx, 50 + B, st === "high" ? sx - 8 : sx - 6, st === "high" ? 44 + B : 62 + B, G[0], G[1], S, glow, true); }
+          if (st === "both") return arm(sp, sx, 50 + B, sx - 6, 62 + B, 54, 58 + B, S, glow, true);
+          if (st === "over") return arm(sp, sx, 50 + B, sx - 4, 38 + B, 58, 26 + B, S, glow, true);
+          if (st === "slam") return arm(sp, sx, 50 + B, sx - 8, 62 + B, 42, 72 + B, S, glow, true);
+          if (A === "wide") return arm(sp, sx, 48 + B, sx + s * 12, 40 + B, sx + s * 18, 26 + B, S, glow, true);
+          if (A === "reach") return arm(sp, sx, 48 + B, sx + s * 4, 32 + B, sx + s * 6, 14 + B, S, glow, true);
+          if (A === "fist") return arm(sp, sx, 50 + B, sx + s * 6, 64 + B, sx + s * 2, 74 + B, S, glow, true);
+          if (P.seat) return arm(sp, sx, 50 + B, sx + s * 10, 64 + B, sx + s * 12, 74 + B, S, glow, true);
+          return arm(sp, sx, 50 + B, sx + s * 5, 66 + B, sx + s * 7, 82 + B, S, glow, true);
+        }
+        // three-quarter: the near hand (his right, our left) holds the sceptre, reaching across his front when its grip is toward the facing
+        const near = s < 0, [sx, sy] = near ? SH.near : SH.far, ramp = near ? S : farRamp, out = near ? -1 : 1, G = SD && SD[2];
+        if (near && G && st !== "drop") {
+          const across = G[0] > sx + 6;
+          const ex = across ? sx + 10 : st === "raise" || st === "high" ? sx - 6 : st === "over" ? sx + 2 : sx - 4, ey = st === "over" ? sy - 12 : st === "high" ? sy - 6 : sy + 12;
+          return arm(sp, sx, sy, ex, ey, G[0], G[1], ramp, glow, true);
+        }
+        if (!near && twoHands && G) return st === "over" ? arm(sp, sx, sy, sx + 6, sy - 20, 58, 14 + B, ramp, glow, false) : arm(sp, sx, sy, sx - 2, sy + 12, G[0] + 6, G[1] + 2, ramp, glow, false);   // overhead: the far hand higher up the shaft, the head between the arms
+        if (A === "wide") return arm(sp, sx, sy - 2, sx + out * 12, sy - 10, sx + out * 18, sy - 24, ramp, glow, near);
+        if (A === "reach") return arm(sp, sx, sy - 2, sx + out * 4, sy - 18, sx + out * 6, sy - 36, ramp, glow, near);
+        if (A === "fist") return arm(sp, sx, sy, sx + out * 6, sy + 14, sx + out * 2, sy + 24, ramp, glow, near);
+        if (P.seat) return arm(sp, sx, sy, sx + out * 10, sy + 14, sx + out * 12, sy + 24, ramp, glow, near);
+        return arm(sp, sx, sy, sx + out * 5, sy + 16, sx + out * 7 - (near ? 0 : 3), sy + 32, ramp, glow, near);
+      };
+      // in three-quarter the far arm hangs half behind the gut, so it goes before the gut (unless it is raised wide or on the staff)
+      const farFront = !three || A === "wide" || A === "reach" || twoHands;
+      if (!farFront) armOf(1);
+      // the gut: a great bare round belly between the robe's gold-edged fronts, the Ember in the breastbone above it
+      const gx = 48 + T + X;
+      region(sp, ell(gx, 67 + B, three ? 18 : 19, 16), S, { ball: [gx - 6, 58 + B, 19] });
+      region(sp, or(ell(41 + T + X, 54 + B, 8, 5), ell(55 + T + X + (three ? -1 : 0), 54 + B, three ? 7 : 8, 5)), S, { ball: [40 + T + X, 51 + B, 8] });   // the slabs of his chest
+      const fl = three ? 33 + X : 31, fr = three ? 68 + X : 65;   // the robe's two front edges (in three-quarter the far one narrower)
+      region(sp, or(poly([[25 + X, 48 + B], [fl + 1, 50 + B], [fl - 1, rb - 2], [22, rb - 2]]), poly([[fr + 6, 48 + B], [fr - 1, 50 + B], [fr + 1, rb - 2], [three ? 75 : 74, rb - 2]])), R.robe, { flat: 1, tex: (x, y) => {
+        const l = fl - Math.round((y - 50 - B) * 0.04), r = fr + Math.round((y - 50 - B) * 0.04);
+        return (x === l || x === l - 1 || x === r || x === r + 1) ? R.gold[x === l || x === r + 1 ? 3 : 2] : null; } });
+      region(sp, rect(29 + T * 0.5 + X, 79 + B, 67 + T + X, 82 + B), R.gold, { tex: (x, y) => y === 79 + B ? R.gold[3] : (x % 5 === 0 ? R.gold[1] : null) });          // the belt
+      const bk = 48 + T + X;
+      region(sp, poly([[bk - 5, 77 + B], [bk + 5, 77 + B], [bk + 6, 84 + B], [bk - 6, 84 + B]]), R.gold, { ball: [bk - 3, 78 + B, 6] });                                   // its buckle: a crown
+      for (const x of [bk - 4, bk, bk + 4]) sp.set(x, 76 + B - (x === bk ? 1 : 0), R.gold[3]); sp.set(bk, 81 + B, GEM.red[1]);
+      heart = [48 + T + X, 56 + B];
+      veinsOn(sp, [
+        [[48, 56], [45, 52], [44, 48]], [[48, 56], [52, 52], [53, 48]], [[48, 56], [42, 55], [36, 52], [31, 51]], [[48, 56], [55, 55], [61, 52], [66, 51]],
+        [[48, 56], [45, 62], [42, 68], [43, 74]], [[48, 56], [51, 61], [55, 67], [54, 74]], [[48, 56], [40, 60], [35, 66]], [[48, 56], [57, 60], [61, 66]], [[48, 56], [48, 64], [47, 72]]
+      ], T + X, B, glow, isSkin);
+      ember(sp, heart[0], heart[1], glow, true);
+      // the mantle: ermine over the shoulders' hump, open at the throat, its edge scalloped with black tails; heavier on the near shoulder
+      const mx0 = three ? 46 + X : 48, mw = three ? 31 : 33, th0 = 40 + T + X, th1 = 56 + T + X;
+      region(sp, (x, y) => ell(mx0, 46 + B, mw, 10.5)(x, y) && !(x >= th0 && x <= th1 && y >= 46 + B), R.ermine, { ball: [mx0 - 12, 41 + B, 26], tex: ermineTex });
+      for (let x = mx0 - mw + 3; x <= mx0 + mw - 3; x += 4) if (x < th0 || x > th1) sp.set(x, 56 + B - ((x >> 2) & 1) - Math.round(Math.abs(x - mx0) * 0.06), OUT);
+      // the head, low between the shoulders and thrust forward, and the crown too small for it
+      if (three) { headThree(sp, 53 + hx, 39 + hy, P, glow); crown(sp, 54 + hx, 17 + hy, false, 1, true); }
+      else { headFront(sp, 48 + hx, 39 + hy, P, glow); crown(sp, 48 + hx, 17 + hy, false, 1); }
+      if (farFront) armOf(1);
+      armOf(-1);
+      if (st !== "over" && !(three && (st === "back" || st === "sweepR"))) drawStaff();
+      if (P.puff) for (let k = 0; k < 22; k++) { const a = hash(k, 3, 5) * TAU, r = 32 + hash(k, 4, 5) * 12, x = Math.round(48 + Math.cos(a) * r), y = Math.round(58 + Math.sin(a) * r * 0.8); if (x > 1 && x < 94 && y > 1 && y < 94 && !sp.get(x, y)) sp.set(x, y, EMBER[2 + (k & 1)]); }
+      outline(sp);
+      sp.tip = tip; sp.heart = heart;
+      return sp;
+    }
+    // the poses: every frame the rules name (§3.6 to §3.9 of the note) and the intro's. Revision 1: the Sunwheel's spin is square to the
+    // camera with the sceptre held high and the arms flung wide (the beam comes from the Ember in his chest); aimHigh and fireHigh raise the
+    // sceptre at a target above him; fall and stone are gone (he no longer turns to stone: he freezes and pops, §3.11)
+    function kingPose(anim, i) {
+      const g = i % 2;
+      switch (anim) {
+        case "idle": return { bob: g, staff: "plant", arm: "hang", glow: 1 };
+        case "walk": return { step: [1, 0, -1, 0][i % 4], bob: i % 2 ? 0 : 1, staff: "plant", arm: "hang" };
+        case "seat": return { seat: 1, staff: "plant", arm: "hang", mouth: g, head: [0, 1] };                 // slumped on the throne, muttering
+        case "rise": return { crouch: 5, staff: "plant", arm: "fist", mouth: 1 };
+        case "roar": return { staff: "plant", arm: "wide", mouth: 2, head: [0, -1], glow: 2 };
+        case "sweepWind": return { lean: -2, staff: "sweepR", arm: "fist", glow: 1 };                        // the staff drawn back across him
+        case "sweep": return { lean: 3, staff: "sweepL", arm: "fist", glow: 1 };                             // swept out
+        case "gavelWind": return { lean: -2, crouch: -1, staff: "over", arm: "grip", head: [0, -2], glow: 2 };   // overhead in both hands
+        case "gavel": return { lean: 3, crouch: 4, staff: "slam", arm: "grip", mouth: 2, glow: 2 };         // slammed down in front
+        case "chargeWind": return { lean: 4, crouch: 4, staff: "back", arm: "fist", head: [3, 3], glow: 1 };   // head down, the staff trailed
+        case "charge": return { lean: 5, crouch: 3, step: [1, -1][g], staff: "back", arm: "fist", head: [3, 3], mouth: 2 };
+        case "stomp": return { bob: g ? 0 : -2, step: g ? 0 : 1, staff: "plant", arm: "fist", mouth: g ? 2 : 0 };
+        case "crouch": return { crouch: 7, staff: "plant", arm: "fist", glow: 1 };
+        case "air": return { crouch: -6, staff: "over", arm: "grip", mouth: 2, glow: 2 };
+        case "land": return { crouch: 8, staff: "slam", arm: "grip", mouth: 2, glow: 2 };
+        case "aim": return { lean: 1, staff: "level", arm: "fist", glow: 2 };                                // the sceptre levelled
+        case "fire": return { lean: -1, staff: "level", arm: "fist", mouth: 2, glow: 3 };                    // the beam out of it
+        case "aimHigh": return { lean: 1, staff: "levelHigh", arm: "fist", head: [0, -1], glow: 2 };         // raised at a target above him
+        case "fireHigh": return { lean: -1, staff: "levelHigh", arm: "fist", head: [0, -1], mouth: 2, glow: 3 };
+        case "spin": return { staff: "high", arm: "wide", mouth: 2, head: [0, -1], glow: 3 };               // square to us, the beam from his chest
+        case "nova": return [{ crouch: 4, staff: "plant", arm: "fist", head: [0, 2], glow: 2 }, { crouch: 2, staff: "plant", arm: "wide", mouth: 1, glow: 3, puff: 1 }, { crouch: 0, staff: "plant", arm: "wide", mouth: 2, head: [0, -2], glow: 3, puff: 1 }][i % 3];
+        case "kneel": return { kneel: 1, staff: "plant", arm: "hang", head: [0, 3], glow: 0 };              // spent: the Ember banked
+        case "reel": return { lean: -4, staff: "plant", arm: "hang", head: [-2, 1], flinch: true, glow: 0 };
+        case "hit": return { lean: -2, staff: "plant", arm: "hang", flinch: true };
+      }
+      return { bob: g, staff: "plant", arm: "hang" };
+    }
+    const KING_ANIMS = { idle: 2, walk: 4, seat: 2, rise: 1, roar: 1, sweepWind: 1, sweep: 1, gavelWind: 1, gavel: 1, chargeWind: 1, charge: 2, stomp: 2, crouch: 1, air: 1, land: 1, aim: 1, fire: 1, aimHigh: 1, fireHigh: 1, spin: 1, nova: 3, kneel: 1, reel: 1, hit: 1 };
+
+    // ------------------------------------------------------------------ frames: trolls.js's interface (left is the three-quarter mirrored)
+    // Revision 1: there is no back. "away" draws the three-quarter (the page asks for his last side instead: the facing rule, §3.6), so no
+    // path through the code shows his back
+    const DRAWING = { right: ["three", false], left: ["three", true], away: ["three", false], toward: ["down", false] };
+    const LUM = c => { const v = [1, 3, 5].map(k => parseInt(c.slice(k, k + 2), 16)); return 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]; };
+    const toStone = c => R.stone[LUM(c) < 70 ? 0 : LUM(c) < 115 ? 1 : LUM(c) < 165 ? 2 : 3];
+    const cache = new Map();
+    // o.glow overrides the pose's (the page pulses it with the Ember's beat: 1 and 2 by turns, 3 in phase 3, 0 when spent)
+    function frame(facing, anim, i, o) {
+      o = o || {};
+      if (!DRAWING[facing]) facing = "right";
+      if (!KING_ANIMS[anim]) anim = "idle";
+      i = (i | 0) % KING_ANIMS[anim];
+      const key = facing + "|" + anim + "|" + i + "|" + (o.glow === undefined ? "" : o.glow);
+      if (cache.has(key)) return cache.get(key);
+      const P = Object.assign({}, kingPose(anim, i)); if (o.glow !== undefined && anim !== "kneel") P.glow = Math.max(P.glow === undefined ? 1 : P.glow, o.glow);
+      const [drawing, flip] = DRAWING[facing], sp = kingBody(drawing, P), N = 96;
+      let px = sp.px.slice(), tip = sp.tip ? sp.tip.slice() : null, heart = sp.heart ? sp.heart.slice() : null;
+      if (flip) { const q = new Array(N * N).fill(null); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) q[y * N + (N - 1 - x)] = px[y * N + x]; px = q; if (tip) tip = [N - 1 - tip[0], tip[1]]; if (heart) heart = [N - 1 - heart[0], heart[1]]; }
+      const out = { px, N, w: N, h: N, facing, anim, i, tip, heart };
+      cache.set(key, out);
+      return out;
+    }
+
+
+    // ------------------------------------------------------------------ his face for the talk box: a 32 x 32 crop of the front frame
+    // (the head, the crown's band and the tusks), drawn with the glow and the mouth of the line he is saying; the talk box shows it at
+    // Lessons.faceSize for a 32 crop (about 72 CSS px), as it shows Grycus's 16 x 16
+    function face(glow, mouth) {
+      const sp = kingBody("down", { staff: "none", arm: "hang", glow: glow === undefined ? 1 : glow, mouth: mouth || 0 }), out = [];
+      for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) out.push(sp.get(32 + x, 18 + y) || null);
+      return { px: out, w: 32, h: 32 };
+    }
+
+    // ================================================================== the end (revision 1, §3.11): he freezes, he pops, the Ember is taken
+    // freeze(fr, step, white): his frame held rigid as he died in it, the Ember's light cracking through him: twelve jagged cracks from his
+    // heart, step 0 to 4 their reach (9 px a step), a white core with the Ember's yellow and gold beside it, only over his body; on the flash's
+    // frames (every 0.1 s) his whole silhouette white inside its soot outline. Pure: a new frame, the cached one untouched
+    function freeze(fr, step, white) {
+      const N = fr.N, px = fr.px.slice(), hx = (fr.heart || [48, 56])[0], hy = (fr.heart || [48, 56])[1];
+      const body = (x, y) => x >= 0 && y >= 0 && x < N && y < N && px[y * N + x] && px[y * N + x] !== OUT;
+      if (white) { for (let i = 0; i < px.length; i++) if (px[i] && px[i] !== OUT) px[i] = "#ffffff"; return { px, N, w: N, h: N, heart: fr.heart, tip: fr.tip }; }
+      const reach = clamp(step, 0, 4) * 9;
+      for (let k = 0; k < 12; k++) {
+        let a = k / 12 * TAU + (hash(k, 1, 131) - 0.5) * 0.4, x = hx, y = hy;
+        for (let d = 0; d < reach; d++) {
+          a += (hash(k, d, 132) - 0.5) * 0.55; x += Math.cos(a); y += Math.sin(a) * 1.1;
+          const X = Math.round(x), Y = Math.round(y); if (!body(X, Y)) break;
+          px[Y * N + X] = d < reach - 4 ? "#ffffff" : "#fee761";
+          const side = Math.abs(Math.sin(a)) > 0.7 ? [X + 1, Y] : [X, Y + 1];
+          if (body(side[0], side[1]) && px[side[1] * N + side[0]] !== "#ffffff") px[side[1] * N + side[0]] = d < reach - 4 ? "#fee761" : "#feae34";
+        }
+      }
+      if (step > 0) for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) if (body(hx + i, hy + j) && Math.abs(i) + Math.abs(j) <= 2 + (step > 2 ? 1 : 0)) px[(hy + j) * N + hx + i] = "#ffffff";   // the heart swells white
+      return { px, N, w: N, h: N, heart: fr.heart, tip: fr.tip };
+    }
+    // burst(fr, t): t s after the pop, his body burst into its own pixels: every 3 x 3 block of the frame flung from his heart across the floor
+    // at 60 to 160 px/s and up at 40 to 140 px/s, falling at 420 px/s^2, bouncing once at a third of its speed, gone between 0.6 and 1.0 s.
+    // Each shard is { x, y, z, px (its nine colours), fade (0 to 1) }: x across from his feet, y in depth from his feet, z its height; the
+    // painter draws its pixels at (feet x + x + i, feet y + y - z + j) and dithers it out by fade
+    function burst(fr, t) {
+      const N = fr.N, hx = (fr.heart || [48, 56])[0], hy = (fr.heart || [48, 56])[1], out = [];
+      for (let by = 0; by < N; by += 3) for (let bx = 0; bx < N; bx += 3) {
+        const cols = []; let any = false;
+        for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) { const c = (by + j < N && bx + i < N && fr.px[(by + j) * N + bx + i]) || null; cols.push(c); if (c && c !== OUT) any = true; }
+        if (!any) continue;
+        const k = bx * 131 + by * 7, dx = bx + 1.5 - hx, dy = by + 1.5 - hy, L = Math.hypot(dx, dy) || 1;
+        const sp = 60 + hash(k, 1, 140) * 100, up = 40 + hash(k, 2, 140) * 100, life = 0.6 + hash(k, 3, 140) * 0.4;
+        if (t >= life) continue;
+        const g = 420, z0 = 95 - by, tLand = (up + Math.sqrt(up * up + 2 * g * z0)) / g;
+        let z;
+        if (t <= tLand) z = z0 + up * t - g * t * t / 2; else { const v2 = (g * tLand - up) * 0.35, t2 = t - tLand; z = Math.max(0, v2 * t2 - g * t2 * t2 / 2); }
+        out.push({ x: bx - 48 + (dx / L) * sp * t, y: (hash(k, 4, 140) - 0.5) * 8 + (dy / L) * sp * t * 0.35, z, px: cols, fade: t > life - 0.3 ? (t - (life - 0.3)) / 0.3 : 0 });
+      }
+      return out;
+    }
+    return { kingBody, kingPose, KING_ANIMS, DRAWING, frame, face, freeze, burst, R };
+  })();
+
   // ------------------------------------------------------------------ the frames
   // the pose of a kind's animation frame i
   function poseOf(kind, anim, i) {
@@ -1235,6 +1688,7 @@
   //   phase; dent: 0, 1 or 2, the troll knight's shield cracked as its guard meter fills (a third, two thirds; ignored for other kinds)
   function frame(kind, facing, anim, i, glow, dent) {
     if (!KIND[kind]) kind = "footman";
+    if (KIND[kind].body === "king") return kingFrame(facing, anim, i, glow);   // (design pass 44) his own drawings and glows
     if (!DRAWING[facing]) facing = "right";
     const A = ANIMS[kind];
     if (!A[anim]) anim = "idle";
@@ -1410,7 +1864,32 @@
   // a kind's sprite on the knight's interface: { kind, N, FACINGS, ANIMS, frame(facing, anim, i, glow, dent) }
   function sprite(kind) { if (!KIND[kind]) kind = "footman"; return { kind, N: KIND[kind].N, FACINGS, DRAWING, ANIMS: ANIMS[kind], frame: (facing, anim, i, glow, dent) => frame(kind, facing, anim, i, glow, dent) }; }
 
-  const BODY = { footman, archer, brute, knight: trollKnight, wolf, wizard: (drawing, P) => wizardBody(drawing, P), bat: (drawing, P) => batBody(drawing, P), burster: (drawing, P) => bursterBody(drawing, P) };
-  root.Trolls = { OUT, R, STONE, KINDS, KIND, FACINGS, DRAWING, ANIMS, frame, sprite, poseOf, toStone, stonePixels, DIRS, dirOf, PROJECTILES, projectile, chunk, shadow, pouch, splash, rock };
+  const BODY = { footman, archer, brute, knight: trollKnight, wolf, wizard: (drawing, P) => wizardBody(drawing, P), bat: (drawing, P) => batBody(drawing, P), burster: (drawing, P) => bursterBody(drawing, P), king: (drawing, P) => KING.kingBody(drawing, P) };
+  // (design pass 44) the King's frames: the sketch's frame (facing right | left | away | toward, the three-quarter for every side, flipped
+  // for left; glow 0 to 3 raises the pose's own, the kneel's banked 0 kept) on the frame interface; the pose's glow is reported
+  const kcache = new Map();
+  function kingFrame(facing, anim, i, glow) {
+    if (!KING.DRAWING[facing]) facing = "right";
+    if (!KING.KING_ANIMS[anim]) anim = "idle";
+    i = (i | 0) % KING.KING_ANIMS[anim];
+    const g = Math.max(0, Math.min(3, glow | 0));   // (no glow asked is 0: the pose's own, the same frame and the same object)
+    const key = facing + "|" + anim + "|" + i + "|" + g;
+    if (kcache.has(key)) return kcache.get(key);
+    const fr = KING.frame(facing, anim, i, { glow: g }), N = fr.N, px = fr.px;
+    const out = { px, N, w: N, h: N, kind: "king", facing, anim, i, glow: g, dent: 0, tip: fr.tip, heart: fr.heart, _c: null, _w: null, _s: [],
+      canvas() { return this._c || (this._c = toCanvas(px, N, null)); },
+      white() { return this._w || (this._w = toCanvas(px, N, () => "#ffffff")); },
+      stonePx(s) { return stonePixels(px, N, s); },
+      stone(s) { s = Math.max(1, Math.min(4, s === undefined ? 4 : s | 0)); return this._s[s] || (this._s[s] = toCanvas(stonePixels(px, N, s), N, null)); } };
+    kcache.set(key, out);
+    return out;
+  }
+  // his face for the talk box (32 x 32: the head, the crown's band and the tusks, with the glow and the mouth of the line), his end's frames
+  const fcache = new Map();
+  function kingFace(glow, mouth) { const key = (glow | 0) + "|" + (mouth | 0); if (!fcache.has(key)) { const f = KING.face(glow, mouth); fcache.set(key, Object.assign(f, { _c: null, canvas() { return this._c || (this._c = toCanvas(this.px, this.w, null, this.h)); } })); } return fcache.get(key); }
+  function kingFreeze(fr, step, white) { const f = KING.freeze(fr, step, white); return Object.assign(f, { kind: "king", _c: null, canvas() { return this._c || (this._c = toCanvas(this.px, this.N, null)); } }); }
+  const kingBurst = (fr, t) => KING.burst(fr, t);
+  root.Trolls = { OUT, R, STONE, KINDS, KIND, FACINGS, DRAWING, ANIMS, frame, sprite, poseOf, toStone, stonePixels, DIRS, dirOf, PROJECTILES, projectile, chunk, shadow, pouch, splash, rock,
+    kingFace, kingFreeze, kingBurst, KING_ANIMS: KING.KING_ANIMS, KING_DRAWING: KING.DRAWING };   // (design pass 44)
   if (typeof module !== "undefined" && module.exports) module.exports = root.Trolls;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -1004,10 +1004,11 @@
   const clearedOrStandIn = (cleared, id) => isCleared(cleared, id) || (standIn(id) !== id && isCleared(cleared, standIn(id)));
   // soon: no level built; shut: built, but the level it opens after is not cleared; open; won: its last level (wonBy) cleared
   function areaState(A, cleared) {
-    if (A.pvp) return A.opensAfter && !clearedOrStandIn(cleared, A.opensAfter) ? "shut" : "open";   // (design pass 36) the Arena: never soon, never won
+    const after = [].concat(A.opensAfter || []);   // (design pass 44) opensAfter may be a list: any of them (the Arena's castle-throne or the arena-early mark of a save that opened it on the Keep)
+    if (A.pvp) return after.length && !after.some(id => clearedOrStandIn(cleared, id)) ? "shut" : "open";   // (design pass 36) the Arena: never soon, never won
     const built = (A.levels || []).filter(L => !L.soon);
     if (!built.length) return "soon";
-    if (A.opensAfter && !isCleared(cleared, A.opensAfter)) return "shut";   // (the stand-in rule is the Arena's alone: the Frostpeaks wait for the Throne)
+    if (after.length && !after.some(id => isCleared(cleared, id))) return "shut";   // (the stand-in rule is the Arena's alone: the Frostpeaks wait for the Throne)
     if (A.wonBy && isCleared(cleared, A.wonBy)) return "won";
     return "open";
   }

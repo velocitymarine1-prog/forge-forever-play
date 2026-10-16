@@ -186,6 +186,8 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 @keyframes hint{50%{filter:brightness(1) drop-shadow(0 0 1px var(--hot))}}
 /* in a level the prompt over the knight beckons once a second (design pass 18) */
 .game.level .prompt{animation:beckon 1s steps(2) infinite}
+/* (design pass 44) a cutscene: the buttons, the stick and the prompt leave the screen; the lines and the plates stay */
+.game.cine .hbtn,.game.cine .stick,.game.cine #stickZone,.game.cine .prompt{display:none}
 @keyframes beckon{50%{filter:brightness(1.2) drop-shadow(0 0 4px var(--hot))}}
 /* prompts float above the knight; the note sits under the weapon plate */
 .prompt{height:30px;padding:0 8px;display:flex;align-items:center;transform:translate(-50%,-100%);cursor:pointer;background-color:transparent;font-family:var(--data);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--hot);white-space:nowrap}
@@ -386,6 +388,8 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
       <h2 id="tallyTitle">THE GATE IS OURS</h2>
       <p id="tallyTime"></p>
       <p class="small" id="tallyFelled"></p>
+      <p class="small" id="tallyArmour" hidden></p>
+      <p id="tallyLine" hidden></p>
       <div class="stats" id="tallyStats" hidden></div>
       <p class="small" id="tallyWith" hidden></p>
       <p class="small" id="tallyFindsLine">Your finds</p>
@@ -424,6 +428,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="spec/gate.js"></script>
 <script src="spec/hall.js"></script>
 <script src="spec/keep.js"></script>
+<script src="spec/throne.js"></script>
 <script src="spec/trolls.js"></script>
 <script src="spec/abilities.js"></script>
 <script src="spec/drops.js"></script>
@@ -432,9 +437,11 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="spec/xp.js"></script>
 <script src="spec/arena.js"></script>
 <script src="spec/heroes.js"></script>
+<script src="spec/armour.js"></script>
 <script src="spec/signatures.js"></script>
 <script src="ledger/ledger.js"></script>
 <script src="proto/coin.js"></script>
+<script src="proto/armour.js"></script>
 <script src="proto/progress.js"></script>
 <script src="proto/pixel-forge.js"></script>
 <script src="proto/smithy.js"></script>
@@ -447,12 +454,14 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="proto/cloud.js"></script>
 <script src="proto/knight.js"></script>
 <script src="proto/heroes.js"></script>
+<script src="proto/armour-art.js"></script>
 <script src="proto/combos.js"></script>
 <script src="proto/trolls.js"></script>
 <script src="proto/cellar.js"></script>
 <script src="proto/gate.js"></script>
 <script src="proto/hall.js"></script>
 <script src="proto/keep.js"></script>
+<script src="proto/throne.js"></script>
 <script src="proto/physics.js"></script>
 <script src="proto/signatures.js"></script>
 <script src="proto/combat.js"></script>
@@ -464,6 +473,7 @@ button:focus-visible{outline:3px solid var(--ice);outline-offset:2px}
 <script src="proto/wire.js"></script>
 <script src="proto/arena-page.js"></script>
 <script src="proto/arena-drill.js"></script>
+<script src="proto/throne-page.js"></script>
 <script src="proto/stick.js"></script>
 <script src="proto/cellar-lessons.js"></script>
 <script src="proto/battlegrounds.js"></script>

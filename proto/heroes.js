@@ -13,6 +13,12 @@
 // is the side's, and the three with no colour of their own wear a tournament tabard in it; an ally's band is the gold hem.
 // Ported from the pass's sketch (docs/design/46-heroes.sketch.js), a first pass at each hero: any of them can be redrawn here without
 // touching anything else, inside the hand and grid rules (tools/test-heroes.js).
+// Since build 38 (design pass 47 revision 1, the Armorer) a skin may carry three more things, for an armour set cut to a hero's own
+// clothes (proto/armour-art.js): `own`, the hero's own skin, which the head is painted from (so the hat, the hood and the hair keep
+// their ramps under a set); `patch` and `patch2`, the wretch's patches (leather and wood when absent); and `mark(slot, sp, P, drawing)`,
+// run after each slot of a frame of parts (behind, legs, lower, knees, torso, waist, arms, shoulders) and before the head of the crawl
+// (prone) and of the lying body (lying), so a set's marks see what each slot painted. With none of them every frame is build 36's,
+// pixel for pixel (tools/test-heroes.js's pins, tools/test-armour-art.js).
 //   Heroes.ids                        the six, in the chooser's order (the knight among them)
 //   Heroes.has(id), takesColour(id)   whether an id is a hero here; whether it takes a colour (the knight, the wretch, the wizard)
 //   Heroes.of(record)                 { hero, colour, chosen } from a player record (the knight in red by default; chosen: the record names a hero)
@@ -20,6 +26,7 @@
 //   Heroes.face(look)                 the talk box's 16 x 16 face: the opening's crop of the front idle frame (columns 8 to 23, rows 0 to 15)
 //   Heroes.gauntlet(hero, colour), paintHand(set, x, y, hero, colour, s)   the opening's close-up hand in the hero's ramps (proto/intro.js)
 //   Heroes.RAMPS, NAMES               the heroes' own ramps; a name for each id (the words proper are spec/heroes.json's)
+//   Heroes.paint(S, drawing, parts, carry), head(sp, S, P, drawing), LYING[hero](sp, S)   (build 38) a frame from any skin, and the heads, for proto/armour-art.js
 // Plain script, defines window.Heroes (module.exports in node); needs proto/knight.js loaded before it (an older knight.js without the
 // skeleton leaves no Heroes, and every hero is drawn as the knight).
 (function (root) {
@@ -139,7 +146,7 @@
     } else if (S.kind === "rags") {
       region(sp, rect(sx0 - 1, hip + 1, sx1 + 1, hip + skirt + 1), S.lower);
       ragged(sp, sx0 - 1, sx1 + 1, hip + skirt + 1, false);
-      put(sp, sx0 + 2, hip + 3, P_.leather[2]); put(sp, sx0 + 3, hip + 3, P_.leather[2]);   // a patch
+      put(sp, sx0 + 2, hip + 3, (S.patch || P_.leather)[2]); put(sp, sx0 + 3, hip + 3, (S.patch || P_.leather)[2]);   // a patch
     } else {
       region(sp, rect(sx0, hip + 1, sx1, hip + skirt), S.lower);
       for (let x = sx0; x <= sx1; x += 3) put(sp, x, hip + skirt, null);   // the elf's tunic cut in points
@@ -171,7 +178,7 @@
     region(sp, rect(x0, t0, x1, hip - 1), back && S.kind === "cloth" ? S.cape : S.torso);
     if (S.kind === "cloth" && back) region(sp, rect(10, t0, 21, hip + 3), S.cape);                   // the cloak down the elf's back
     if (S.kind === "cloth" && !back) { put(sp, 15, t0, P_.skin[1]); put(sp, 16, t0, P_.skin[1]); put(sp, 15, t0 + 1, P_.skin[0]); put(sp, 16, t0 + 1, P_.skin[2]); }   // the tunic's neck
-    if (S.kind === "rags") { put(sp, 12, t0 + 3, P_.leather[2]); put(sp, 13, t0 + 3, P_.leather[3]); put(sp, 12, t0 + 4, P_.leather[1]); put(sp, 13, t0 + 4, P_.leather[2]); put(sp, 19, t0 + 5, P_.wood[2]); put(sp, 19, t0 + 6, P_.wood[1]); }   // patches
+    if (S.kind === "rags") { const pa = S.patch || P_.leather, pb = S.patch2 || P_.wood; put(sp, 12, t0 + 3, pa[2]); put(sp, 13, t0 + 3, pa[3]); put(sp, 12, t0 + 4, pa[1]); put(sp, 13, t0 + 4, pa[2]); put(sp, 19, t0 + 5, pb[2]); put(sp, 19, t0 + 6, pb[1]); }   // patches
     if (S.kind === "fur" && S.hero === "sasquatch" && !back) region(sp, rect(13, t0 + 1, 18, t0 + 5), [P_.bark[1], P_.bark[2], P_.bark[2], P_.bark[3]]);   // the paler chest
     if (S.tabard) region(sp, rect(12, t0, 19, hip - 1), S.tabard);
   }
@@ -189,7 +196,7 @@
     if (S.hero === "wretch") { hy += 1; if (side) hx += 1; }   // the wretch's hunch: the head low, and forward from the side
     if (S.hero === "sasquatch") hy += 1;                        // the sasquatch has no neck: the head sunk between the shoulders
     const h0 = P.hip - 7 - 9 + hy, up = P.plume === "up";
-    const fn = HEADS[S.hero]; fn(sp, S, side ? X + hx : hx, h0, side, back, up);
+    const fn = HEADS[S.hero]; fn(sp, S.own || S, side ? X + hx : hx, h0, side, back, up);   // (build 38) a set's skin carries the hero's own for its head
   }
   const HEADS = {
     elf(sp, S, x, h0, side, back, up) {
@@ -347,14 +354,16 @@
   function paintParts(S, drawing, P, carry) {
     const sp = new Grid(), side = drawing === "side", X = P.lean || 0, front = drawing === "down" && !P.back, ram = carry === "ram" && P.basic && P.pose ? P.pose : null;
     for (const a of P.arms) if (a.behind) limb(sp, S, a);
-    legs(sp, S, P, side);
-    lower(sp, S, P, side, X);
-    knees(sp, S, P);
-    torso(sp, S, P, drawing, X, front);
-    waist(sp, S, P, side, X, front);
+    if (S.mark) S.mark("behind", sp, P, drawing);   // (build 38, design pass 47) a set's marks, after each slot
+    legs(sp, S, P, side); if (S.mark) S.mark("legs", sp, P, drawing);
+    lower(sp, S, P, side, X); if (S.mark) S.mark("lower", sp, P, drawing);
+    knees(sp, S, P); if (S.mark) S.mark("knees", sp, P, drawing);
+    torso(sp, S, P, drawing, X, front); if (S.mark) S.mark("torso", sp, P, drawing);
+    waist(sp, S, P, side, X, front); if (S.mark) S.mark("waist", sp, P, drawing);
     if (ram && drawing === "up") ramFront(sp, S, ram, false);   // facing away the log is in front of the hero, so behind its arms on the screen
     for (const a of P.arms) if (!a.behind && !a.over) limb(sp, S, a);
-    shoulders(sp, S, P, drawing, X);
+    if (S.mark) S.mark("arms", sp, P, drawing);
+    shoulders(sp, S, P, drawing, X); if (S.mark) S.mark("shoulders", sp, P, drawing);
     head(sp, S, P, drawing);
     let hand = P.hand;
     if (ram && side) hand = ramSide(sp, S, ram);   // the near arm reaches down to the log in place of the hanging arm
@@ -378,6 +387,7 @@
     if (r) { region(sp, rect(20, 20, 22, 24), S.sleeve); region(sp, rect(22, 24, 24, 27), S.sleeve); region(sp, rect(23, 28, 25, 29), S.fist); }
     else { region(sp, rect(19, 20, 21, 27), S.sleeve); region(sp, rect(19, 28, 22, 29), S.fist); }
     // the head leading, low: a hero's side head moved down and forward
+    if (S.mark) S.mark("prone", sp, P, "side");
     head(sp, S, Object.assign(P, { head: [8, 9] }), "side");
     if (S.kind === "fur") shag(sp, S.coat);
     trim(sp); outline(sp); sp.hand = P.hand; return sp;
@@ -392,7 +402,8 @@
     region(sp, rect(19, 22, 21, 29), S.lower);
     if (S.tabard) region(sp, rect(11, 23, 21, 28), S.tabard);
     region(sp, rect(13, 25, 20, 27), S.sleeve); region(sp, rect(20, 26, 22, 28), S.fist);
-    LYING[S.hero](sp, S);   // the head at the left, the crown toward the edge, the face to the sky, inside rows 21 to 29 (12 rows in all, as the knight's)
+    if (S.mark) S.mark("lying", sp, null, "side");
+    LYING[S.hero](sp, S.own || S);   // the head at the left, the crown toward the edge, the face to the sky, inside rows 21 to 29 (12 rows in all, as the knight's)
     if (S.kind === "fur") shag(sp, S.coat);
     trim(sp); outline(sp); sp.hand = [21, 27]; return sp;
   }
@@ -488,7 +499,9 @@
     return (xx, yy) => inPart(xx, yy) || extra.some(e => e[0] === xx && e[1] === yy);
   }
 
-  const api = { ids: IDS.slice(), NAMES, RAMPS: P_, COLOURS: COLOUR, SIDE, has, takesColour, of, draw, face, gauntlet, paintHand, skinOf, version: 1 };
+  // (build 38, design pass 47) a frame from any skin (the lying body, the crawl or a frame of parts, by the parts), for the armour's own cut
+  const paint = (S, drawing, P, carry) => P.lying ? paintLying(S) : P.prone !== undefined ? paintProne(S, P.prone) : paintParts(S, drawing, P, carry);
+  const api = { head, LYING, paint, ids: IDS.slice(), NAMES, RAMPS: P_, COLOURS: COLOUR, SIDE, has, takesColour, of, draw, face, gauntlet, paintHand, skinOf, version: 1 };
   root.Heroes = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

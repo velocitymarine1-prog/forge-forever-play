@@ -2,6 +2,7 @@
 // Pure functions; the caller moves the coins and the stock. window.Coin in the page, module.exports in node.
 // Since build 17 (design pass 24 sections 4.8 and 4.9) also Vorn's weapon classes, on the house while levels have earned them and
 // for coins after that (classPrice, arm), and the well's daily coins (daily); their numbers are spec/shop.json's `classes` and `daily`.
+// Since build 38 (design pass 47 section 3.8) also Ottar's armour sets (outfit, wear), their prices spec/armour.json's.
 (function (root) {
   "use strict";
   // Legend Embers (design pass 10, revision 1) come only from what the run found (spec/drops.json): `ember` is how many are sure (a
@@ -63,6 +64,25 @@
     if ((profile.coins | 0) < coins) return no(ARM_LINES.poor, coins);
     return { ok: true, free: false, cost: coins };
   }
+  // Ottar's armour (design pass 47 section 3.8, build 38): the sets of spec/armour.json (`armour`, window.FORGE_ARMOUR unless given), each
+  // bought once for its coins and worn one at a time. outfit says how a set would be bought, by the first of these that holds: it is not
+  // a set ("Not a set of armour"); it is already owned ("Owned ✓": the caller wears it instead); the coins are too few ("Too few coins",
+  // `cost` the price); else it is bought for its price. { ok, cost }, with `reason` when not ok. Pure: the caller adds the id to
+  // profile.armours, takes `cost` from profile.coins and sets profile.worn. wear gives what a profile may wear: null (the own kit) or an
+  // owned set's id; anything else is false (refused). A save from before build 38 has no `armours`, and then nothing is owned
+  const OUTFIT_LINES = { unknown: "Not a set of armour", owned: "Owned ✓", poor: "Too few coins" };
+  const armourSets = armour => (((armour || root.FORGE_ARMOUR || {}).sets) || []);
+  function outfit(id, armour, profile) {
+    const set = typeof id === "string" ? armourSets(armour).find(s => s.id === id) : null, no = (reason, cost) => ({ ok: false, cost, reason });
+    if (!set) return no(OUTFIT_LINES.unknown, 0);
+    if ((profile.armours || []).includes(id)) return no(OUTFIT_LINES.owned, 0);
+    if ((profile.coins | 0) < (set.coins | 0)) return no(OUTFIT_LINES.poor, set.coins | 0);
+    return { ok: true, cost: set.coins | 0 };
+  }
+  function wear(id, profile) {
+    if (id === null || id === undefined) return null;
+    return typeof id === "string" && (profile.armours || []).includes(id) ? id : false;
+  }
   // the well (design pass 24 section 4.9, build 17; when it pays again is design pass 26 section 3.2 row 7): shop.daily.coins once a
   // calendar day. `today` is the caller's local date as "YYYY-MM-DD", the phone's calendar day; anything else is no date. It pays
   // when the save has no date of a last claim (profile.daily.last), or when today is later than it: so once a date, a missed day
@@ -92,7 +112,7 @@
   }
   function pickDrop(pick, u) { const items = Object.entries(pick); let x = u * items.reduce((s, [, w]) => s + w, 0); for (const [id, w] of items) { if (x < w) return id; x -= w; } return items[items.length - 1][0]; }
   function rollDrop(entry, rand, factor) { const f = factor === undefined ? 1 : factor, out = []; for (const r of dropRolls(entry)) if (rand() < Math.min(1, r.chance * f)) out.push(pickDrop(r.pick, rand())); return out; }
-  const api = { runPay, price, buy, EMBER_NOT_SOLD, classPrice, arm, ARM_LINES, daily, DAILY_LINES, dropEntry, dropRolls, dropFactor, pickDrop, rollDrop };
+  const api = { runPay, price, buy, EMBER_NOT_SOLD, classPrice, arm, ARM_LINES, outfit, wear, OUTFIT_LINES, daily, DAILY_LINES, dropEntry, dropRolls, dropFactor, pickDrop, rollDrop };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Coin = api;
 })(typeof window !== "undefined" ? window : globalThis);

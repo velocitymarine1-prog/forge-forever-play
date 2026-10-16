@@ -90,10 +90,11 @@
   // `runs` holds the ids of the last runs brought home and `cleared` the areas cleared once (design pass 12 section 3.11.5); `xpRules`
   // says which XP rules the save was paid under (2 since design pass 19: no back pay due); `bought` lists the classes paid for with
   // coins at Vorn's (design pass 24 section 4.8, build 17). The well's `daily` (section 4.9) is not here: a save has none until its
-  // first claim
+  // first claim. `armours` lists the armour sets bought at Ottar's, oldest first, and `worn` the one worn (a set id in `armours`, or
+  // null: the own kit); design pass 47 section 3.8, build 38
   function newProfile(id, name) {
     return { id, name: name || id, joined: new Date().toISOString().replace(/\.\d+Z$/, "Z"), level: 1, xp: 0, coins: 0, embers: 0, classes: [], picks: 1,
-      firsts: { weapons: [], legends: [], ingredients: [] }, kinds: [], found: [], terms: {}, unnamed: [], runs: [], cleared: {}, xpRules: XP_RULES, bought: [] };
+      firsts: { weapons: [], legends: [], ingredients: [] }, kinds: [], found: [], terms: {}, unnamed: [], runs: [], cleared: {}, xpRules: XP_RULES, bought: [], armours: [], worn: null };
   }
   // a run brought home is counted once: false when its id is already in profile.runs, else it is added (the last RUNS_KEPT kept) and
   // true; the caller pays or banks only on true, in the same save

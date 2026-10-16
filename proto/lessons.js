@@ -213,6 +213,7 @@
       "Screen: " + Math.round(sc.w || 0) + " × " + Math.round(sc.h || 0) + ", " + (o.touch === false ? "mouse" : "touch") + ", left-handed " + (o.lefty ? "on" : "off")
     ];
     if (o.intro !== undefined) lines.push(openingLine(o.intro, o));   // (build 29, design pass 37: the opening, when the caller gives its record or null)
+    if (typeof o.armour === "string" && o.armour) lines.push(o.armour);   // (build 38, design pass 47: Armour: Frost Plate (owns Castle Plate, Frost Plate), when the caller gives it)
     if (Array.isArray(o.turn) && o.turn.length) for (const l of o.turn) lines.push(String(l));   // (build 31, design pass 40: the screen log's lines, Turn.notes(), when the caller gives them)
     return lines.join("\n");
   }

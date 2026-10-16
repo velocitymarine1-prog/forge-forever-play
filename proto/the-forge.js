@@ -61,7 +61,14 @@
   // (build 36, design pass 46) the player's hero: the record's look (the knight in red by default), drawn in the Courtyard, on the Map
   // Table and on the drill plaque; Settings' Your look changes it in place (onLook); Nell's first line names it
   const HE = window.Heroes || null;
-  function myLook() { try { return HE && window.Smith ? HE.of(window.Smith.read()) : { hero: "knight", colour: "red", chosen: false }; } catch (e) { return { hero: "knight", colour: "red", chosen: false }; } }
+  function myLook() { let L; try { L = HE && window.Smith ? HE.of(window.Smith.read()) : { hero: "knight", colour: "red", chosen: false }; } catch (e) { L = { hero: "knight", colour: "red", chosen: false }; } const a = wornArmour(); if (a) L.armour = a; return L; }   // (build 38, design pass 47: the worn set rides in the look)
+  // (build 38, design pass 47 section 3.8) the armour set worn: an owned set's id in the Forge's save that the rule knows, else null (the
+  // own kit). A set a later build knows and this page does not is drawn as the own kit, and its id kept in the save
+  function wornArmour() { try { const p = profile; if (!p || typeof p.worn !== "string" || !Array.isArray(p.armours) || !p.armours.includes(p.worn)) return null; return window.Armour && Armour.on() && Armour.set(p.worn) ? p.worn : null; } catch (e) { return null; } }
+  const armourOn = () => !!(window.Armour && Armour.on() && window.ArmourArt);
+  function ownedSets() { return Array.isArray(profile.armours) && window.Armour ? profile.armours.filter(id => Armour.set(id)) : []; }
+  // the notes' line (Settings > Copy my playtest notes): Armour: Frost Plate (owns Castle Plate, Frost Plate)
+  function armourNotes() { if (!(window.Armour && Armour.on())) return undefined; const owned = ownedSets().map(id => Armour.name(id)); return Armour.fill(Armour.word("notes"), { name: Armour.name(wornArmour()), owned: owned.length ? owned.join(", ") : "none" }); }
   function heroWord() { const D = window.FORGE_HEROES, l = myLook(); const h = D && Array.isArray(D.heroes) ? D.heroes.find(x => x.id === l.hero) : null; return h && h.name ? String(h.name).toLowerCase() : "knight"; }
   const hasYard = !!(Y && FK && KN && ST && window.Physics && window.FORGE_COMBAT && window.FORGE_COURTYARD && window.FORGE_FOLK);
   const hasMap = !!(MT && KN && TR && window.FORGE_MAP);
@@ -166,6 +173,8 @@
     if (!d || !d.profile) return false;
     try {
       profile = Object.assign(Progress.newProfile(d.profile.id), d.profile);
+      if (!Array.isArray(profile.armours)) profile.armours = [];   // (build 38, design pass 47 section 3.10: an edited save's worn not in armours reads as the own kit; the next write corrects it)
+      if (profile.worn !== null && !(typeof profile.worn === "string" && profile.armours.includes(profile.worn))) profile.worn = null;
       // (build 12, design pass 19 section 3.5) a save made under the old XP rules (no xpRules) keeps its XP, its level follows the new
       // curve, and each Battleground level it cleared is paid the difference once (+200 for the Troll Gate); it is marked xpRules: 2,
       // and boot saves it, says so once and runs the level-up it brings (session.levelSaved is the level the save had). With an older
@@ -177,6 +186,9 @@
         catch (e) { session.backPay = null; (window.__errors || []).push("back pay: " + (e && e.message || e)); }
       }
       try { profile.level = Progress.levelFor(profile.xp | 0); } catch (e) { /* the numbers are not loaded: the saved level stands */ }
+      // (build 37, design pass 44 section 3.16) the Throne is built: the Arena opened on the Keep while the Throne was coming soon, so a save
+      // that cleared the Keep and not the Throne keeps the Arena by the mark arena-early among its cleared levels, once (profile.rules.throne)
+      if (!(profile.rules && profile.rules.throne >= 1)) { profile.rules = Object.assign({}, profile.rules, { throne: 1 }); profile.cleared = profile.cleared || {}; if (profile.cleared["castle-keep"] && !profile.cleared["castle-throne"]) profile.cleared["arena-early"] = true; }
       // the page's own rows go back into the world before the stock, so what it forged is known again
       for (const e of (d.rows || [])) { const r = e && e.r; if (!r || !e.k || rows.has(e.k)) continue; if (r.thing && r.thing.id) { if (!world.has(r.thing.id)) world.set(r.thing.id, r.thing); else r.thing = world.get(r.thing.id); } rows.set(e.k, r); }
       for (const k of (d.kinds || [])) if (k && k.key && !kinds.some(x => x.key === k.key)) kinds.push(k);
@@ -217,7 +229,8 @@
     // (design pass 12: the areas cleared ride down too, so the gate plate says Cleared and a run knows it is a replay; the Things found,
     // so a level's toast can say "First find"; the XP, so a clear's tally can say the level it reaches; and the bench's Party size, when
     // more than one, so the level fills bench seats: section 3.10)
-    const head = { v: 1, at: nowIso(), world: worldKey(), smith: { id: profile.id, name: profile.name || profile.id, level: profile.level, xp: profile.xp, classes: profile.classes.slice(), cleared: Object.assign({}, profile.cleared), found: profile.found.slice() },
+    const head = { v: 1, at: nowIso(), world: worldKey(), smith: { id: profile.id, name: profile.name || profile.id, level: profile.level, xp: profile.xp, classes: profile.classes.slice(), cleared: Object.assign({}, profile.cleared), found: profile.found.slice(),
+        armour: Array.isArray(profile.armours) && typeof profile.worn === "string" && profile.armours.includes(profile.worn) ? profile.worn : undefined },   // (build 38, design pass 47: the set worn rides down, when it is an owned set)
       loadout, active: Math.max(0, Math.min(loadout.length - 1, session.active | 0)) };
     const party = benchParty(); if (party > 1) head.bench = { party };
     if (tryId && !loadout.includes(tryId) && world.has(tryId)) head.try = tryId;
@@ -352,6 +365,7 @@
       const n = {}; for (const t of (cleared ? things : res.banked || [])) n[t] = (n[t] || 0) + 1;
       const names = Object.keys(n).map(t => world.get(t).name + (n[t] > 1 ? " ×" + n[t] : "")).join(", ");
       if (cleared) toast(`Home with a clear${(res.replay === undefined ? replay : res.replay) ? " (a replay)" : ""}: ${res.pay.xp} XP, ${res.pay.coins} coins${res.pay.ember ? ", a Legend Ember" : ""}${names ? " · " + names : ""}`);
+      if (cleared && area === "castle-throne" && !replay) profile.grycus = Object.assign({}, profile.grycus, { castle: "due" });   // (design pass 44 section 3.16) the castle won: Grycus has a word for it when the Forge next opens
       else { toast("Home without a clear: " + (names ? names + " banked, no pay" : "nothing to bank")); if (typeof run.by === "string") gryHint(run.by); }   // (design pass 38) the kind that ended the run: his hint
       last = { res, before, cleared, things, id };
     }
@@ -525,6 +539,33 @@
       profile.picks = Progress.picksLeft(profile);
       save();
       return { ok: true, free: r.free, cost: r.cost };
+    },
+    // (build 38, design pass 47 section 3.8) Ottar's stand: a set bought once for its coins and worn at once (Coin.outfit; the service's
+    // POST /outfit), and the set worn changed (Coin.wear; POST /wear: null is the own kit). The walker, the drill plaque and the handoff
+    // read the set worn from the save (wornArmour)
+    async outfit(id) {
+      if (svc.url) {
+        const { code, body } = await api("POST", "/outfit", { player: svc.player, id });
+        if (code === 200) await refreshProfile();
+        return { ok: code === 200, cost: body.cost | 0, reason: body.reason };
+      }
+      const r = Coin.outfit(id, window.FORGE_ARMOUR, profile);
+      if (!r.ok) return r;
+      profile.armours = (Array.isArray(profile.armours) ? profile.armours : []).concat([id]);
+      profile.coins -= r.cost; profile.worn = id;
+      save();
+      return { ok: true, cost: r.cost };
+    },
+    async wear(id) {
+      if (svc.url) {
+        const { code, body } = await api("POST", "/wear", { player: svc.player, id: id || null });
+        if (code === 200) await refreshProfile();
+        return { ok: code === 200, worn: body.worn === undefined ? null : body.worn, reason: body.reason };
+      }
+      const w = Coin.wear(id || null, profile);
+      if (w === false) return { ok: false, reason: "Not owned" };
+      profile.worn = w; save();
+      return { ok: true, worn: w };
     },
     // (build 17, design pass 24 section 4.9) the well: the day's coins once a calendar day (Coin.daily; the service's POST /daily).
     // `today` is the phone's local date, YYYY-MM-DD
@@ -970,7 +1011,8 @@
     clearTimeout(gry.openTimer);
     const go = tries => {
       if (gryQuiet()) { if (tries > 0) gry.openTimer = setTimeout(() => go(tries - 1), 1000); return; }
-      const pool = GRY.opening(gry.mem, { now: Date.now(), fromCellar: !!fromCellar, crucibleAwake: Progress.crucibleAwake(profile, G) });
+      const pool = GRY.opening(gry.mem, { now: Date.now(), fromCellar: !!fromCellar, crucibleAwake: Progress.crucibleAwake(profile, G), castleDue: !!(profile.grycus && profile.grycus.castle === "due") });
+      if (pool === "castle") { profile.grycus = Object.assign({}, profile.grycus, { castle: "said" }); try { save(); } catch (e) { /* said anyway */ } }   // (design pass 44) the castle pool once
       if (pool === "meet") gryMeet(); else if (pool) grySay(pool);
     };
     gry.openTimer = setTimeout(() => go(60), 900);
@@ -2064,7 +2106,7 @@
   const yardPaused = () => !!(state.room !== "yard" || plaqueOpen() || plankOpen() || folkOpen() || !$("setPlank").hidden || document.hidden || session.leaving || turn.plate || !$("firstWeapon").hidden || drillOpen());
   function canvasOf(fr) { const c = document.createElement("canvas"); c.width = fr.w; c.height = fr.h; const g = c.getContext("2d"), id = g.createImageData(fr.w, fr.h); id.data.set(fr.d); g.putImageData(id, 0, 0); return c; }
   function pxCanvas(px, w, h, flip) { const c = document.createElement("canvas"); c.width = w; c.height = h; const g = c.getContext("2d"); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const col = px[y * w + x]; if (col) { g.fillStyle = col; g.fillRect(flip ? w - 1 - x : x, y, 1, 1); } } return c; }
-  function knightSprite(facing, anim, i) { if (!yard.look) yard.look = myLook(); const key = facing + anim + i + "|" + yard.look.hero + "|" + yard.look.colour; let c = yard.knCache.get(key); if (!c) { c = pxCanvas(KN.frame(facing, anim, i, 0, yard.look).px, 32, 32); yard.knCache.set(key, c); } return c; }   // (build 36: the player's hero)
+  function knightSprite(facing, anim, i) { if (!yard.look) yard.look = myLook(); const key = facing + anim + i + "|" + yard.look.hero + "|" + yard.look.colour + "|" + (yard.look.armour || ""); let c = yard.knCache.get(key); if (!c) { c = pxCanvas(KN.frame(facing, anim, i, 0, yard.look).px, 32, 32); yard.knCache.set(key, c); } return c; }   // (build 36: the player's hero)
   function folkSprite(who, pose, i, flip) { const key = who + pose + i + (flip ? "f" : ""); let s = yard.folkCache.get(key); if (!s) { const fr = FK.frame(who, pose, i); s = fr ? { c: pxCanvas(fr.layer.px, fr.layer.w, fr.layer.h, flip), ox: fr.ox, oy: fr.oy } : null; yard.folkCache.set(key, s); } return s; }
   function yardBoot() {
     if (yard.Y || !hasYard) return !!yard.Y;
@@ -2323,22 +2365,24 @@
     o = o || {};
     if (state.forging || state.pouring) return false;
     if (!$("setPlank").hidden) return false;
+    if (who === "armorer" && !armourOn()) { toast(window.Armour ? Armour.word("unpacking", "Ottar's still unpacking. Come back.") : "Ottar's still unpacking. Come back."); return false; }   // (design pass 47 section 3.10: the place without its module, an old cached page)
     closePlaque();
     if (yard.stick) yard.stick.up();
     folk.who = who; folk.cls = who === "bay" ? o.cls : null;
     const bayList = who === "bay" ? armoryWeapons().filter(t => classOf(t) === o.cls).sort((a, b) => (b.tier - a.tier) || a.name.localeCompare(b.name)) : [];
-    const P = $("folkPlank"); P.innerHTML = ""; P.setAttribute("aria-label", who === "nell" ? "Nell's cart" : who === "vorn" ? "Vorn's weapons" : who === "bay" ? "The " + plural(o.cls) + " rack" : who === "roll" ? "The Roll of First Forges" : "The Rack");
+    const P = $("folkPlank"); P.innerHTML = ""; P.setAttribute("aria-label", who === "armorer" ? (window.Armour ? Armour.word("label", "Ottar's armour") : "Ottar's armour") : who === "nell" ? "Nell's cart" : who === "vorn" ? "Vorn's weapons" : who === "bay" ? "The " + plural(o.cls) + " rack" : who === "roll" ? "The Roll of First Forges" : "The Rack");
     const head = document.createElement("div"); head.className = "fhead";
     if (who === "bay") head.appendChild(bayList.length ? sprite(bayList[0], 2) : document.createElement("canvas"));
     else if (who === "rack") { const cv = document.createElement("canvas"); try { Smithy.glyph(cv, "sword", 3); } catch (e) { /* no crest */ } head.appendChild(cv); }
     else if (who === "roll") head.appendChild(crestCanvas());
     else head.appendChild(faceCanvas(who));
+    if (who === "armorer") { const fc = head.querySelector("canvas"); if (fc) fc.style.width = fc.style.height = "44px"; }   // (design pass 47 section 3.6: Ottar's face 44 px, so the fitting has its room)
     const t = document.createElement("div"); t.style.minWidth = "0"; t.innerHTML = '<div class="fwho"></div><div class="fsays" id="folkSays"></div>';
     t.querySelector(".fwho").textContent = who === "bay" ? plural(o.cls).toUpperCase() + " · " + bayList.length : who === "rack" ? "THE RACK" : who === "roll" ? rollBoard().title : FK.title(who);
     head.appendChild(t);
     const x = document.createElement("button"); x.className = "fx f-iron"; x.id = "folkClose"; x.textContent = "✕"; x.setAttribute("aria-label", "Close"); x.addEventListener("click", closeFolk); head.appendChild(x);
     P.appendChild(head);
-    if (who === "nell") renderNell(P, o); else if (who === "vorn") renderVorn(P, o); else if (who === "bay") renderBay(P, o, bayList); else if (who === "roll") renderRoll(P, o); else renderRack(P, o);
+    if (who === "nell") renderNell(P, o); else if (who === "vorn") renderVorn(P, o); else if (who === "armorer") renderArmorer(P, o); else if (who === "bay") renderBay(P, o, bayList); else if (who === "roll") renderRoll(P, o); else renderRack(P, o);
     P.hidden = false;
     $("yardPrompt").hidden = true;
     return true;
@@ -2407,6 +2451,79 @@
       }
     }
     says(o.said !== undefined ? o.said : o.keep ? "" : folkOpening("vorn", { free, all }));
+  }
+  // ------------------------------------------------------------------ Ottar's plank (design pass 47 section 3.6, build 38)
+  // The folk's oak plank, its head and bar as Vorn's; its body two columns: the fitting on the left (the player's own hero turning in the
+  // look selected on a square of the cellar's stone at 3 CSS px a pixel, the look's name, its line, and the button: Buy · N coins for a
+  // set not owned, Wear it for one owned and not worn, Wearing ✓ for the one worn) and the rows on the right (Your own kit and the four
+  // sets, each with its figure, name, guard line and tag: Wearing ✓, Owned ✓ or the price). A row tries a look on (the stage, the button
+  // and Ottar's try line follow; nothing is bought by a row); the button is the confirmation, its words naming the price (World.outfit,
+  // World.wear). The plank opens with the worn look selected. Under less motion the stage stands still, facing the player
+  const fitting = { sel: null, facing: 0, timer: 0 };
+  const FIT_FACINGS = ["toward", "right", "away", "left"];
+  function fitFrame(id, facing) { return KN.frame(facing || "toward", "idle", 0, 0, Object.assign({}, myLook(), { armour: id || null })); }
+  function fitCanvas(id, facing, white) {
+    const c = document.createElement("canvas"); c.width = 32; c.height = 32; const g = c.getContext("2d");
+    g.fillStyle = "#2c2540"; g.fillRect(0, 0, 32, 32); g.fillStyle = "#231c2e"; g.fillRect(0, 27, 32, 5); g.fillStyle = "#3e2731"; g.fillRect(0, 26, 32, 1);   // a square of the cellar's stone with its floor line
+    const f = fitFrame(id, facing); g.drawImage(white ? f.white() : f.canvas(), 0, 0);
+    return c;
+  }
+  function drawStage(white) { const st = $("fitStage"); if (!st) return; st.innerHTML = ""; st.appendChild(fitCanvas(fitting.sel, reduce ? "toward" : FIT_FACINGS[fitting.facing % 4], white)); }
+  function renderArmorer(P, o) {
+    const AR = window.Armour, W = (key, dflt) => AR.word(key, dflt), fill = (key, v) => AR.fill(AR.word(key), v);
+    const worn = wornArmour(), owned = ownedSets(), sets = AR.sets(), all = sets.every(s => owned.includes(s.id));
+    if (o.sel !== undefined) fitting.sel = o.sel; else if (!o.keep) { fitting.sel = worn; fitting.facing = 0; }
+    const sel = fitting.sel && AR.set(fitting.sel) ? fitting.sel : null;
+    const bar = document.createElement("div"); bar.className = "fbar";
+    bar.innerHTML = '<span><b id="folkCoins"></b> coins</span><span class="wearing" id="folkWearing" style="margin-left:auto"></span>';
+    bar.querySelector("#folkCoins").textContent = profile.coins.toLocaleString();
+    bar.querySelector("#folkWearing").textContent = fill("wearing", { name: AR.name(worn) });
+    P.appendChild(bar);
+    const body = document.createElement("div"); body.className = "fitbody"; P.appendChild(body);
+    // the fitting
+    const fit = document.createElement("div"); fit.className = "fit"; fit.id = "folkFit";
+    fit.innerHTML = '<div class="stage" id="fitStage"></div><div class="fname" id="fitName"></div><div class="fline" id="fitLine"></div><button type="button" class="fitbtn" id="fitBtn"></button>';
+    body.appendChild(fit);
+    fit.querySelector("#fitName").textContent = AR.name(sel); fit.querySelector("#fitLine").textContent = AR.says(sel);
+    const btn = fit.querySelector("#fitBtn"), isOwned = sel === null || owned.includes(sel), isWorn = sel === worn;
+    if (isWorn) { btn.textContent = W("worn", "Wearing ✓"); btn.className = "fitbtn f-iron"; btn.disabled = true; }
+    else if (isOwned) { btn.textContent = W("wear", "Wear it"); btn.className = "fitbtn f-ember"; btn.addEventListener("click", () => wearSet(sel)); }
+    else { btn.textContent = fill("buy", { coins: AR.coins(sel) }); btn.className = "fitbtn f-ember"; btn.addEventListener("click", () => buySet(sel, btn)); }
+    drawStage(false);
+    if (fitting.timer) clearInterval(fitting.timer);
+    fitting.timer = setInterval(() => { if (!folkOpen() || folk.who !== "armorer") { clearInterval(fitting.timer); fitting.timer = 0; return; } if (reduce) return; fitting.facing = (fitting.facing + 1) % 4; drawStage(false); }, 700);
+    // the rows: the own kit, then the four sets
+    const list = document.createElement("div"); list.className = "flist"; list.id = "folkList"; body.appendChild(list);
+    for (const id of [null].concat(sets.map(s => s.id))) {
+      const own = id === null || owned.includes(id), isW = id === worn;
+      const tag = priceTag(isW ? W("worn", "Wearing ✓") : own ? W("owned", "Owned ✓") : AR.coins(id).toLocaleString(), isW || own ? "own" : "");
+      const b = listRow(pxCanvas(fitFrame(id, "toward").px, 32, 32), AR.name(id), AR.short(id), tag);
+      b.classList.add("fitrow"); b.dataset.set = id || "kit"; b.setAttribute("aria-pressed", String(id === sel));
+      b.addEventListener("click", () => { fitting.facing = 0; openFolk("armorer", { keep: true, sel: id, said: folkSay("armorer", "try_" + (id || "kit")) }); });
+      list.appendChild(b);
+    }
+    says(o.said !== undefined ? o.said : o.keep ? "" : folkOpening("armorer", { all }));
+  }
+  // the walker, the drill plaque and the notes read the set worn from the save: the sprite cache is cleared so the yard changes at once
+  function armourChanged() { yard.look = null; yard.knCache.clear(); if (yard.kn) yard.kn.i = yard.kn.i | 0; }
+  async function buySet(id, btn) {
+    const AR = window.Armour, r = await World.outfit(id);
+    if (!r || !r.ok) {
+      if (r && r.reason === Coin.OUTFIT_LINES.poor) { const tag = document.querySelector('#folkPlank .fitrow[data-set="' + id + '"] .tag'); if (tag) { tag.classList.add("red"); setTimeout(() => tag.classList.remove("red"), 900); } if (btn) { btn.classList.add("red"); setTimeout(() => btn.classList.remove("red"), 900); } shakeCoins(); says(folkSay("armorer", "poor") || r.reason, true); }
+      else toast(r && r.reason ? r.reason : "The world refused");
+      return;
+    }
+    armourChanged();
+    coinRise(0, profile.coins + r.cost);
+    toast(AR.fill(AR.word("bought"), { name: AR.name(id), coins: r.cost }));
+    if (folkOpen() && folk.who === "armorer") { openFolk("armorer", { keep: true, sel: id, said: folkSay("armorer", "bought") }); drawStage(true); setTimeout(() => drawStage(false), 34); }   // the figure flashes white for two frames
+  }
+  async function wearSet(id) {
+    const AR = window.Armour, r = await World.wear(id);
+    if (!r || !r.ok) { toast(r && r.reason ? r.reason : "The world refused"); return; }
+    armourChanged();
+    toast(id ? AR.fill(AR.word("changed"), { name: AR.name(id) }) : AR.word("kitOn", "Back in your own kit"));
+    if (folkOpen() && folk.who === "armorer") openFolk("armorer", { keep: true, sel: id, said: folkSay("armorer", id ? "worn" : "try_kit") });
   }
   // taking a class (pass 24 section 4.8): the confirm, then World.arm; a free pick is always spent before coins
   function confirmClass(c, g, t, tag) {
@@ -3027,7 +3144,8 @@
       onErase() { session.erased = true; try { window.location.reload(); } catch (e) { /* the next boot starts fresh */ } },
       onStory() { goStory(); },   // (build 29, design pass 37) The story so far: the opening again on the menu page
       onMenu() { goHome(); },   // (build 35, design pass 45) Main menu: the house's way, since the house left the sign
-      onLook(l) { yard.look = l || myLook(); yard.knCache.clear(); },   // (build 36, design pass 46) Your look: the walker changes at once
+      onLook() { yard.look = myLook(); yard.knCache.clear(); },   // (build 36, design pass 46) Your look: the walker changes at once (build 38: in the set worn)
+      armour: armourNotes,   // (build 38, design pass 47) the notes' Armour line
       onClose: closeSettings
     });
   }
@@ -3116,7 +3234,7 @@
       stick(cx, cy, dx, dy) { return yard.stick ? yard.stick.hold(cx, cy, dx, dy) : [0, 0]; }, up() { if (yard.stick) yard.stick.up(); }, paused: yardPaused },
     map: { get M() { return map.M; }, get L() { return map.L; }, get plate() { return map.plate; }, get legend() { return map.legend; }, get trip() { return map.trip; }, get going() { return map.going; }, get reveal() { return map.reveal; }, get t() { return map.t; }, get pushed() { return map.pushed; },
       tap: tapArea, go: goLevel, closePlate, closeLegend, leave: leaveMap, fit: fitMap, states: areaStates, cleared: clearedNow, tapAt: mapTapAt, paint() { mapPaint(map.t); }, step(ms) { map.t += ms / 1000; mapPaint(map.t); } },
-    openFolk, closeFolk, folkOpen, get folk() { return { who: folk.who, mem: folk.mem }; }, wellUse, wellReady, localDate, goToNell, renderPegs, handsNow, setHands, coinRise,
+    openFolk, closeFolk, folkOpen, get folk() { return { who: folk.who, mem: folk.mem }; }, wornArmour, ownedSets, armourNotes, get fitting() { return { sel: fitting.sel, facing: fitting.facing }; }, wellUse, wellReady, localDate, goToNell, renderPegs, handsNow, setHands, coinRise,
     // (build 24) the Roll: its queue, settling, answers and what the plank last drew
     roll: { get mem() { return rollMem; }, get on() { return rollOn(); }, get view() { return roll.view; }, get state() { return roll.state; }, settle: settleQueue, old: settleOld, apply: applyAnswers, queued, forge: settleForge },
     openWalls, closeWalls, continueOn, get wallsOpen() { return state.wallsOpen; }, get run() { return run; }, get roomW() { return roomW; }, get room() { return room; }, mountRoom, renderArmory, fitArmory, fitPlaque, armoryModel, get hall() { return hall; }, get inArmory() { return state.room === "armory"; }, fitTurn, setForced, get turned() { return turn.turned; }, get plate() { return turn.plate; }, get forced() { return turn.forced; },
@@ -3150,7 +3268,7 @@
   if (!T) { window.addEventListener("resize", fitTurn); window.addEventListener("orientationchange", fitTurn); if (window.visualViewport) window.visualViewport.addEventListener("resize", fitTurn); document.addEventListener("fullscreenchange", fitTurn); }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTurn);
   let bootFromCellar = false, bootFresh = false;
-  const AREA_NAMES = { "castle-gate": "the Troll Gate" };
+  const AREA_NAMES = { "castle-gate": "the Troll Gate", "great-hall": "the Great Hall", "castle-keep": "the Keep", "castle-throne": "the Throne" };
   function backPayLine(paid) { const a = paid.areas; return `Back pay for ${a.length === 1 ? AREA_NAMES[a[0]] || "a level cleared" : a.length + " levels cleared"}: +${paid.xp.toLocaleString()} XP`; }
   (async function boot() {
     // (build 9) on the Cloudflare copy the server is asked first (4.5 s at most): it may bring this phone's game back, take a newer
