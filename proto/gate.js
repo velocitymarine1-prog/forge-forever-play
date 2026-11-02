@@ -1277,15 +1277,16 @@
     if (A && A.phase === "ult") {
       const S = A.step, tel = A.tel || {};
       if (A.kind === "wrath") return { anim: "nova", i: S === "charge" ? Math.min(2, Math.floor(clamp((A.t || 0) / (tel.grow || 5), 0, 0.999) * 3)) : 2 };
-      return { anim: S === "crouch" ? "crouch" : S === "air" ? "air" : S === "wind" ? "aim" : S === "begin" ? "idle" : "spin", i: 0 };
+      return { anim: S === "crouch" ? "crouch" : S === "air" ? "air" : S === "begin" ? "idle" : "spin", i: 0 };   // (1 November 2026: the wind holds the sceptre high, the first line from its head)
     }
     if (A && A.phase) {
       const k = A.kind, high = A.aim ? Math.sin(Math.atan2(A.aim.y - f.y, A.aim.x - f.x)) < -0.5 : Math.sin(f.face || 0) < -0.5, sweep = k === "sweep" || k === "backsweep", beam = k === "lance" || k === "crown";
-      if (A.phase === "wind") return { anim: sweep ? "sweepWind" : k === "gavel" ? "gavelWind" : k === "charge" ? "chargeWind" : k === "stomp" ? "stomp" : beam ? (high ? "aimHigh" : "aim") : k === "crash" ? "crouch" : "sweepWind", i: 0 };
+      const BP = beam && A.pose && A.pose.aim ? A.pose : null;   // (Isaac, 1 November 2026) the pose the rules aimed the beam from: its shard is where the beam leaves
+      if (A.phase === "wind") return { anim: sweep ? "sweepWind" : k === "gavel" ? "gavelWind" : k === "charge" ? "chargeWind" : k === "stomp" ? "stomp" : beam ? (BP ? BP.aim : high ? "aimHigh" : "aim") : k === "crash" ? "crouch" : "sweepWind", i: 0 };
       if (A.phase === "run") return { anim: "charge", i: Math.floor(t * 10) & 1 };
       if (A.phase === "air") return { anim: "air", i: 0 };
       if (A.phase === "fissures") return { anim: "land", i: 0 };
-      if (A.phase === "strike" || A.phase === "slam" || A.phase === "loose") return { anim: sweep ? "sweep" : k === "gavel" ? "gavel" : k === "stomp" ? "stomp" : beam ? (high ? "fireHigh" : "fire") : k === "charge" ? "charge" : "sweep", i: k === "stomp" ? 1 : k === "charge" ? (Math.floor(t * 10) & 1) : 0 };
+      if (A.phase === "strike" || A.phase === "slam" || A.phase === "loose") return { anim: sweep ? "sweep" : k === "gavel" ? "gavel" : k === "stomp" ? "stomp" : beam ? (BP ? BP.fire : high ? "fireHigh" : "fire") : k === "charge" ? "charge" : "sweep", i: k === "stomp" ? 1 : k === "charge" ? (Math.floor(t * 10) & 1) : 0 };
       if (A.phase === "recover") return { anim: k === "gavel" ? "gavel" : k === "crash" ? "land" : k === "stomp" ? "stomp" : "idle", i: k === "stomp" ? 1 : 0 };
     }
     if (f.stagger > 0 || f.staggered) return { anim: "reel", i: 0 };
@@ -1319,7 +1320,8 @@
     const T = root.Trolls, kind = T.KIND[f.kind] ? f.kind : "footman", N = T.KIND[kind].N;
     let a = f.face; if (a === undefined) { const k = F.k || { x: f.x + 1, y: f.y }; a = Math.atan2(k.y - f.y, k.x - f.x); }
     const KS = root.Combat && root.Combat.trollKind ? root.Combat.trollKind(kind) : null, front = !!(KS && KS.facings === "front"), was = front ? this.last.get(f.id) : null;   // (design pass 44) the King: no back
-    const facing = front ? frontFacing(a, was ? was.facing : null) : root.Combat && root.Combat.facingOf ? root.Combat.facingOf(a) : (Math.cos(a) >= 0 ? "right" : "left"), an = trollAnim(f, o.t, { ft: F.t || 0, blockAt: this.blocks.get(f.id), brokeAt: this.breaks.get(f.id) });
+    const BA = front && f.act && (f.act.kind === "lance" || f.act.kind === "crown") && (f.act.phase === "wind" || f.act.phase === "strike") && (f.act.side === "left" || f.act.side === "right") ? f.act.side : null;   // (Isaac, 1 November 2026) aiming or firing a beam: the three-quarter the rules aimed it from
+    const facing = BA ? BA : front ? frontFacing(a, was ? was.facing : null) : root.Combat && root.Combat.facingOf ? root.Combat.facingOf(a) : (Math.cos(a) >= 0 ? "right" : "left"), an = trollAnim(f, o.t, { ft: F.t || 0, blockAt: this.blocks.get(f.id), brokeAt: this.breaks.get(f.id) });
     const glow = front ? kingGlow(f, o) : o.still ? 0 : (kind === "firestaff" ? Math.floor(o.t * 4) & 1 : kind === "emberback" ? Math.floor(o.t * 2) & 1 : 0);
     const dent = dentOf(f, F.t || 0);   // (design pass 21) the troll knight's shield dents as its guard meter fills
     let fr = T.frame(kind, facing, an.anim, an.i, glow, dent), shud = 0;
@@ -1423,11 +1425,11 @@
       const tk = A.tel ? A.tel.kind : null, CM = root.Combat, minHt = (this.A.beamBlock || {}).ht || 16;
       const roomBox = (x, y) => { const rm = root.Level && root.Level.roomAt ? root.Level.roomAt(this.A, x, y) : null, RM = this.A.room || {}; if (!rm) return F.floor ? [F.floor.x0, F.floor.y0, F.floor.x1, F.floor.y1] : null; return rm.y0 ? [rm.x0 + 16, rm.y0 + (RM.wallBot || 96), rm.x1 - 16, rm.y1 - 16] : [rm.x0 + (RM.side || 8) + 4, RM.wallBot || 96, rm.x1 - (RM.side || 8) - 4, RM.frontY || rm.y1 - 8]; };
       if (tk === "beam" && FX && FX.redLine && A.phase === "wind" && A.tel.from && A.tel.angles) { const from = A.tel.from, z = (A.atk && A.atk.z) || 16, zz = z + (f.z || 0), range = (A.atk && A.atk.range) || 320;
-        for (const a of A.tel.angles) { const B = CM && CM.firstBlock ? CM.firstBlock(F, from[0], from[1], z, a, range, minHt, A.tel.w || 10) : { x: from[0] + Math.cos(a) * range, y: from[1] + Math.sin(a) * range }; if (!inV(from[0], from[1], Math.hypot(B.x - from[0], B.y - from[1]) + 4)) continue;
+        for (const a of A.tel.angles) { const B = CM && CM.firstBlock ? CM.firstBlock(F, from[0], from[1], z, a, range, minHt, A.tel.w || 10, true) : { x: from[0] + Math.cos(a) * range, y: from[1] + Math.sin(a) * range }; if (!inV(from[0], from[1], Math.hypot(B.x - from[0], B.y - from[1]) + 4)) continue;
           const s = TG.image("bl|" + Math.round(from[0]) + "," + Math.round(from[1] - zz) + "|" + Math.round(B.x) + "," + Math.round(B.y - zz), Math.min(from[0], B.x) - 2, Math.min(from[1], B.y) - zz - 2, Math.max(from[0], B.x) + 2, Math.max(from[1], B.y) - zz + 2, put => FX.redLine(put, from[0], from[1] - zz, B.x, B.y - zz)); blit(ctx, s, s.x0, s.y0); n++; }
         continue; }
-      if (tk === "spin" && FX && FX.arcArrow && FX.redLine) { const tel = A.tel, z = (A.atk && A.atk.z) || 16, zz = z + (f.z || 0), r = tel.r || 44, span = (tel.span || 120) * Math.PI / 180, B = CM && CM.firstBlock ? CM.firstBlock(F, tel.x, tel.y, z, tel.angle, 400, minHt, tel.w || 12) : { x: tel.x + Math.cos(tel.angle) * 400, y: tel.y + Math.sin(tel.angle) * 400 };
-        if (inV(tel.x, tel.y, 400)) { const s = TG.image("sp|" + Math.round(tel.x) + "," + Math.round(tel.y) + "|" + Math.round(tel.angle * 100) + "|" + (tel.dir || 1) + "|" + Math.round(B.x) + "," + Math.round(B.y), Math.min(tel.x - r - 8, B.x) - 2, Math.min(tel.y - r - 8, B.y - zz) - 2, Math.max(tel.x + r + 8, B.x) + 2, Math.max(tel.y + r + 8, B.y) + 2, put => { FX.redLine(put, tel.x, tel.y - zz, B.x, B.y - zz); FX.arcArrow(put, tel.x, tel.y - (f.z || 0), r, tel.angle, span, tel.dir || 1); }); blit(ctx, s, s.x0, s.y0); n++; }
+      if (tk === "spin" && FX && FX.arcArrow && FX.redLine) { const tel = A.tel, z = (A.atk && A.atk.z) || 16, zz = z + (f.z || 0), r = tel.r || 44, span = (tel.span || 120) * Math.PI / 180, O = Array.isArray(tel.from) ? tel.from : [tel.x, tel.y], B = CM && CM.firstBlock ? CM.firstBlock(F, O[0], O[1], z, tel.angle, 400, minHt, tel.w || 12, true) : { x: O[0] + Math.cos(tel.angle) * 400, y: O[1] + Math.sin(tel.angle) * 400 };   // (1 November 2026: the first line from his sceptre's head, the arc round his feet)
+        if (inV(tel.x, tel.y, 400)) { const s = TG.image("sp|" + Math.round(tel.x) + "," + Math.round(tel.y) + "|" + Math.round(O[0]) + "," + Math.round(O[1]) + "|" + Math.round(tel.angle * 100) + "|" + (tel.dir || 1) + "|" + Math.round(B.x) + "," + Math.round(B.y), Math.min(tel.x - r - 8, O[0], B.x) - 2, Math.min(tel.y - r - 8, O[1] - zz, B.y - zz) - 2, Math.max(tel.x + r + 8, O[0], B.x) + 2, Math.max(tel.y + r + 8, B.y) + 2, put => { FX.redLine(put, O[0], O[1] - zz, B.x, B.y - zz); FX.arcArrow(put, tel.x, tel.y - (f.z || 0), r, tel.angle, span, tel.dir || 1); }); blit(ctx, s, s.x0, s.y0); n++; }
         continue; }
       if (tk === "wrath" && FX && FX.bigRing) { const tel = A.tel, r = tel.r || 210, grow = tel.grow || 5, q = clamp((A.t || 0) / grow, 0, 1), blink = !still && grow - (A.t || 0) < (tel.blink || 1) && (Math.floor(t * 10) & 1), qf = blink ? 0 : Math.round(q * 20) / 20;
         if (inV(tel.x, tel.y, r)) { const s = TG.image("wr|" + Math.round(tel.x) + "," + Math.round(tel.y) + "|" + r + "|" + qf, tel.x - r - 2, tel.y - r - 2, tel.x + r + 2, tel.y + r + 2, put => { FX.bigRing(put, tel.x, tel.y, r, qf); if (FX.wrathRays) FX.wrathRays(put, tel.x, tel.y, r, qf); }, roomBox(tel.x, tel.y)); blit(ctx, s, s.x0, s.y0); n++; }

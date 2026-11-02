@@ -246,19 +246,24 @@
 
   // ================================================================== effects (drawn into an image by the painter; world px)
   // the beam: from (x0, y0) to (x1, y1), w px across (10 the lance, 12 the Sunwheel's): a white core, the Ember's yellow, an orange edge, a
-  // dithered halo, a splash of sparks where it strikes, a flare at the sceptre; t the frame (its flicker)
-  function beam(put, x0, y0, x1, y1, w, t) {
+  // dithered halo, a splash of sparks where it strikes, a flare at the sceptre; t the frame (its flicker). (1 November 2026) o.from and
+  // o.to: only the part of it between those distances from its start (the Sunwheel's beam is drawn in two, behind him and in front of
+  // him), the flare with the start and the splash with the end
+  function beam(put, x0, y0, x1, y1, w, t, o) {
     const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux, hw = w / 2 + 2;
-    const minX = Math.floor(Math.min(x0, x1) - hw - 3), maxX = Math.ceil(Math.max(x0, x1) + hw + 3), minY = Math.floor(Math.min(y0, y1) - hw - 3), maxY = Math.ceil(Math.max(y0, y1) + hw + 3);
+    const A0 = o && o.from !== undefined ? Math.max(-2, o.from) : -2, A1 = o && o.to !== undefined ? Math.min(L + 2, o.to) : L + 2;
+    if (A1 < A0) return;
+    const sx0 = x0 + ux * A0, sy0 = y0 + uy * A0, sx1 = x0 + ux * A1, sy1 = y0 + uy * A1;
+    const minX = Math.floor(Math.min(sx0, sx1) - hw - 3), maxX = Math.ceil(Math.max(sx0, sx1) + hw + 3), minY = Math.floor(Math.min(sy0, sy1) - hw - 3), maxY = Math.ceil(Math.max(sy0, sy1) + hw + 3);
     for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
       const px = x + 0.5 - x0, py = y + 0.5 - y0, a = px * ux + py * uy, d = Math.abs(px * nx + py * ny);
-      if (a < -2 || a > L + 2) continue;
+      if (a < A0 || a > A1) continue;
       const wob = (hash(Math.floor(a / 3), t | 0, 95) - 0.5) * 1.2, e = d + wob;
       if (e <= w * 0.18) put(x, y, "#ffffff"); else if (e <= w * 0.34) put(x, y, "#fee761"); else if (e <= w * 0.5) put(x, y, "#feae34");
       else if (e <= w * 0.5 + 1.2) put(x, y, "#f77622", 0.8); else if (e <= w * 0.5 + 3 && dith(x, y, 0.35)) put(x, y, "#feae34", 0.55);
     }
-    for (let k = 0; k < 14; k++) { const a = hash(k, t | 0, 96) * TAU, r = 3 + hash(k, (t | 0) + 1, 96) * 9; put(Math.round(x1 + Math.cos(a) * r - ux * 3), Math.round(y1 + Math.sin(a) * r - uy * 3), k & 1 ? "#fee761" : "#ffffff"); }
-    for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; put(Math.round(x0 + Math.cos(a) * 5), Math.round(y0 + Math.sin(a) * 5), "#fee761"); put(Math.round(x0 + Math.cos(a) * 3), Math.round(y0 + Math.sin(a) * 3), "#ffffff"); }
+    if (A1 >= L + 2) for (let k = 0; k < 14; k++) { const a = hash(k, t | 0, 96) * TAU, r = 3 + hash(k, (t | 0) + 1, 96) * 9; put(Math.round(x1 + Math.cos(a) * r - ux * 3), Math.round(y1 + Math.sin(a) * r - uy * 3), k & 1 ? "#fee761" : "#ffffff"); }
+    if (A0 <= -2) for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; put(Math.round(x0 + Math.cos(a) * 5), Math.round(y0 + Math.sin(a) * 5), "#fee761"); put(Math.round(x0 + Math.cos(a) * 3), Math.round(y0 + Math.sin(a) * 3), "#ffffff"); }
   }
   // a telegraph's red line (dotted, edged in soot), past gate.js's 320 px limit: the beam's aim line, the Sunwheel's first line
   function redLine(put, x0, y0, x1, y1) {
@@ -697,20 +702,61 @@
     if (st.sceptre) { const sc = st.sceptre; push(sc.y, 0, ctx => drawAt(ctx, P.brokenSceptre(), sc.x, sc.y)); n++; }
     const PP = st.pop;
     if (PP && PP.crown) { const CR = PP.crown, age = ft - PP.t0, L = CR.land || 0.6; if (age >= 0 && age < L) { const q = age / L, up = (CR.up || 26) * Math.sin(Math.PI * q), x = PP.x + (CR.aside || 30) * q, y = PP.y + 2, fi = Math.floor(q * 3) % 3; push(y, up + PP.z, ctx => drawAt(ctx, P.crownPiece(fi), x, y - PP.z - up)); n++; } }
+    // (Isaac, 1 November 2026) the Sunwheel's beam turns on the head of his sceptre, held high over the heart: the run of it whose floor line
+    // lies north of his feet is behind him, drawn just before him (he stands in front of it); the rest is drawn over everything (over)
+    for (const f of F.foes || []) {
+      const A = f.act, tel = A && A.tel; if (!tel || tel.kind !== "beamLive" || !tel.spin || !tel.from || !tel.angles) continue;
+      const fr = still ? 0 : Math.floor(t * 20); push(f.y - 0.5, 0, ctx => { const s = beamImg(f, A, tel, fr, "behind"); if (s) blit(ctx, s, s.x0, s.y0); }); n++;
+    }
+    // (Isaac, 1 November 2026) the take: picked up, the Ember circles the knight (the director's CN.orb), a trail of motes behind it; then,
+    // while the light rises and after, it is held up where the light comes from
+    const CN = F.cine;
+    if (CN && CN.kind === "ember") {
+      const k = F.knights[CN.seat] || F.k, OR = (((F.area || {}).end || {}).cine || {}).orbit || null, fo = still ? 0 : Math.floor(t * 8) & 3;
+      if (CN.orb && k) {
+        const B = CN.orb; push(B.y, B.z, ctx => drawAt(ctx, P.emberOrb(fo), B.x, B.y - B.z)); n++;
+        const LV = root.Level;
+        if (!still && OR && LV && LV.orbitAt) for (let i = 1; i <= (OR.trail || 4); i++) { const q = LV.orbitAt(k, OR, CN.t - i * 0.05); if (q.q <= 0) break; push(q.y, q.z, ctx => drawAt(ctx, mote(i), q.x, q.y - q.z)); n++; }
+      } else if (k && OR && (CN.step === "light" || CN.step === "wake" || CN.step === "lines" || CN.step === "box")) {
+        const F0 = OR.from || [2, 0], Z = OR.z || [10, 34], x = k.x + F0[0], y = k.y + F0[1] + 0.5;
+        push(y, Z[1], ctx => drawAt(ctx, P.emberOrb(fo), x, y - 0.5 - Z[1])); n++;
+      }
+    }
     return n;
+  }
+  // a mote of the Ember's light in its trail: i 1 the brightest (a cross of 5 px), then smaller and dimmer
+  const MOTES = [];
+  function mote(i) { i = Math.max(1, Math.min(4, i | 0)); return MOTES[i] || (MOTES[i] = (() => { const g = new Grid(3, 3); if (i === 1) { g.set(1, 1, "#ffffff"); for (const [x, y] of [[0, 1], [2, 1], [1, 0], [1, 2]]) g.set(x, y, "#fee761"); } else if (i === 2) { g.set(1, 1, "#fee761"); g.set(2, 1, "#feae34"); g.set(1, 2, "#feae34"); } else g.set(1, 1, i === 3 ? "#feae34" : "#f77622"); return Object.assign(G.sprite ? G.sprite(g.px, 3, 3, 1, 1) : { px: g.px, w: 3, h: 3, ox: 1, oy: 1 }); })()); }
+  // a live beam's image: each of its lines from the floor point under the sceptre's head at the beam's height (on the screen, the shard)
+  // to where it stopped (the rules' lens); part "behind": only the run of each line whose floor line lies north of his feet, "front" the
+  // rest, null the whole of it
+  function beamImg(f, A, tel, fr, part) {
+    const zz = ((A.atk && A.atk.z) || 16) + (f.z || 0), lens = tel.lens || [], segs = [];
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    tel.angles.forEach((a, i) => {
+      const L = lens[i] !== undefined ? lens[i] : 320, ca = Math.cos(a), sa = Math.sin(a), split = sa > 1e-6 ? (f.y - tel.from[1]) / sa : (tel.from[1] < f.y ? Infinity : -Infinity);
+      const from = part === "front" ? Math.max(-2, split) : -2, to = part === "behind" ? Math.min(L + 2, split) : L + 2;
+      if (to <= from) return;
+      const x0 = tel.from[0], y0 = tel.from[1] - zz, g = { x0, y0, x1: x0 + ca * L, y1: y0 + sa * L, from, to };
+      for (const d of [Math.max(-2, from), Math.min(L + 2, to)]) { const x = x0 + ca * d, y = y0 + sa * d; bx0 = Math.min(bx0, x); bx1 = Math.max(bx1, x); by0 = Math.min(by0, y); by1 = Math.max(by1, y); }
+      segs.push(g);
+    });
+    if (!segs.length) return null;
+    return IMG(null, bx0 - 16, by0 - 16, bx1 + 16, by1 + 16, put => { for (const g of segs) beam(put, g.x0, g.y0, g.x1, g.y1, tel.w || 10, fr, { from: g.from, to: g.to }); });
   }
   // after the actors: the live beams, the rings of light, the burst, the chips of a breaking prop, the take's light
   function over(ctx, F, o, S) {
     const st = stateOf(S), ft = F.t || 0, v = S.view, VW = S.vw || TW, VH = S.vh || 216, still = o.still, t = o.t;
     const inV = (x, y, r) => x + r >= v.x0 && x - r <= v.x0 + VW && y + r >= v.y0 && y - r <= v.y0 + VH;
     let n = 0;
-    // the live beams: each along its angle to where it stopped (the rules' lens), at the beam's height, flickering (one frame under less motion)
+    // the live beams: each along its angle to where it stopped (the rules' lens), at the beam's height, flickering (one frame under less
+    // motion), from the head of his sceptre (1 November 2026); the Sunwheel's only where it runs in front of him (actors drew the rest)
     for (const f of F.foes || []) {
       const A = f.act, tel = A && A.tel; if (!tel || tel.kind !== "beamLive" || !tel.from || !tel.angles) continue;
       const zz = ((A.atk && A.atk.z) || 16) + (f.z || 0), lens = tel.lens || [], ends = tel.angles.map((a, i) => { const L = lens[i] !== undefined ? lens[i] : 320; return [tel.from[0] + Math.cos(a) * L, tel.from[1] + Math.sin(a) * L]; });
       let x0 = tel.from[0], y0 = tel.from[1] - zz, x1 = x0, y1 = y0; for (const e of ends) { x0 = Math.min(x0, e[0]); x1 = Math.max(x1, e[0]); y0 = Math.min(y0, e[1] - zz); y1 = Math.max(y1, e[1] - zz); }
       if (!inV((x0 + x1) / 2, (y0 + y1) / 2, Math.max(x1 - x0, y1 - y0) / 2 + 20)) continue;
-      const fr = still ? 0 : Math.floor(t * 20), s = IMG(null, x0 - 12, y0 - 12, x1 + 12, y1 + 12, put => { for (const e of ends) beam(put, tel.from[0], tel.from[1] - zz, e[0], e[1] - zz, tel.w || 10, fr); });
+      const s = beamImg(f, A, tel, still ? 0 : Math.floor(t * 20), tel.spin ? "front" : null); if (!s) continue;
       blit(ctx, s, s.x0, s.y0); n++;
     }
     // the Wrath's blast and the pop: a ring of light rippling out over 0.3 s
@@ -732,7 +778,7 @@
     // the take: the column of the Ember's light from the knight's raised hand up off the top of the view, then its rings across the floor
     const CN = F.cine;
     if (CN && CN.kind === "ember") {
-      const k = F.knights[CN.seat] || F.k, EC = (F.area.end || {}).cine || {}, LT = EC.light || {}, lit = CN.step === "light" || CN.step === "wake" || (CN.step === "take" && CN.pose === "rise");
+      const k = F.knights[CN.seat] || F.k, EC = (F.area.end || {}).cine || {}, LT = EC.light || {}, lit = CN.step === "light" || CN.step === "wake" || (CN.step === "take" && CN.pose === "rise" && !EC.orbit);   // (1 November 2026: after the Ember's orbit)
       if (lit && k) { const hx = Math.round(k.x) + 2, hy = Math.round(k.y - (k.z || 0)) - 34, top = v.y0 - 2; if (hy > top) { const s = IMG(null, hx - 7, top, hx + 7, hy, put => pillar(put, hx, hy, top, still ? 0 : Math.floor(t * 12))); blit(ctx, s, s.x0, s.y0); n++; } }
       if (CN.step === "light" && k) { const per = (LT.ringTime || 0.8) + (LT.gap || 0.5); for (let i = 0; i < (LT.rings || 3); i++) { const q = (CN.t - i * per) / (LT.ringTime || 0.8); if (q <= 0 || q >= 1) continue; const rr = Math.max(4, (LT.ringR || 300) * q), s = IMG(null, k.x - rr - 2, k.y - rr * 0.62 - 4, k.x + rr + 2, k.y + rr * 0.62 + 4, put => lightRing(put, k.x, k.y, rr, q), [1164, 96, 1908, 424]); blit(ctx, s, s.x0, s.y0); n++; } }
     }

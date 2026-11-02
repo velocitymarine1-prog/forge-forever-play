@@ -1295,7 +1295,7 @@
     return best < 0 ? null : { n: best, kind, ladder, cost: bc };
   }
 
-  root.Physics = { world, move, resolve, settle, DRIVES, push, begin, soft, cores, hold, letGo, setPlatform, fellTower, crater, resizeCrater, fillCrater, shotStop,
+  root.Physics = { world, move, resolve, settle, DRIVES, push, begin, soft, cores, hold, shove, letGo, setPlatform, fellTower, crater, resizeCrater, fillCrater, shotStop,
     addSolid, removeSolid, restoreSolid, addPiece, addCover, removeCover, coverChanged, coverNear, coverCost, cellAt, groundAt, surfaceAt, platZ, inPlat, inShape, coverOf, freePoint, caught, out, blocks, sdist, segQ, edgeFor, buildEdges, massOf,
     fieldSet, fieldUpdate, field, fieldBuild, fieldSeeds, fieldNext, fieldReach, nodeOf, nodeAt };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Physics;

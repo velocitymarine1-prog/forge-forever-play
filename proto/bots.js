@@ -311,9 +311,11 @@
   // the throne), not within 8 px of another knight or of the spot another knight has picked (k.hideSpot); for the Wrath also the nearest
   // point 14 px outside his ring, away from him. behind
   // { angle, dir }: only solids the beam has passed (their angle from him within a half turn behind the beam in the spin's direction). The
-  // nearest spot, or null
+  // nearest spot, or null. (1 November 2026) "him" for the Sunwheel is where its beam turns: the floor point under his sceptre's head
+  // (tel.from), not his feet
   function shelter(fight, k, f, tel, behind) {
     const A = fight.area || {}, P = phys(), W = fight.world, F = fight.floor || { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity }, minHt = (A.beamBlock || {}).ht || 16, spots = [];
+    const O = tel && (tel.kind === "spin" || tel.kind === "beamLive") && Array.isArray(tel.from) ? { x: tel.from[0], y: tel.from[1] } : f;
     const onAt = (x, y) => { for (const Q of W.plats || []) if (Q.active && Q.shape === "r" && P.inShape(Q, x, y)) return Q; return null; };
     const free = (x, y) => {
       if (x < F.x0 + 6 || x > F.x1 - 6 || y < F.y0 + 6 || y > F.y1 - 6) return null;
@@ -325,8 +327,8 @@
     const norm = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a <= -Math.PI) a += 2 * Math.PI; return a; };
     for (const s of W.solids || []) {
       if (s.gone || s.thin || s.shape !== "c" || (s.ht || 0) < minHt) continue;
-      if (behind) { const d = norm(Math.atan2(s.y - f.y, s.x - f.x) - behind.angle) * (behind.dir || 1); if (!(d < -0.05 && d > -Math.PI + 0.05)) continue; }
-      const [ux, uy] = unit(s.x - f.x, s.y - f.y), sp = free(s.x + ux * ((s.r || 8) + 6 + (k.r || 5)), s.y + uy * ((s.r || 8) + 6 + (k.r || 5)));
+      if (behind) { const d = norm(Math.atan2(s.y - O.y, s.x - O.x) - behind.angle) * (behind.dir || 1); if (!(d < -0.05 && d > -Math.PI + 0.05)) continue; }
+      const [ux, uy] = unit(s.x - O.x, s.y - O.y), sp = free(s.x + ux * ((s.r || 8) + 6 + (k.r || 5)), s.y + uy * ((s.r || 8) + 6 + (k.r || 5)));
       if (sp) { sp.solid = s.id; spots.push(sp); }
     }
     if (tel && tel.kind === "wrath" && !behind) { const [ux, uy] = unit(k.x - f.x, k.y - f.y), r = (tel.r || 210) + 14; for (const [vx, vy] of [[ux, uy], [1, 0], [-1, 0], [ux, 0], [-ux, 0]]) { const sp = free(f.x + vx * r, f.y + vy * r); if (sp) { spots.push(sp); break; } } }
@@ -504,14 +506,15 @@
       if (!f || f.dead || !f.act || f.act.phase !== "ult" || f.act.step === "kneel") { bot.hide = null; k.hideSpot = null; }
       else { const sp = Hd.spot, dd = dist(k.x, k.y, sp.x, sp.y); if (dd > 3) { const s = stepToward(fight, bot, k, { x: sp.x, y: sp.y, on: sp.on || null, z: sp.z || 0 }); out.move = toward(k, s.x, s.y, 1); } else out.move = [0, 0]; return out; }
     }
-    // (design pass 44) caught in the open while his beam turns: a dodge through it when it will reach me within 0.12 s (bots.dodgeBeam), once a pass
+    // (design pass 44) caught in the open while his beam turns: a dodge through it when it will reach me within bots.dodgeBeamReach s (0.12;
+    // the Throne's 0.06 since its roll spares only its first half, 1 November 2026), by bots.dodgeBeam's share, once a pass
     if (bot.N.dodgeBeam > 0) for (const f of fight.foes || []) {
       const A = f.act, tel = A && A.tel; if (!tel || tel.kind !== "beamLive" || !tel.spin || f.dead) continue;
       const from = tel.from || [f.x, f.y], dx = k.x - from[0], dy = k.y - from[1], dd = Math.hypot(dx, dy) || 1, ang = Math.atan2(dy, dx), dir = A.dir || 1;
       let d = (ang - A.angle) * dir; while (d > Math.PI) d -= 2 * Math.PI; while (d <= -Math.PI) d += 2 * Math.PI;
       const sp = (A.atk && A.atk.speed) || [45, 110], ramp = (A.atk && A.atk.ramp) || 2.0, speed = (sp[0] + (sp[1] - sp[0]) * Math.min(1, (A.spinT || 0) / ramp)) * Math.PI / 180, half = Math.atan(((tel.w || 12) / 2 + (k.r || 5)) / dd);
       const pass = Math.floor((A.spun || 0) / (2 * Math.PI)), tReach = (d - half) / speed;
-      if (d > 0 && tReach <= 0.12 && bot.beamPass !== pass) { bot.beamPass = pass; if (R() < bot.N.dodgeBeam) { out.dodge = true; out.move = [-dy / dd * dir, dx / dd * dir]; return out; } }
+      if (d > 0 && tReach <= (bot.N.dodgeBeamReach === undefined ? 0.12 : bot.N.dodgeBeamReach) && bot.beamPass !== pass) { bot.beamPass = pass; if (R() < bot.N.dodgeBeam) { out.dodge = true; out.move = [-dy / dd * dir, dx / dd * dir]; return out; } }
     }
     return null;
   }
@@ -701,7 +704,7 @@
     knightClass(fight);
     // (design pass 27) the level's own numbers for its squire: bots.leaveFuse (the Keep's 0.8), and the clumsier squire's targets.normal.clumsy
     const LB = (fight.area || {}).bots || {}, LC = (((fight.area || {}).targets || {}).normal || {}).clumsy || {};
-    const S = squireSpec(), N = Object.assign({}, S, LB.leaveFuse !== undefined ? { leaveFuse: LB.leaveFuse } : {}, LB.hide ? { hide: LB.hide } : {}, LB.dodgeBeam !== undefined ? { dodgeBeam: LB.dodgeBeam } : {}, LB.dodgeAtLanding !== undefined ? { dodgeAtLanding: LB.dodgeAtLanding } : {}, opts.clumsy ? Object.assign({}, S.clumsy, LC.leaveFuse !== undefined ? { leaveFuse: LC.leaveFuse } : {}) : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;   // (design pass 44: the Throne's hide and dodgeBeam)
+    const S = squireSpec(), N = Object.assign({}, S, LB.leaveFuse !== undefined ? { leaveFuse: LB.leaveFuse } : {}, LB.hide ? { hide: LB.hide } : {}, LB.dodgeBeam !== undefined ? { dodgeBeam: LB.dodgeBeam } : {}, LB.dodgeBeamReach !== undefined ? { dodgeBeamReach: LB.dodgeBeamReach } : {}, LB.dodgeAtLanding !== undefined ? { dodgeAtLanding: LB.dodgeAtLanding } : {}, opts.clumsy ? Object.assign({}, S.clumsy, LC.leaveFuse !== undefined ? { leaveFuse: LC.leaveFuse } : {}) : {}), seed = (opts.seed === undefined ? fight.seed : opts.seed) >>> 0;   // (design pass 44: the Throne's hide and dodgeBeam)
     const bot = newBot(0, N, "squire"); if (opts.clumsy) bot.N.clumsy = true;
     const Q = { N, bot, seed, rng: rng((seed ^ seedConst("squire")) >>> 0), step(dt) { return squireInput(fight, Q, bot, dt); } };
     bot.R = Q.rng;

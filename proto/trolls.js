@@ -70,7 +70,7 @@
     bat: { body: "bat", N: 32, skin: R.fur, weapon: "fangs", climbs: false, extra: { idle: 4, fly: 4, reel: 1 } },
     burster: { body: "burster", N: 32, skin: R.nature, weapon: "belly", extra: { run: 4, fuse: 4 } },
     // design pass 44: the Troll King, 96 px, on the sketch's own animations alone (own: no LARGE set under them), never climbing
-    king: { body: "king", N: 96, skin: null, weapon: "sceptre", climbs: false, own: true, extra: { idle: 2, walk: 4, seat: 2, rise: 1, roar: 1, sweepWind: 1, sweep: 1, gavelWind: 1, gavel: 1, chargeWind: 1, charge: 2, stomp: 2, crouch: 1, air: 1, land: 1, aim: 1, fire: 1, aimHigh: 1, fireHigh: 1, spin: 1, nova: 3, kneel: 1, reel: 1, hit: 1 } }
+    king: { body: "king", N: 96, skin: null, weapon: "sceptre", climbs: false, own: true, extra: { idle: 2, walk: 4, seat: 2, rise: 1, roar: 1, sweepWind: 1, sweep: 1, gavelWind: 1, gavel: 1, chargeWind: 1, charge: 2, stomp: 2, crouch: 1, air: 1, land: 1, aim: 1, fire: 1, aimHigh: 1, fireHigh: 1, aimLow: 1, fireLow: 1, aimDown: 1, fireDown: 1, spin: 1, nova: 3, kneel: 1, reel: 1, hit: 1 } }
   };
   const KINDS = Object.keys(KIND);
   const ANIMS = {}; for (const k of KINDS) ANIMS[k] = KIND[k].own ? Object.assign({}, KIND[k].extra) : Object.assign({}, KIND[k].N === 48 || KIND[k].climbs === false ? LARGE : SMALL, KIND[k].extra || {});
@@ -1429,13 +1429,13 @@
       if (drawing === "three") return ({
         plant: [[15, 94], [15, 8 + B], [16, 70 + B]], raise: [[22, 62 + B], [26, 4 + B], [23, 46 + B]], over: [[24, 34 + B], [74, 4 + B], [32, 28 + B]],
         sweepR: [[44, 62 + B], [6, 76 + B], [40, 64 + B]], sweepL: [[46, 66 + B], [90, 56 + B], [56, 64 + B]], level: [[42, 62 + B], [90, 52 + B], [56, 58 + B]],
-        levelHigh: [[44, 68 + B], [80, 12 + B], [54, 54 + B]], out: [[42, 60 + B], [90, 60 + B], [56, 60 + B]], both: [[54, 94], [54, 16 + B], [52, 58 + B]],
+        levelHigh: [[44, 68 + B], [80, 12 + B], [54, 54 + B]], levelLow: [[44, 54 + B], [88, 76 + B], [58, 61 + B]], levelDown: [[50, 44 + B], [84, 80 + B], [62, 56 + B]], out: [[42, 60 + B], [90, 60 + B], [56, 60 + B]], both: [[54, 94], [54, 16 + B], [52, 58 + B]],
         drop: [[8, 94], [60, 92], null], back: [[40, 60 + B], [4, 82 + B], [36, 62 + B]], slam: [[48, 62 + B], [90, 88], [54, 66 + B]], high: [[20, 60 + B], [22, 2 + B], [21, 36 + B]]
       })[st] || null;
       return ({
         plant: [[13, 94], [13, 8 + B], [14, 70 + B]], raise: [[20, 62 + B], [22, 4 + B], [21, 46 + B]], over: [[30, 42 + B], [64, 6 + B], [36, 32 + B]],
         sweepL: [[20, 70 + B], [4, 52 + B], [10, 64 + B]], sweepR: [[26, 68 + B], [90, 62 + B], [30, 66 + B]], level: [[20, 58 + B], [38, 80 + B], [24, 64 + B]],
-        levelHigh: [[20, 66 + B], [26, 8 + B], [22, 50 + B]], out: [[20, 62 + B], [4, 62 + B], [12, 62 + B]], both: [[48, 94], [48, 16 + B], [42, 58 + B]],
+        levelHigh: [[20, 66 + B], [26, 8 + B], [22, 50 + B]], levelLow: [[24, 50 + B], [6, 74 + B], [14, 62 + B]], levelDown: [[22, 46 + B], [8, 82 + B], [16, 60 + B]], out: [[20, 62 + B], [4, 62 + B], [12, 62 + B]], both: [[48, 94], [48, 16 + B], [42, 58 + B]],
         drop: [[6, 94], [58, 92], null], back: [[18, 64 + B], [4, 88], [14, 68 + B]], slam: [[30, 64 + B], [46, 93], [34, 68 + B]], high: [[14, 60 + B], [14, 2 + B], [14, 36 + B]]
       })[st] || null;
     }
@@ -1567,6 +1567,10 @@
         case "fire": return { lean: -1, staff: "level", arm: "fist", mouth: 2, glow: 3 };                    // the beam out of it
         case "aimHigh": return { lean: 1, staff: "levelHigh", arm: "fist", head: [0, -1], glow: 2 };         // raised at a target above him
         case "fireHigh": return { lean: -1, staff: "levelHigh", arm: "fist", head: [0, -1], mouth: 2, glow: 3 };
+        case "aimLow": return { lean: 1, staff: "levelLow", arm: "fist", glow: 2 };                          // (Isaac, 1 November 2026) at a knight below and aside
+        case "fireLow": return { lean: -1, staff: "levelLow", arm: "fist", mouth: 2, glow: 3 };
+        case "aimDown": return { lean: 1, staff: "levelDown", arm: "fist", head: [1, 1], glow: 2 };            // at a knight nearly straight below him
+        case "fireDown": return { lean: -1, staff: "levelDown", arm: "fist", head: [1, 1], mouth: 2, glow: 3 };
         case "spin": return { staff: "high", arm: "wide", mouth: 2, head: [0, -1], glow: 3 };               // square to us, the beam from his chest
         case "nova": return [{ crouch: 4, staff: "plant", arm: "fist", head: [0, 2], glow: 2 }, { crouch: 2, staff: "plant", arm: "wide", mouth: 1, glow: 3, puff: 1 }, { crouch: 0, staff: "plant", arm: "wide", mouth: 2, head: [0, -2], glow: 3, puff: 1 }][i % 3];
         case "kneel": return { kneel: 1, staff: "plant", arm: "hang", head: [0, 3], glow: 0 };              // spent: the Ember banked
@@ -1575,7 +1579,7 @@
       }
       return { bob: g, staff: "plant", arm: "hang" };
     }
-    const KING_ANIMS = { idle: 2, walk: 4, seat: 2, rise: 1, roar: 1, sweepWind: 1, sweep: 1, gavelWind: 1, gavel: 1, chargeWind: 1, charge: 2, stomp: 2, crouch: 1, air: 1, land: 1, aim: 1, fire: 1, aimHigh: 1, fireHigh: 1, spin: 1, nova: 3, kneel: 1, reel: 1, hit: 1 };
+    const KING_ANIMS = { idle: 2, walk: 4, seat: 2, rise: 1, roar: 1, sweepWind: 1, sweep: 1, gavelWind: 1, gavel: 1, chargeWind: 1, charge: 2, stomp: 2, crouch: 1, air: 1, land: 1, aim: 1, fire: 1, aimHigh: 1, fireHigh: 1, aimLow: 1, fireLow: 1, aimDown: 1, fireDown: 1, spin: 1, nova: 3, kneel: 1, reel: 1, hit: 1 };
 
     // ------------------------------------------------------------------ frames: trolls.js's interface (left is the three-quarter mirrored)
     // Revision 1: there is no back. "away" draws the three-quarter (the page asks for his last side instead: the facing rule, §3.6), so no

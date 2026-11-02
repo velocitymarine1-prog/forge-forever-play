@@ -19,7 +19,8 @@
     ".king-band p{position:relative;margin:0;max-width:540px;text-align:center;font-family:var(--text,Alegreya,Georgia,serif);font-size:16px;line-height:1.3;color:var(--parch,#ead4aa);text-shadow:0 2px 0 #0d0a14;text-wrap:balance}" +
     ".king-band .king-tap{position:relative;font-family:var(--data,\"Pixelify Sans\",\"Courier New\",monospace);font-size:10.5px;letter-spacing:.14em;color:var(--mute,#b3a48c)}" +
     ".ember-icon{display:block;margin:2px auto 4px;image-rendering:pixelated;image-rendering:crisp-edges}" +
-    ".still .king-band,.still .king-talk{animation:none}";
+    ".still .king-band,.still .king-talk{animation:none}" +
+    ".portal-light{position:fixed;inset:0;z-index:29;pointer-events:none;opacity:0;background:radial-gradient(ellipse at 50% 42%,#ffffff 0,#fee761 36%,#feae34 74%,#f77622 100%);transition:opacity .2s steps(4,end)}.portal-light.on{opacity:1}.still .portal-light{transition:none}";
   // his face at a whole number of device pixels for a 32 px crop (about 72 CSS px: the lessons' face is 16 px at about 58)
   function faceCss(target) { const d = root.devicePixelRatio > 0 ? root.devicePixelRatio : 1, k = Math.max(1, Math.round(target * d / 32)); return 32 * k / d; }
   function faceEl(glow, mouth) {
@@ -55,7 +56,9 @@
     // a tap on the stage, or Enter, Space, E or J, moves a cutscene's lines on
     const stage = H.$("stage"); if (stage) stage.addEventListener("click", () => { if (linesOn()) I.next = true; });
     root.addEventListener("keydown", e => { if (!linesOn() || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return; if (e.code === "Enter" || e.code === "Space" || e.code === "KeyE" || e.code === "KeyJ") { e.preventDefault(); I.next = true; } });
-    E = { layer, talk, says, band, veil, box: veil.querySelector("#emberBox") };
+    // (Isaac, 1 November 2026) the great doors' portal: its light floods the screen as the party is taken through, and lifts in the throne room
+    const light = doc.createElement("div"); light.className = "portal-light"; light.id = "portalLight"; light.setAttribute("aria-hidden", "true"); doc.body.appendChild(light);
+    E = { layer, talk, says, band, veil, light, box: veil.querySelector("#emberBox") };
     return E;
   }
   const linesOn = () => !!(S && (S.talk !== null || S.band));
@@ -133,6 +136,8 @@
       case "cineSkip": hideTalk(); hideBand(); return true;
       case "roar": bark(e.line || "KNEEL!", true); return true;
       case "doorsOpen": return true;
+      case "portal": { const el = ensure().light; el.classList.add("on"); S.portalAt = H.state.t; return true; }   // (1 November 2026) touched: the light floods in
+      case "passage": if (e.transport && E) { E.light.classList.remove("on"); S.portalAt = null; } return false;   // through: it lifts (the page's own passage handler goes on)
       case "doorsShut": H.shake(2, 0.15); return true;
       // a combo's bark (the event names its key: staff, charge, beam, slam), at most one every `every` s and by its chance; a combo broken by
       // a parry or a stagger gets a hurt line
@@ -178,6 +183,7 @@
     // an ultimate's first-time line (Get behind a pillar!), once a phone, said as soon as the note is free of the phase's line
     if (S.ultFirst && H.state.t >= S.ultFirstAt) { const line = (H.PG.firsts || {})[S.ultFirst]; if (!line || H.firstTime(S.ultFirst, line, "ult", 3.5)) S.ultFirst = null; }
     const on = !!(F.cine && F.cine.lock); if (on !== S.cine) setCine(on);
+    if (S.portalAt !== null && S.portalAt !== undefined && H.state.t - S.portalAt > 1.5 && E) { E.light.classList.remove("on"); S.portalAt = null; }
     if (S.sayUntil && H.state.t >= S.sayUntil) { hideSays(); if (S.sayQueue) { const q = S.sayQueue; S.sayQueue = null; bark(q, true); } }
     if (E && !E.says.hidden) placeSays();
     if (E && !E.talk.hidden) placeTalk();

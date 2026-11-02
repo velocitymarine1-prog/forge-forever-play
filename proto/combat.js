@@ -474,8 +474,39 @@
     if (fight.director) { fight.director.step(fight, dt, input); W.list = bodies(fight); }   // the level's director (proto/level.js): the waves, the engines and the camera, before the view's hold
     for (const k of K) if (!k.out) P.hold(W, k);
     P.cores(W, W.list);
+    behindStep(fight);   // (Isaac, 1 November 2026) no knight behind the Troll King, where his sprite would hide it
     marksStep(fight, dt);
     lifeStep(fight, dt);
+  }
+  // (Isaac, 1 November 2026: "Don't let the player go behind the character model of the Troll King ... they just get hidden") a kind with
+  // a behind ellipse (spec king.behind) keeps every knight off the ground its sprite would hide it on: the ellipse cy px from its feet
+  // (cy < 0: up the screen, behind him) with half-axes rx across and ry in depth. A knight's feet inside it are put on its edge by the
+  // shortest way out that is free: out from its centre, sideways, or down in front of him; each tried as self-motion (P.shove: never
+  // into a solid or over a ledge) and kept only if it leaves the knight outside. Not while he is in the air, spawning, gone or dead, nor
+  // for a knight in the air, climbing or out. No other kind has the key, so no other level moves
+  function behindStep(fight) {
+    const P = phys(), W = fight.world;
+    for (const f of fight.foes || []) {
+      const BH = f.spec && f.spec.behind; if (!BH || f.dead || f.gone || f.flight || f.spawn > 0 || (f.z || 0) > 12) continue;
+      const rx = BH.rx || 0, ry = BH.ry || 0, cx = f.x, cy = f.y + (BH.cy || 0); if (!(rx > 0 && ry > 0)) continue;
+      const qOf = (x, y) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
+      for (const k of fight.knights) {
+        if (k.out || k.climbing || k.air || (k.z || 0) - (f.z || 0) > 12) continue;
+        const dx = k.x - cx, dy = k.y - cy, q = qOf(k.x, k.y); if (q >= 1 - 1e-9) continue;
+        const r = Math.sqrt(q), wide = rx * Math.sqrt(Math.max(0, 1 - (dy / ry) ** 2)), deep = ry * Math.sqrt(Math.max(0, 1 - (dx / rx) ** 2)), E = 0.02;
+        const ways = [[cx + (dx >= 0 ? 1 : -1) * (wide + E), k.y], [k.x, cy + deep + E]];
+        if (r > 1e-6) ways.push([cx + dx / r * (1 + E / Math.min(rx, ry)), cy + dy / r * (1 + E / Math.min(rx, ry))]);
+        ways.sort((a, b) => Math.hypot(a[0] - k.x, a[1] - k.y) - Math.hypot(b[0] - k.x, b[1] - k.y));
+        const at = { x: k.x, y: k.y, z: k.z, on: k.on }; let best = null;
+        for (const [x, y] of ways) {
+          P.shove(W, k, x - k.x, y - k.y);
+          const qq = qOf(k.x, k.y); if (qq >= 1 - 1e-6) { best = null; break; }
+          if (!best || qq > best.q) best = { q: qq, x: k.x, y: k.y, z: k.z, on: k.on };
+          k.x = at.x; k.y = at.y; k.z = at.z; k.on = at.on;
+        }
+        if (best) { k.x = best.x; k.y = best.y; k.z = best.z; k.on = best.on; }
+      }
+    }
   }
   function finishStep(fight, dt, input) {
     const C = data(), K = fight.knights;
@@ -552,7 +583,10 @@
     const dodge = !!inp.dodge && !k.lastDodge; k.lastDodge = !!inp.dodge;
     if (dodge && k.dodge <= 0 && k.dodgeCd <= 0 && (!staggered || ST.dodge)) {
       const a = mm > 0.05 ? Math.atan2(mv[1], mv[0]) : k.face, D = KN.dodge;
-      k.dodge = D.time; k.dodgeCd = D.cooldown; k.safe = D.safe; k.safeActs = false; k.dvx = Math.cos(a) * D.px / D.time; k.dvy = Math.sin(a) * D.px / D.time;
+      // (Isaac, 1 November 2026: i-frames) a level whose knight.dodgeSafe says so (the Throne's 0.5) spares the knight only through that
+      // share of the roll, its first half: a dodge is timed to the blow; elsewhere the roll's safety is knight.dodge.safe, as it was
+      const LK = fight.level && fight.area && fight.area.knight, share = LK && typeof LK.dodgeSafe === "number" ? LK.dodgeSafe : null;
+      k.dodge = D.time; k.dodgeCd = D.cooldown; k.safe = share !== null ? D.time * share : D.safe; k.safeActs = false; k.dvx = Math.cos(a) * D.px / D.time; k.dvy = Math.sin(a) * D.px / D.time;
       if (staggered && ST.dodgeEnds) k.stagger = 0;
       k.strike = null; k.twinQ = null; k.charging = false; k.chargeT = 0; stopStream(fight, k); breakChain(k);
       emit(fight, { type: "dodge", x: k.x, y: k.y, a }, k);
@@ -3036,23 +3070,26 @@
     // appear (tel glyph: a promise, not a blow), `gone` s with no body (nothing strikes him), then he stands at the glyph and recovers
     // (design pass 44) a beam from the sceptre: lance (one line) and crown (a fan of count lines spread degrees apart): begun from `from` to
     // `range` px of the target with a clear line (firstBlock) and inside the attack box; the wind tracks the target's lead for track s then
-    // locks and shows the aim line (aimLine, beam: true, so the bots step off); the strike holds fire s with the beam live (beamFire each step)
+    // locks and shows the aim line (aimLine, beam: true, so the bots step off); the strike holds fire s with the beam live (beamFire each step).
+    // (Isaac, 1 November 2026) `from` is the floor point under the sceptre's head in the pose he aims in (beamAim): the beam leaves the shard
+    // on the screen and the rules hit along the same line; the pose and side ride on the act (A.pose, A.side) for the painter
     beam: {
       can(fight, f, k, atk) {
         const d = Math.hypot(k.x - f.x, k.y - f.y);
         if (d < (atk.from || 0) - 1e-9 || d > (atk.range || 320) + 1e-9 || !inAttackBox(fight, f.x, f.y, f.z)) return null;
-        const a = Math.atan2(k.y - f.y, k.x - f.x), from = beamFrom(f, a), B = firstBlock(fight, from[0], from[1], atk.z || 16, a, d, beamBlockHt(fight), atk.w || 10);
-        if (B.dist < d - k.r - 1) return null;
+        const aim = aimAt(fight, f, k, { leadMax: atk.leadMax || 32, speed: 1e9 }, 0), BA = beamAim(f, aim, atk.z || 16), from = BA.from;
+        const a = Math.atan2(k.y - from[1], k.x - from[0]), dd = Math.hypot(k.x - from[0], k.y - from[1]), B = firstBlock(fight, from[0], from[1], atk.z || 16, a, dd, beamBlockHt(fight), atk.w || 10, true);
+        if (B.dist < dd - k.r - 1) return null;
         const n = atk.count || 1, fan = n > 1 ? { n, spread: atk.spread || 20 } : null;
-        return { tel: { kind: "beam", from: [from[0], from[1]], angles: beamAngles(a, fan), w: atk.w || 10, locked: false, grow: (atk.wind || 0.8) * slowX(f) }, aim: aimAt(fight, f, k, { leadMax: atk.leadMax || 32, speed: 1e9 }, 0), locked: false, fan, from };
+        return { tel: { kind: "beam", from: [from[0], from[1]], angles: beamAngles(BA.angle, fan), w: atk.w || 10, locked: false, grow: (atk.wind || 0.8) * slowX(f) }, aim, locked: false, fan, from, pose: BA.pose, side: BA.pose.side };
       },
       during(fight, f, A, dt) {
         const atk = A.atk, k = fight.knights[A.seat], track = (atk.track || 0.5) * slowX(f);
         if (A.phase === "wind") {
-          if (!A.locked && A.t < track - 1e-9) { if (standing(k)) { A.aim = aimAt(fight, f, k, { leadMax: atk.leadMax || 32, speed: 1e9 }, A.T - A.t); const a = Math.atan2(A.aim.y - f.y, A.aim.x - f.x); f.face = a; A.from = beamFrom(f, a); A.tel.from = A.from; A.tel.angles = beamAngles(a, A.fan); } return; }
+          if (!A.locked && A.t < track - 1e-9) { if (standing(k)) { A.aim = aimAt(fight, f, k, { leadMax: atk.leadMax || 32, speed: 1e9 }, A.T - A.t); const a = beamAimAct(f, A); A.tel.from = A.from; A.tel.angles = beamAngles(a, A.fan); } else f.beamSide = A.side; return; }
           if (!A.locked) {
-            A.locked = true; A.tel.locked = true; const a = Math.atan2(A.aim.y - f.y, A.aim.x - f.x); f.face = a; A.angles = beamAngles(a, A.fan); A.tel.angles = A.angles; A.from = beamFrom(f, a); A.tel.from = A.from;
-            emit(fight, { type: "aimLine", foe: f.id, attack: A.kind, seat: A.seat, x0: A.from[0], y0: A.from[1], z0: (f.z || 0) + (f.chest || 0), x1: A.aim.x, y1: A.aim.y, z1: A.aim.z, show: A.T - A.t, beam: true, fan: A.fan || { n: 1, spread: 0 }, w: atk.w || 10 });
+            A.locked = true; A.tel.locked = true; const a = beamAimAct(f, A); A.angles = beamAngles(a, A.fan); A.tel.angles = A.angles; A.tel.from = A.from;
+            emit(fight, { type: "aimLine", foe: f.id, attack: A.kind, seat: A.seat, x0: A.from[0], y0: A.from[1], z0: (f.z || 0) + (atk.z || 16), x1: A.aim.x, y1: A.aim.y, z1: A.aim.z, show: A.T - A.t, beam: true, fan: A.fan || { n: 1, spread: 0 }, w: atk.w || 10 });
           }
           return;
         }
@@ -3060,7 +3097,7 @@
       },
       strike(fight, f, A) {
         const atk = A.atk;
-        if (!A.locked) { A.locked = true; const a = Math.atan2(A.aim.y - f.y, A.aim.x - f.x); f.face = a; A.angles = beamAngles(a, A.fan); A.from = beamFrom(f, a); }
+        if (!A.locked) { A.locked = true; const a = beamAimAct(f, A); A.angles = beamAngles(a, A.fan); }
         A.phase = "strike"; A.T = atk.fire || 0.45; A.burnt = {};
         A.tel = { kind: "beamLive", from: A.from, angles: A.angles, w: atk.w || 10, lens: [] };
         emit(fight, { type: "foeStrike", foe: f.id, attack: A.kind, seat: A.seat, res: "beam", x: f.x, y: f.y, z: f.z });
@@ -3115,23 +3152,57 @@
   // the floor's edge; marched 3 px at a time and refined to 1 px. { x, y, dist, solid, floor }
   // (w: the beam's width; a solid stops the beam when the ray passes within half of it, so a beam grazing a column's edge is stopped as
   // its band would be, and a knight in the column's shadow is sheltered as the note says)
-  function firstBlock(fight, x, y, z, angle, maxLen, minHt, w) {
+  // (Isaac, 1 November 2026) start: the ray leaves the sceptre's head, which stands over a floor point behind or beside him (beamAim), so
+  // a solid the ray starts inside (the wall at his back, a column behind him) is passed, and so is the floor's edge until the ray first
+  // comes onto the floor: the head is in front of them, and the beam is drawn from it
+  function firstBlock(fight, x, y, z, angle, maxLen, minHt, w, start) {
     const P = phys(), W = fight.world, F = fight.floor, ux = Math.cos(angle), uy = Math.sin(angle), STEP = 3, hw = (w || 0) / 2;
-    const test = (px, py) => {
-      if (px < F.x0 || px > F.x1 || py < F.y0 || py > F.y1) return { floor: true };
-      for (const id of W.cells[P.cellAt(W, px, py)]) { const s = W.solids[id]; if (s.gone || s.thin || s.base > z || s.ht < minHt) continue; if (s.shape === "c" ? Math.hypot(px - s.x, py - s.y) < s.r + hw : s.shape === "r" ? (px >= s.x0 - hw && px < s.x1 + hw && py >= s.y0 - hw && py < s.y1 + hw) : false) return s; }
-      for (const s of W.halves) if (s.ax * px + s.ay * py >= s.c && s.ht >= minHt) return s;
+    const inside = (s, px, py) => s.shape === "c" ? Math.hypot(px - s.x, py - s.y) < s.r + hw : s.shape === "r" ? (px >= s.x0 - hw && px < s.x1 + hw && py >= s.y0 - hw && py < s.y1 + hw) : false;
+    let skip = null, onAt = 0;
+    if (start) {
+      skip = new Set();
+      for (const s of W.solids) if (s && !s.gone && inside(s, x, y)) skip.add(s);
+      for (const s of W.halves) if (s.ax * x + s.ay * y >= s.c) skip.add(s);
+      if (x < F.x0 || x > F.x1 || y < F.y0 || y > F.y1) {   // the slab entry of the ray into the floor's box (none: it never comes on)
+        let t0 = 0, t1 = Infinity;
+        for (const [p, u, a0, a1] of [[x, ux, F.x0, F.x1], [y, uy, F.y0, F.y1]]) { if (Math.abs(u) < 1e-12) { if (p < a0 || p > a1) t0 = Infinity; continue; } const ta = (a0 - p) / u, tb = (a1 - p) / u; t0 = Math.max(t0, Math.min(ta, tb)); t1 = Math.min(t1, Math.max(ta, tb)); }
+        onAt = t0 <= t1 ? t0 : Infinity;
+      }
+    }
+    const test = (px, py, d) => {
+      if (px < F.x0 || px > F.x1 || py < F.y0 || py > F.y1) return d < onAt - 1e-9 ? null : { floor: true };
+      for (const id of W.cells[P.cellAt(W, px, py)]) { const s = W.solids[id]; if (s.gone || s.thin || s.base > z || s.ht < minHt || (skip && skip.has(s))) continue; if (inside(s, px, py)) return s; }
+      for (const s of W.halves) if (s.ax * px + s.ay * py >= s.c && s.ht >= minHt && !(skip && skip.has(s))) return s;
       return null;
     };
     let d = STEP, hit = null;
-    for (; d <= maxLen + 1e-9; d += STEP) { hit = test(x + ux * d, y + uy * d); if (hit) break; }
+    for (; d <= maxLen + 1e-9; d += STEP) { hit = test(x + ux * d, y + uy * d, d); if (hit) break; }
     if (!hit) return { x: x + ux * maxLen, y: y + uy * maxLen, dist: maxLen, solid: null, floor: false };
     let lo = d - STEP, hi = d;
-    while (hi - lo > 1) { const m = (lo + hi) / 2; if (test(x + ux * m, y + uy * m)) hi = m; else lo = m; }
+    while (hi - lo > 1) { const m = (lo + hi) / 2; if (test(x + ux * m, y + uy * m, m)) hi = m; else lo = m; }
     return { x: x + ux * hi, y: y + uy * hi, dist: hi, solid: hit.floor ? null : hit, floor: !!hit.floor };
   }
-  // where a beam leaves him: 12 px ahead of his feet along the angle (the painter draws it from the sceptre's stone or his chest)
-  const beamFrom = (f, a) => [f.x + Math.cos(a) * 12, f.y + Math.sin(a) * 12];
+  // (Isaac, 1 November 2026: "any beam coming from him comes out of the head of his staff") every beam leaves the shard in his sceptre's
+  // head in the pose he is drawn in. The spec's tips (king.tips: for each beam pose and facing, the shard's offset from his feet, [across,
+  // up], read off his frames and held to them by tools/test-throne-art.js) put it on the screen; a beam is a ray on the floor at its height
+  // z, so it leaves the floor point the shard stands over at that height: (feet x + across, feet y - (up - z)). Drawn at z, the ray starts
+  // on the shard, and what it hits is what it is seen to cross. His beam pose (spec king.beamPose) by where the aim is on the screen from
+  // his chest: above (High), level, below (Low), steeply below (Down); drawn in three-quarter toward the aim's side (the side he had while
+  // the aim is within keepSide degrees of straight up or down), never from the front: from the front the sceptre levelled at the camera
+  // put its head at his belt, and the beam seemed to come out of his groin
+  function beamPoseOf(f, aim) {
+    const K = f.spec || {}, BP = K.beamPose || {}, ax = aim.x, ay = aim.y - (aim.z || 0), sx = ax - f.x, sy = ay - (f.y - (f.z || 0) - (K.chest || 40)), d = Math.hypot(sx, sy) || 1;
+    const keep = Math.sin((BP.keepSide === undefined ? 10 : BP.keepSide) * RAD), side = Math.abs(sx) / d < keep && (f.beamSide === "left" || f.beamSide === "right") ? f.beamSide : sx >= 0 ? "right" : "left";
+    const e = Math.atan2(sy, Math.abs(sx)) / RAD, pose = e < (BP.high === undefined ? -30 : BP.high) ? "High" : e < (BP.low === undefined ? 25 : BP.low) ? "" : e < (BP.down === undefined ? 60 : BP.down) ? "Low" : "Down";
+    return { side, aim: "aim" + pose, fire: "fire" + pose };
+  }
+  // the shard's offset from his feet for an anim and a facing ([across, up]; the spin's is the front's, "toward")
+  const beamTip = (f, anim, side) => { const T = ((f.spec || {}).tips || {})[anim] || {}; return T[side] || T.toward || [0, (f.spec && f.spec.chest) || 40]; };
+  const beamFrom = (f, tip, z) => [f.x + tip[0], f.y - (tip[1] - (z === undefined ? 16 : z))];
+  // the pose, the floor point under the shard and the beam's angle from it for an aim
+  function beamAim(f, aim, z) { const pose = beamPoseOf(f, aim), from = beamFrom(f, beamTip(f, pose.aim, pose.side), z); return { pose, from, angle: Math.atan2(aim.y - from[1], aim.x - from[0]) }; }
+  // the act's aim taken: its pose, side and start set on the act, his facing and his side kept; the beam's angle
+  function beamAimAct(f, A) { const BA = beamAim(f, A.aim, (A.atk && A.atk.z) || 16); A.pose = BA.pose; A.side = BA.pose.side; A.from = BA.from; f.beamSide = A.side; f.face = Math.atan2(A.aim.y - f.y, A.aim.x - f.x); return BA.angle; }
   const beamAngles = (a, fan) => { if (!fan || fan.n <= 1) return [a]; const out = []; for (let i = 0; i < fan.n; i++) out.push(a + (i - (fan.n - 1) / 2) * fan.spread * RAD); return out; };
   // a beam fires along its lines this step: each line's ray to firstBlock; a standing knight whose centre lies within w / 2 + its r of
   // the segment, past its start and within 12 px of height, is hurt (pushed across the line; a knight just hurt is spared by its 0.5 s);
@@ -3140,7 +3211,7 @@
     const atk = A.atk, P = phys(), from = A.from, z = atk.z || 16, w = (atk.w || 10), angles = A.angles, maxLen = atk.range || o && o.range || 320, lens = [], zr = data().physics.z.melee, src = f.kind + "." + A.kind;
     A.burnt = A.burnt || {};
     for (let i = 0; i < angles.length; i++) {
-      const a = angles[i], B = firstBlock(fight, from[0], from[1], z, a, maxLen, beamBlockHt(fight), w), ux = Math.cos(a), uy = Math.sin(a);
+      const a = angles[i], B = firstBlock(fight, from[0], from[1], z, a, maxLen, beamBlockHt(fight), w, true), ux = Math.cos(a), uy = Math.sin(a);
       lens.push(B.dist);
       for (const k of fight.knights) {
         if (!standing(k) || Math.abs((k.z || 0) - (f.z || 0)) > zr + 1e-9) continue;
@@ -3170,11 +3241,15 @@
   }
   const kingPointOf = (fight, name) => (((fight.area || {}).kingPoints) || {})[name] || null;
   // (section 3.8) the Sunwheel: begun only by Combat.ultimate. The leap to the heart (a crouch of leap.wind, leap.air in the air, the landing
-  // shove), the wind (the beam's line and arc shown, facing the camera), three full turns of the beam from his chest at the speed curve, the
-  // grind (a sheltering column stops the beam, heats grind s and breaks; the throne never), the slow, the kneel at x kneelTaken; immune
-  // throughout but the kneel; then ultDone
+  // shove), the wind (the beam's line and arc shown, facing the camera), three full turns of the beam at the speed curve, the grind (a
+  // sheltering column stops the beam, heats grind s and breaks; the throne never), the slow, the kneel at x kneelTaken; immune throughout
+  // but the kneel; then ultDone. (Isaac, 1 November 2026) the beam turns on the head of his sceptre, held high (the spin's pose): he lands
+  // where that head stands over the heart (sunwheelStand), so the beam pivots over the sun and every shelter of the room is as the note
+  // measured it from the heart
+  const sunwheelStand = (f, atk, KP) => { const tip = beamTip(f, "spin", "toward"), z = atk.z || 16; return [KP[0] - tip[0], KP[1] + (tip[1] - z)]; };
+  const sunwheelFrom = (f, atk) => beamFrom(f, beamTip(f, "spin", "toward"), atk.z || 16);
   function sunwheelStep(fight, f, A, dt) {
-    const atk = A.atk, K = f.spec, S = A.step, KP = kingPointOf(fight, atk.to || "heart");
+    const atk = A.atk, K = f.spec, S = A.step, KP0 = kingPointOf(fight, atk.to || "heart"), KP = KP0 ? sunwheelStand(f, atk, KP0) : null;
     if (S === "begin") {
       const far = KP ? Math.hypot(KP[0] - f.x, KP[1] - f.y) : 0;
       if (KP && far > 4) { A.step = "crouch"; A.t = 0; f.face = Math.PI / 2; emit(fight, { type: "ultStep", foe: f.id, kind: A.kind, step: "crouch" }); return; }
@@ -3193,14 +3268,14 @@
     if (S === "wind") {
       f.face = Math.PI / 2; f.intent = IDLE;
       if (A.t < (atk.wind || 1.8) - 1e-9) return;
-      A.step = "spin"; A.t = 0; A.spinT = 0; A.spun = 0; A.ground = {}; A.grinding = null; A.burnt = {}; A.from = [f.x, f.y]; A.angles = [A.angle];
+      A.step = "spin"; A.t = 0; A.spinT = 0; A.spun = 0; A.ground = {}; A.grinding = null; A.burnt = {}; A.from = sunwheelFrom(f, atk); A.angles = [A.angle];
       A.tel = { kind: "beamLive", from: A.from, angles: A.angles, w: atk.w || 12, lens: [], spin: true, dir: A.dir };
       emit(fight, { type: "ultStep", foe: f.id, kind: A.kind, step: "spin", angle: A.angle, dir: A.dir });
       return;
     }
     if (S === "spin") {
       f.face = Math.PI / 2; f.intent = IDLE;
-      const w = atk.w || 12, z = atk.z || 16, maxLen = 400, B = firstBlock(fight, A.from[0], A.from[1], z, A.angle, maxLen, beamBlockHt(fight), w), sp = atk.speed || [45, 110], ramp = atk.ramp || 2.0;
+      const w = atk.w || 12, z = atk.z || 16, maxLen = 400, B = firstBlock(fight, A.from[0], A.from[1], z, A.angle, maxLen, beamBlockHt(fight), w, true), sp = atk.speed || [45, 110], ramp = atk.ramp || 2.0;
       // the grind: the first solid of a kind that grinds, not yet ground this spin, with a standing knight sheltered behind it: the beam stops
       // on it and heats it; gone from behind it (or broken) the beam goes on
       const sld = B.solid, pk = sld ? propKindOf(fight, sld) : null, canGrind = !!(sld && sld.breakable && !sld.noGrind && !sld.broken && pk && pk.grind && !A.ground[sld.id]);
@@ -3222,10 +3297,10 @@
     if (S === "kneel") { f.intent = IDLE; if (A.t >= A.kneelT - 1e-9) ultEnd(fight, f, A); }
   }
   function sunwheelWind(fight, f, A) {
-    const atk = A.atk, k = nearestKnight(fight, f), a = k ? Math.atan2(k.y - f.y, k.x - f.x) : Math.PI / 2;
-    A.angle = a; A.dir = fight.rng && fight.rng.king ? (fight.rng.king() < 0.5 ? 1 : -1) : 1; A.from = beamFrom(f, Math.PI / 2); A.from = [f.x, f.y];
+    const atk = A.atk, k = nearestKnight(fight, f), from = sunwheelFrom(f, atk), a = k ? Math.atan2(k.y - from[1], k.x - from[0]) : Math.PI / 2;
+    A.angle = a; A.dir = fight.rng && fight.rng.king ? (fight.rng.king() < 0.5 ? 1 : -1) : 1; A.from = from;
     f.face = Math.PI / 2;
-    A.tel = { kind: "spin", x: f.x, y: f.y, angle: a, dir: A.dir, r: (atk.arc || {}).r || 44, span: (atk.arc || {}).span || 120, w: atk.w || 12, grow: atk.wind || 1.8, from: "chest" };
+    A.tel = { kind: "spin", x: f.x, y: f.y, angle: a, dir: A.dir, r: (atk.arc || {}).r || 44, span: (atk.arc || {}).span || 120, w: atk.w || 12, grow: atk.wind || 1.8, from: [from[0], from[1]] };   // (the arc round him; the first line from the sceptre's head)
     emit(fight, { type: "windUp", foe: f.id, kind: f.kind, attack: A.kind, seat: k ? k.seat : null, x: f.x, y: f.y, z: f.z, wind: atk.wind || 1.8, tel: A.tel });
   }
   // the kneel after an ultimate: no longer immune, x taken, nothing of his own; the brain waits (the act holds him)
@@ -3407,7 +3482,7 @@
     if (!need) return true;
     const dd = Math.hypot(k.x - f.x, k.y - f.y), a = Math.atan2(k.y - f.y, k.x - f.x);
     if (need === "wayClear") return dd > f.r + k.r + 4 && wayClear(fight, f, Math.cos(a), Math.sin(a), Math.max(0, dd - f.r - k.r));
-    if (need === "lineClear") { const from = beamFrom(f, a), B = firstBlock(fight, from[0], from[1], 16, a, dd, beamBlockHt(fight)); return B.dist >= dd - k.r - 1; }
+    if (need === "lineClear") { const BA = beamAim(f, { x: k.x, y: k.y, z: (k.z || 0) + (k.chest !== undefined ? k.chest : data().knight.chest) }, 16), from = BA.from, d2 = Math.hypot(k.x - from[0], k.y - from[1]), B = firstBlock(fight, from[0], from[1], 16, BA.angle, d2, beamBlockHt(fight), 0, true); return B.dist >= d2 - k.r - 1; }   // (Isaac, 1 November 2026: from the sceptre's head)
     return true;
   }
   // the high ground (revision 1, section 3.6): between combos he walks to the point approach.above px above his target, on free floor
@@ -4106,7 +4181,7 @@
   }
 
   root.Combat = { abilityUnits, abilities, units, unitsFor, newFight, step, hold, tip, aim, animOf, weaponPose, facingOf, hitPoint, reachOf, setHand, addHand, reset, affinity, railAhead, use, rng, flyTo, clearStatuses,
-    firstBlock, ultimate, empower, crackProp, breakProp, snapshotProps, restoreProps, atkOf, FAMILY, wayClear, inAttackBox,
+    firstBlock, ultimate, empower, crackProp, breakProp, snapshotProps, restoreProps, atkOf, FAMILY, wayClear, inAttackBox, beamAim, beamPoseOf, beamTip, sunwheelStand, behindStep,
     hurt, afflict, waveStart, returnKnights, healKnight, FACINGS, NUMBERS,
     spawn, die, place, setView, targets, bodies, inView, canHit, reaches, foeShot, foeBurst, takeRam, putRam, remains, breakPiece, damage, trollKind, drawnAt, regrowing: knightRegrowing, foeRegrowing: regrowing, resetRam,
     swingOf, setOf, combosOn,   // design pass 20: the melee combos

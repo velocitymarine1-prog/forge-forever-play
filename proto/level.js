@@ -887,6 +887,12 @@
   // goes, doorsOpen); its feet crossing its line toward the room it leads to switch the room with no teleport (passage) and start the
   // intro, or, cines off, the wave's own delay. The camera's y range is freed across both rooms from the doors' opening to the intro's
   // end, so the camera never snaps between them
+  // (Isaac, 1 November 2026) doors.transport: the doorway is a portal, never walked up. The leaves' solid stays until the doors stand fully
+  // open (doors.open s), so no knight climbs the door's face while they swing; then the lead's body touching the portal's light at all
+  // (its box, transport.body [half width, height], over transport.portal) takes the party in: the light floods the screen for half of
+  // transport.fade (the cine portal, its input locked), every knight is put at its arrival inside the room (transport.arrive by seat),
+  // the room switches and the camera snaps to it, the intro begins (its enter walks them on to their landings), and the light lifts.
+  // With the cines off (the sims) the party goes through at once. The camera stays in the gallery's own band while the doors open
   function seamStep(fight, D) {
     const A = fight.area, P = PH(), W = fight.world;
     if (fight.wipe || D.cine) return;
@@ -895,29 +901,58 @@
       const S = D.seams[PS.id] || (D.seams[PS.id] = { open: false, crossed: false, openAt: null });
       if (S.crossed) continue;
       const L = leadOf(fight); if (!L) continue;
-      const DR = PS.doors || {};
+      const DR = PS.doors || {}, TR = DR.transport || null;
       if (!S.open && (DR.opensOn || "zone") === "zone" && inZone(PS.zone, L)) {
         S.open = true; S.openAt = fight.t;
-        const to = (A.rooms || []).find(r => r.id === PS.to), from = roomOf(fight);
-        D.camFree = true; D.camFreeY = [Math.min(to && to.camY ? to.camY[0] : 0, from && from.camY ? from.camY[0] : 0), Math.max(to && to.camY ? to.camY[1] : 0, from && from.camY ? from.camY[1] : 0)];
-        const s = doorSolidOf(fight, DR.leaves); if (s && !s.gone) P.removeSolid(W, s);
-        CB().fieldsReady(fight, true);
+        if (!TR) {
+          const to = (A.rooms || []).find(r => r.id === PS.to), from = roomOf(fight);
+          D.camFree = true; D.camFreeY = [Math.min(to && to.camY ? to.camY[0] : 0, from && from.camY ? from.camY[0] : 0), Math.max(to && to.camY ? to.camY[1] : 0, from && from.camY ? from.camY[1] : 0)];
+          const s = doorSolidOf(fight, DR.leaves); if (s && !s.gone) P.removeSolid(W, s);
+          CB().fieldsReady(fight, true);
+        }
         emit(fight, { type: "doorsOpen", id: PS.id, time: DR.open || 0.8, x: DR.leaves ? (DR.leaves[0] + DR.leaves[2]) / 2 : L.x, y: DR.leaves ? DR.leaves[3] : L.y });
       }
       if (!S.open) continue;
+      if (TR) {
+        if (fight.t - S.openAt < (DR.open || 0.8) - 1e-9) continue;   // still swinging: the leaves stand
+        if (!S.wide) { S.wide = true; const s = doorSolidOf(fight, DR.leaves); if (s && !s.gone) { P.removeSolid(W, s); CB().fieldsReady(fight, true); } }
+        if (touchesPortal(L, TR)) { S.crossed = true; portalIn(fight, D, PS, L); }
+        continue;
+      }
       const up = !PS.dir || PS.dir[0] === "up", across = up ? L.y <= PS.line + 1e-9 : L.y >= PS.line - 1e-9;
       if (across && L.x >= PS.zone.x[0] - L.r && L.x <= PS.zone.x[1] + L.r) { S.crossed = true; seamCross(fight, D, PS); }
     }
   }
-  function seamCross(fight, D, PS) {
+  // a knight's body on the screen (transport.body: [half width, height] over its feet) overlapping the portal's light
+  function touchesPortal(k, TR) {
+    const R = TR.portal; if (!R) return false;
+    const B = TR.body || [6, 26], fy = k.y - (k.z || 0);
+    return k.x + B[0] >= R[0] && k.x - B[0] <= R[2] && fy >= R[1] && fy - B[1] <= R[3];
+  }
+  function portalIn(fight, D, PS, L) {
+    const TR = PS.doors.transport, fade = D.opts.cine === false ? 0 : (TR.fade === undefined ? 0.4 : TR.fade);
+    for (const k of fight.knights) k.cineWalk = null;
+    emit(fight, { type: "portal", id: PS.id, fade, x: L.x, y: L.y, z: L.z || 0 });
+    if (fade <= 0) { transport(fight, D, PS); return; }
+    D.cine = fight.cine = { kind: "portal", step: "in", t: 0, lock: true, passage: PS, half: fade / 2 };
+  }
+  function portalStep(fight, D, dt) { const CN = D.cine; CN.t += dt; if (CN.t >= CN.half - 1e-9) { D.cine = fight.cine = null; transport(fight, D, CN.passage); } }
+  // every knight at its arrival inside the room, facing in (a downed one lies there), then the seam's crossing with the camera snapped
+  function transport(fight, D, PS) {
+    const C = CB(), TR = PS.doors.transport, AR = TR.arrive || PS.land || [];
+    for (const k of fight.knights) { if (k.out) continue; const at = AR[k.seat] || AR[0]; if (!at) continue; C.place(fight, k, at[0], at[1]); C.clearSeat(fight, k); k.face = TR.face === undefined ? -Math.PI / 2 : TR.face; k.cineWalk = null; }
+    seamCross(fight, D, PS, true);
+  }
+  function seamCross(fight, D, PS, moved) {
     for (const q of D.pouches.slice()) take(fight, D, q);
     fight.level.room = PS.to;
     fight.level.rally = fight.knights.map(k => landOf(PS, k).slice(0, 2));
     limits(fight, D); fight.level.passage = null;
-    emit(fight, { type: "passage", id: PS.id, from: PS.from, to: PS.to, seam: true });
+    if (moved) { D.camFree = false; D.camFreeY = null; D.cam.xf = clamp(D.cam.xf, D.cam.left, D.cam.right); snap(fight); }   // (transported: the camera is the room's at once)
+    emit(fight, Object.assign({ type: "passage", id: PS.id, from: PS.from, to: PS.to, seam: true }, moved ? { transport: true } : {}));
     setArena(fight, D, null); if (D.arenas[D.ai]) setGoal(fight, D, D.arenas[D.ai]);
     const I = fight.area.intro;
-    if (I && I.at === PS.id && D.opts.cine !== false) startIntro(fight, D, PS);
+    if (I && I.at === PS.id && D.opts.cine !== false) { startIntro(fight, D, PS); if (moved) { D.camFree = false; D.camFreeY = null; D.cine.transported = true; } }
     else { D.landed = { at: D.t, passage: PS }; D.camFree = false; }
   }
   // the doors shut behind the party (doors.shutOn waveLive): the shut rect's solid stands again, a boom
@@ -984,7 +1019,7 @@
     if (CN.step === "enter") {
       const EN = I.enter || {}, via = EN.via || PS.via;
       walkKnights(fight, PS, via);
-      if (CN.t >= (EN.time || 1.2) - 1e-9) { CN.panFrom = [D.cam.xf, D.cam.yf]; go("pan"); }
+      if (CN.t >= (CN.transported && EN.afterPortal !== undefined ? EN.afterPortal : (EN.time || 1.2)) - 1e-9) { CN.panFrom = [D.cam.xf, D.cam.yf]; go("pan"); }   // (through the portal the walk in is short: enter.afterPortal)
       return;
     }
     if (CN.step === "pan") {
@@ -1037,6 +1072,7 @@
     if (CN.kind === "intro") introStep(fight, D, dt, input);
     else if (CN.kind === "end") endStep(fight, D, dt, input);
     else if (CN.kind === "ember") emberStep(fight, D, dt, input);
+    else if (CN.kind === "portal") portalStep(fight, D, dt);   // (Isaac, 1 November 2026) the light of the great doors' portal
   }
   // the camera on a cine's path (whole pixels, eased; opts.still: every pan a cut): enter keeps the room's own rule (the y range freed);
   // pan eases from where the camera was to the intro's point; talk, rise and roar hold; leap eases back onto the knights from the leap's
@@ -1145,12 +1181,25 @@
     emit(fight, { type: "emberTake", seat: k.seat, x: EB.x, y: EB.y });
     emit(fight, { type: "cine", kind: "ember", step: "take" });
   }
+  // (Isaac, 1 November 2026: "after ... the player picks it up, the Ember kind of circles around the player a little bit, and then the beam
+  // of light comes out") end.cine.orbit: picked up, the Ember leaves the knight's hand and circles it, laps times in time s, on an ellipse
+  // of r px across (squash of it in depth) rising from z[0] to z[1], out from the hand and back into it at the end, where the light rises
+  // from; CN.orb is where it is ({ x, y, z, front }: front, on the near side of the knight), drawn by the Throne's art
+  function orbitAt(k, OR, t) {
+    const T = OR.time || 2.2, q = clamp(t / T, 0, 1), F = OR.from || [2, 0], Z = OR.z || [10, 34], laps = OR.laps === undefined ? 2 : OR.laps, dir = OR.dir || 1;
+    const out = Math.min(1, q / 0.12) * (q > 0.82 ? Math.max(0, (1 - q) / 0.18) : 1), r = (OR.r || 16) * out, a = -Math.PI / 2 + dir * laps * 2 * Math.PI * (q * (1.25 - 0.25 * q));
+    const x = k.x + F[0] + Math.cos(a) * r, dy = Math.sin(a) * r * (OR.squash === undefined ? 0.4 : OR.squash);
+    return { x, y: k.y + F[1] + dy, z: Z[0] + (Z[1] - Z[0]) * (q * q * (3 - 2 * q)), front: dy > 0, q };
+  }
   function emberStep(fight, D, dt, input) {
-    const CN = D.cine, A = fight.area, EC = (A.end || {}).cine || {}, TK = EC.take || {}, LT = EC.light || {}, WK = EC.wake || {}, k = fight.knights[CN.seat] || fight.k;
+    const CN = D.cine, A = fight.area, EC = (A.end || {}).cine || {}, TK = EC.take || {}, OR = EC.orbit || null, LT = EC.light || {}, WK = EC.wake || {}, k = fight.knights[CN.seat] || fight.k;
     CN.t += dt; CN.tAll += dt;
     const go = step => { CN.step = step; CN.t = 0; emit(fight, { type: "cine", kind: "ember", step }); if (step === "box" && !CN.boxShown) { CN.boxShown = true; emit(fight, { type: "emberBox", seat: CN.seat }); } };
-    if (CN.step !== "box" && pressed(input, "skipCine", D, "skipWas") && CN.tAll >= (EC.skipAfter === undefined ? 1.4 : EC.skipAfter) - 1e-9) { emit(fight, { type: "cineSkip", kind: "ember" }); CN.pose = "rise"; go("box"); }
-    if (CN.step === "take") { const T1 = (TK.pan || 0.6) + (TK.kneel || 0.6); CN.pose = CN.tAll < T1 ? "down" : "rise"; if (CN.tAll >= T1 + (TK.hold || 0.8) - 1e-9) go("light"); return; }
+    if (CN.step !== "box" && pressed(input, "skipCine", D, "skipWas") && CN.tAll >= (EC.skipAfter === undefined ? 1.4 : EC.skipAfter) - 1e-9) { emit(fight, { type: "cineSkip", kind: "ember" }); CN.pose = "rise"; CN.orb = null; go("box"); }
+    if (CN.step === "take") { const T1 = (TK.pan || 0.6) + (TK.kneel || 0.6); CN.pose = CN.tAll < T1 ? "down" : "rise";
+      if (OR) { if (CN.tAll >= T1 - 1e-9) { go("orbit"); CN.orb = orbitAt(k, OR, 0); } return; }
+      if (CN.tAll >= T1 + (TK.hold || 0.8) - 1e-9) go("light"); return; }
+    if (CN.step === "orbit") { CN.pose = "rise"; CN.orb = orbitAt(k, OR, CN.t); if (CN.t >= (OR.time || 2.2) - 1e-9) { CN.orb = null; go("light"); } return; }
     if (CN.step === "light") { if (CN.tAll >= (LT.until || 3.6) - 1e-9) { go("wake"); CN.wakeAt = CN.tAll; } return; }
     if (CN.step === "wake") { emit(fight, { type: "wake", x: k.x, y: k.y, r: Math.max(0, (CN.tAll - (CN.wakeAt || 0)) * (WK.front || 220)) }); if (CN.tAll >= (WK.until || 7.2) - 1e-9) { go("lines"); nextEmberLine(fight, D); } return; }
     if (CN.step === "lines") { if (pressed(input, "next", D, "nextWas")) { if (CN.line + 1 < CN.lines) nextEmberLine(fight, D); else go("box"); } return; }
@@ -1731,6 +1780,6 @@
     const v = CB().setView(fight, Math.round(D.cam.xf), Math.round(D.cam.yf)); freeBox(fight, D); return v;
   }
 
-  root.Level = { attach, scaling, counts, split, edgeMarks, onEdge, guide, jump, snap, roomAt };
+  root.Level = { attach, scaling, counts, split, edgeMarks, onEdge, guide, jump, snap, roomAt, orbitAt };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Level;
 })(typeof window !== "undefined" ? window : globalThis);
